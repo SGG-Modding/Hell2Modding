@@ -62,8 +62,8 @@ jobs:
         with:
           name: binary
           path: |
-            build/version.dll
-            build/version.pdb
+            build/d3d12.dll
+            build/d3d12.pdb
           
       - name: Generate Build Info
         id: var
@@ -101,7 +101,7 @@ jobs:
       - name: Echo build sha256
         id: build_sha
         run: |
-          sha256sum version.dll > sha256.checksum
+          sha256sum d3d12.dll > sha256.checksum
           echo "build_sha=$(cat sha256.checksum)" >> $GITHUB_OUTPUT
           cat sha256.checksum
 
@@ -133,7 +133,7 @@ jobs:
             ${{ needs.build_nightly.outputs.full_sha }}
             ```
           files: |
-            version.dll
+            d3d12.dll
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v3
@@ -151,15 +151,15 @@ jobs:
           mod_name="Hell2Modding"
 
           # Get latest version number from thunderstore
-          version_number=$(curl --compressed -s "https://thunderstore.io/c/risk-of-rain-returns/api/v1/package/" | jq --arg package_name "$namespace-$mod_name" '.[]? | select(.full_name|startswith($package_name)) | .versions[0]?.version_number' || true)
+          #version_number=$(curl --compressed -s "https://thunderstore.io/c/risk-of-rain-returns/api/v1/package/" | jq --arg package_name "$namespace-$mod_name" '.[]? | select(.full_name|startswith($package_name)) | .versions[0]?.version_number' || true)
 
           # Remove quotes from output
-          version_number=$(echo "$version_number" | tr -d '"')
+          #version_number=$(echo "$version_number" | tr -d '"')
 
           # Increment the patch version number
-          version_number=$(echo $version_number | awk -F. -v OFS=. 'NF==1{print ++$NF}; NF>1{$NF=sprintf("%0*d", length($NF), ($NF+1)); print}')
+          #version_number=$(echo $version_number | awk -F. -v OFS=. 'NF==1{print ++$NF}; NF>1{$NF=sprintf("%0*d", length($NF), ($NF+1)); print}')
 
-          cd thunderstore
-          sed -i 's/versionNumber = ".*"/versionNumber = "'"$version_number"'"/' thunderstore.toml
+          #cd thunderstore
+          #sed -i 's/versionNumber = ".*"/versionNumber = "'"$version_number"'"/' thunderstore.toml
           
-          tcli publish --token ${{ secrets.TCLI_AUTH_TOKEN }}
+          #tcli publish --token ${{ secrets.TCLI_AUTH_TOKEN }}
