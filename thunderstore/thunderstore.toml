@@ -1,0 +1,27 @@
+
+[config]
+schemaVersion = "0.0.1"
+
+[package]
+namespace = "Hell2Modding"
+name = "Hell2Modding"
+versionNumber = "1.0.0"
+description = "Lua Mod Loader for Hades 2"
+websiteUrl = "https://github.com/return-of-modding/Hell2Modding/"
+containsNsfwContent = false
+
+[package.dependencies]
+
+[build]
+icon = "./icon.png"
+readme = "../README.md"
+outdir = "./build"
+
+[[build.copy]]
+source = "../d3d12.dll"
+target = "./Hell2ModdingPack/d3d12.dll"
+
+[publish]
+repository = "https://thunderstore.io"
+communities = ["hades2"]
+categories = ["libraries"]

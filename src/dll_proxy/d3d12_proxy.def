@@ -1,0 +1,20 @@
+LIBRARY D3D12
+EXPORTS
+	GetBehaviorValue=fGetBehaviorValue @100
+	D3D12CreateDevice=fD3D12CreateDevice @101
+	D3D12GetDebugInterface=fD3D12GetDebugInterface @102
+	SetAppCompatStringPointer=fSetAppCompatStringPointer @103
+	D3D12CoreCreateLayeredDevice=fD3D12CoreCreateLayeredDevice @104
+	D3D12CoreGetLayeredDeviceSize=fD3D12CoreGetLayeredDeviceSize @105
+	D3D12CoreRegisterLayers=fD3D12CoreRegisterLayers @106
+	D3D12CreateRootSignatureDeserializer=fD3D12CreateRootSignatureDeserializer @107
+	D3D12CreateVersionedRootSignatureDeserializer=fD3D12CreateVersionedRootSignatureDeserializer @108
+	D3D12DeviceRemovedExtendedData=fD3D12DeviceRemovedExtendedData @109
+	D3D12EnableExperimentalFeatures=fD3D12EnableExperimentalFeatures @110
+	D3D12GetInterface=fD3D12GetInterface @111
+	D3D12PIXEventsReplaceBlock=fD3D12PIXEventsReplaceBlock @112
+	D3D12PIXGetThreadInfo=fD3D12PIXGetThreadInfo @113
+	D3D12PIXNotifyWakeFromFenceSignal=fD3D12PIXNotifyWakeFromFenceSignal @114
+	D3D12PIXReportCounter=fD3D12PIXReportCounter @115
+	D3D12SerializeRootSignature=fD3D12SerializeRootSignature @116
+	D3D12SerializeVersionedRootSignature=fD3D12SerializeVersionedRootSignature @117
