@@ -343,7 +343,7 @@ namespace big
 
 	static std::recursive_mutex g_imgui_draw_data_mutex;
 
-	static void hook_sgg_scriptmanager_update_for_imgui_callbacks(float a)
+	static void render_imgui_frame()
 	{
 		if (ImGui::GetCurrentContext() && gPd3DCommandQueue && gMainRenderTargetResource[0])
 		{
@@ -366,6 +366,11 @@ namespace big
 
 			g_imgui_draw_data_mutex.unlock();
 		}
+	}
+
+	static void hook_sgg_scriptmanager_update_for_imgui_callbacks(float a)
+	{
+		render_imgui_frame();
 
 		big::hooking::get_original<hook_sgg_scriptmanager_update_for_imgui_callbacks>()(a);
 	}

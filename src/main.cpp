@@ -27,10 +27,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 	if (reason == DLL_PROCESS_ATTACH)
 	{
-		/*while (!IsDebuggerPresent())
+		//while (!IsDebuggerPresent())
 		{
-			Sleep(1000);
-		}*/
+			//Sleep(1000);
+		}
 
 		// Purposely leak it, we are not unloading this module in any case.
 		auto exception_handling = new exception_handler();
