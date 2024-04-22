@@ -48,6 +48,11 @@ namespace memory
 		return m_size;
 	}
 
+	DWORD module::timestamp() const
+	{
+		return m_timestamp;
+	}
+
 	bool module::wait_for_module(std::optional<std::chrono::high_resolution_clock::duration> time)
 	{
 		using namespace std::chrono_literals;
@@ -83,7 +88,8 @@ namespace memory
 		const auto dosHeader = m_base.as<IMAGE_DOS_HEADER*>();
 		const auto ntHeader  = m_base.add(dosHeader->e_lfanew).as<IMAGE_NT_HEADERS*>();
 
-		m_size = ntHeader->OptionalHeader.SizeOfImage;
+		m_size      = ntHeader->OptionalHeader.SizeOfImage;
+		m_timestamp = ntHeader->FileHeader.TimeDateStamp;
 
 		return m_loaded;
 	}

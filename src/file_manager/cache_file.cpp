@@ -10,7 +10,7 @@ namespace big
 	{
 	}
 
-	cache_file::cache_file(file cache_file, uint32_t cache_version) :
+	cache_file::cache_file(file cache_file, uint64_t cache_version) :
 	    m_cache_file(cache_file),
 	    m_data(nullptr),
 	    m_cache_version(cache_version),
@@ -71,7 +71,7 @@ namespace big
 		return m_cache_header.m_data_size;
 	}
 
-	bool cache_file::up_to_date(uint32_t file_version) const
+	bool cache_file::up_to_date(uint64_t file_version) const
 	{
 		if (!m_data)
 		{
@@ -87,13 +87,13 @@ namespace big
 		m_cache_header.m_data_size = data_size;
 	}
 
-	void cache_file::set_header_version(uint32_t file_version)
+	void cache_file::set_header_version(uint64_t file_version)
 	{
 		m_cache_header.m_cache_version = m_cache_version;
 		m_cache_header.m_file_version  = file_version;
 	}
 
-	void cache_file::set_cache_version(uint32_t cache_version)
+	void cache_file::set_cache_version(uint64_t cache_version)
 	{
 		m_cache_version = cache_version;
 	}
