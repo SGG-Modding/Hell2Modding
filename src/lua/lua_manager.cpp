@@ -427,6 +427,15 @@ namespace big
 		lua_CFunction traceback_function = sol::c_call<decltype(&traceback_error_handler), &traceback_error_handler>;
 		sol::protected_function::set_default_handler(sol::object(m_state.lua_state(), sol::in_place, traceback_function));
 
+		// clang-format off
+		m_state.open_libraries(
+			sol::lib::package,
+		    sol::lib::os,
+			sol::lib::debug,
+			sol::lib::io
+		);
+		// clang-format on
+
 		init_lua_api();
 	}
 
