@@ -14,7 +14,7 @@ endif()
 
 FetchContent_Declare(lua_shared
     GIT_REPOSITORY https://github.com/lua/lua.git
-    GIT_TAG        2ca518141350667e38941eac35b76980095d2fdc # v5.2.2
+    GIT_TAG        c8e96d6e91dc2e3d5b175cc4cd811398ab35c82d # v5.2.2
 )
 FetchContent_GetProperties(lua_shared)
 FetchContent_Populate(lua_shared)
