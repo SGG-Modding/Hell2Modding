@@ -79,7 +79,7 @@ namespace big
 		std::scoped_lock l(g_lua_manager_mutex);
 
 		g_is_lua_state_valid = false;
-		g_lua_imgui_callbacks.clear();
+		g_lua_modules.clear();
 		g_lua_state_view.reset();
 		LOG(FATAL) << "state is no longer valid!";
 	}
@@ -108,7 +108,13 @@ namespace big
 		g_table.create_named("gui").set_function("add_imgui",
 		                                         [](sol::protected_function cb)
 		                                         {
-			                                         g_lua_imgui_callbacks.push_back(cb);
+			                                         for (auto& lua_mod : g_lua_modules)
+			                                         {
+				                                         if (lua_mod.m_file_entry == g_lua_current_guid)
+				                                         {
+					                                         lua_mod.m_imgui_callbacks.push_back(cb);
+				                                         }
+			                                         }
 		                                         });
 		lua::imgui::bind(g_table);
 		//lua::log::bind(g_table);
@@ -121,12 +127,16 @@ namespace big
 				continue;
 			}
 
+			g_lua_modules.push_back({.m_file_entry = entry, .m_imgui_callbacks = {}});
+			g_lua_current_guid = entry;
 			auto result = g_lua_state_view->safe_script_file((char*)entry.path().u8string().c_str(), &sol::script_pass_on_error, sol::load_mode::text);
 
 			if (!result.valid())
 			{
 				LOG(FATAL) << (char*)entry.path().u8string().c_str() << " failed to load: " << result.get<sol::error>().what();
 				Logger::FlushQueue();
+
+				g_lua_modules.pop_back();
 			}
 		}
 

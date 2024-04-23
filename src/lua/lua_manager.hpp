@@ -79,7 +79,15 @@ namespace big
 	};
 
 	inline std::recursive_mutex g_lua_manager_mutex;
+
+	struct lua_module_info
+	{
+		std::filesystem::directory_entry m_file_entry;
+		std::vector<sol::protected_function> m_imgui_callbacks;
+	};
+
+	inline std::filesystem::directory_entry g_lua_current_guid;
 	inline bool g_is_lua_state_valid = false;
-	inline std::vector<sol::protected_function> g_lua_imgui_callbacks;
+	inline std::vector<lua_module_info> g_lua_modules;
 	inline lua_manager* g_lua_manager;
 } // namespace big
