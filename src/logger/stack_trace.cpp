@@ -142,7 +142,7 @@ namespace big
 			{
 				if (SymGetLineFromAddr64(GetCurrentProcess(), addr, &displacement, &line))
 				{
-					m_dump << line.FileName << " L: " << line.LineNumber << " " << std::string_view(symbol->Name, symbol->NameLen);
+					m_dump << line.FileName << ":" << line.LineNumber << " " << std::string_view(symbol->Name, symbol->NameLen);
 				}
 				else
 				{
