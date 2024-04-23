@@ -5,6 +5,11 @@
 
 namespace lua::imgui
 {
+	inline bool Begin(const std::string& name)
+	{
+		return ImGui::Begin(name.c_str());
+	}
+
 	// Windows
 	inline bool Begin(const std::string& name, sol::this_environment env)
 	{
@@ -48,6 +53,11 @@ namespace lua::imgui
 		}
 
 		return false;
+	}
+
+	inline bool Begin(const std::string& name, int flags)
+	{
+		return ImGui::Begin(name.c_str(), nullptr, flags);
 	}
 
 	inline bool Begin(const std::string& name, int flags, sol::this_environment env)
@@ -99,6 +109,16 @@ namespace lua::imgui
 		return false;
 	}
 
+	inline std::tuple<bool, bool> Begin(const std::string& name, bool open)
+	{
+		if (!open)
+		{
+			return std::make_tuple(false, false);
+		}
+		const bool shouldDraw = ImGui::Begin(name.c_str(), &open);
+		return std::make_tuple(open, open && shouldDraw);
+	}
+
 	inline std::tuple<bool, bool> Begin(const std::string& name, bool open, sol::this_environment env)
 	{
 		if (!open)
@@ -106,6 +126,16 @@ namespace lua::imgui
 			return std::make_tuple(false, false);
 		}
 		const bool shouldDraw = ImGui::Begin(name.c_str(), &open);
+		return std::make_tuple(open, open && shouldDraw);
+	}
+
+	inline std::tuple<bool, bool> Begin(const std::string& name, bool open, int flags)
+	{
+		if (!open)
+		{
+			return std::make_tuple(false, false);
+		}
+		const bool shouldDraw = ImGui::Begin(name.c_str(), &open, flags);
 		return std::make_tuple(open, open && shouldDraw);
 	}
 
@@ -3813,15 +3843,16 @@ namespace lua::imgui
 
 	inline void bind(sol::table& state)
 	{
-		InitUserType(state);
-		InitEnums(state);
+		//InitUserType(state);
+		//InitEnums(state);
 
 
 		sol::table ImGui = state.create_named("ImGui");
 
 #pragma region Windows
 		ImGui.set_function("ShowDemoWindow", ShowDemoWindow);
-		ImGui.set_function("Begin", sol::overload(sol::resolve<bool(const std::string&, sol::this_environment)>(Begin), sol::resolve<bool(const std::string&, int, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, int, sol::this_environment)>(Begin)));
+		//ImGui.set_function("Begin", sol::overload(sol::resolve<bool(const std::string&, sol::this_environment)>(Begin), sol::resolve<bool(const std::string&, int, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, int, sol::this_environment)>(Begin)));
+		ImGui.set_function("Begin", sol::overload(sol::resolve<bool(const std::string&)>(Begin), sol::resolve<bool(const std::string&, int)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, int)>(Begin)));
 		ImGui.set_function("End", End);
 #pragma endregion Windows
 

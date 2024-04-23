@@ -11,10 +11,10 @@ namespace big
 	{
 	private:
 		sol::state_view m_state;
-		sol::protected_function m_loadfile;
+		//sol::protected_function m_loadfile;
 
 		std::recursive_mutex m_module_lock;
-		std::vector<std::shared_ptr<lua_module>> m_modules;
+		std::vector<std::unique_ptr<lua_module>> m_modules;
 
 		folder m_config_folder;
 		folder m_plugins_data_folder;
@@ -23,7 +23,7 @@ namespace big
 		bool m_is_all_mods_loaded{};
 
 	public:
-		static constexpr auto lua_ext_namespace = "LuaExt";
+		static constexpr auto lua_ext_namespace = "LuaExt2";
 
 		lua_manager(lua_State* game_lua_state, folder config_folder, folder plugins_data_folder, folder plugins_folder);
 		~lua_manager();
@@ -63,7 +63,6 @@ namespace big
 		void draw_independent_gui();
 
 		bool module_exists(const std::string& module_guid);
-		std::weak_ptr<lua_module> get_module(const std::string& module_guid);
 
 		void unload_module(const std::string& module_guid);
 		load_module_result load_module(const module_info& module_info, bool ignore_failed_to_load = false);
@@ -79,5 +78,8 @@ namespace big
 		}
 	};
 
+	inline std::recursive_mutex g_lua_manager_mutex;
+	inline bool g_is_lua_state_valid = false;
+	inline std::vector<sol::protected_function> g_lua_imgui_callbacks;
 	inline lua_manager* g_lua_manager;
 } // namespace big

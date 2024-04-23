@@ -120,6 +120,23 @@ namespace big
 
 	void gui::dx_on_tick()
 	{
+		std::scoped_lock l(big::g_lua_manager_mutex);
+		if (g_is_lua_state_valid)
+		{
+			sol::state_view lua(*g_pointers->m_hades2.m_lua_state);
+
+			for (const auto& f : g_lua_imgui_callbacks)
+			{
+				auto res = f();
+				if (!res.valid())
+				{
+					LOG(FATAL) << "Failed executing imgui callback: ";
+				}
+			}
+		}
+
+		return;
+
 		if (!g_lua_manager)
 		{
 			return;

@@ -186,9 +186,19 @@ namespace big
 
 	lua_manager::~lua_manager()
 	{
+		LOG(WARNING) << "killin lua_mgr";
+
 		lua::window::serialize();
 
 		unload_all_modules();
+
+		sol::table xd     = m_state.globals();
+		xd["gui"]         = sol::lua_nil;
+		xd["ImGui"]       = sol::lua_nil;
+		xd["ImGuiKey"]    = sol::lua_nil;
+		xd["ImGuiKeyMod"] = sol::lua_nil;
+
+		m_state.collect_garbage();
 
 		g_lua_manager = nullptr;
 	}
@@ -230,7 +240,7 @@ namespace big
 		// When this function exits, Lua will exhibit default behavior and abort()
 	}
 
-	void lua_manager::set_folder_for_lua_require()
+	/*void lua_manager::set_folder_for_lua_require()
 	{
 		std::string plugins_search_path = m_plugins_folder.get_path().string() + "/?.lua;";
 
@@ -260,9 +270,9 @@ namespace big
 		sandbox_os["time"]     = os["time"];
 
 		m_state["os"] = sandbox_os;
-	}
+	}*/
 
-	template<size_t N>
+	/*template<size_t N>
 	static constexpr auto not_supported_lua_function(const char (&function_name)[N])
 	{
 		return [function_name](sol::this_environment env, sol::variadic_args args)
@@ -352,10 +362,10 @@ namespace big
 						if (!required_module_cache.contains(full_path))
 						{
 							auto fresh_result = m_loadfile(full_path);
-							if (!fresh_result.valid() || fresh_result.get_type() == sol::type::nil /*LuaJIT*/)
+							if (!fresh_result.valid() || fresh_result.get_type() == sol::type::nil)
 							{
 								const auto error_msg =
-								    !fresh_result.valid() ? fresh_result.get<sol::error>().what() : fresh_result.get<const char*>(1) /*LuaJIT*/;
+								    !fresh_result.valid() ? fresh_result.get<sol::error>().what() : fresh_result.get<const char*>(1);
 
 								LOG(FATAL) << "Failed require: " << error_msg;
 								Logger::FlushQueue();
@@ -400,7 +410,7 @@ namespace big
 		};
 
 		set_folder_for_lua_require();
-	}
+	}*/
 
 	static int traceback_error_handler(lua_State* L)
 	{
@@ -424,26 +434,40 @@ namespace big
 
 	void lua_manager::init_lua_state()
 	{
-		m_state.set_exception_handler(exception_handler);
+		/*m_state.set_exception_handler(exception_handler);
 		m_state.set_panic(sol::c_call<decltype(&panic_handler), &panic_handler>);
 		lua_CFunction traceback_function = sol::c_call<decltype(&traceback_error_handler), &traceback_error_handler>;
-		sol::protected_function::set_default_handler(sol::object(m_state.lua_state(), sol::in_place, traceback_function));
+		sol::protected_function::set_default_handler(sol::object(m_state.lua_state(), sol::in_place, traceback_function));*/
 
 		// clang-format off
-		m_state.open_libraries(
+		/*m_state.open_libraries(
 			sol::lib::package,
 		    sol::lib::os,
 			sol::lib::debug,
 			sol::lib::io
-		);
+		);*/
 		// clang-format on
+
+		/*m_state.open_libraries(
+			sol::lib::base,
+			sol::lib::package,
+			sol::lib::coroutine,
+			sol::lib::string,
+		    sol::lib::os,
+		    sol::lib::math,
+		    sol::lib::table,
+			sol::lib::debug,
+			sol::lib::bit32,
+			sol::lib::io,
+			sol::lib::utf8
+		);*/
 
 		init_lua_api();
 	}
 
 	void lua_manager::init_lua_api()
 	{
-		sol::table lua_ext = m_state.create_named_table(lua_ext_namespace);
+		/*sol::table lua_ext = m_state.create_named_table(lua_ext_namespace);
 		sol::table mods    = lua_ext.create_named("mods");
 		// Lua API: Function
 		// Table: mods
@@ -457,16 +481,20 @@ namespace big
 			{
 				mdl->m_data.m_on_all_mods_loaded_callbacks.push_back(cb);
 			}
-		};
+		};*/
+
+		sol::table xd = m_state.globals();
+		lua::gui::bind(xd);
+		lua::imgui::bind(xd);
 
 		// Let's keep that list sorted the same as the solution file explorer
-		lua::toml_lua::bind(lua_ext);
+		/*lua::toml_lua::bind(lua_ext);
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
 		lua::log::bind(m_state, lua_ext);
 		lua::memory::bind(lua_ext);
 		lua::path::bind(lua_ext);
-		lua::paths::bind(lua_ext);
+		lua::paths::bind(lua_ext);*/
 	}
 
 	static void imgui_text(const char* fmt, const std::string& str)
@@ -567,19 +595,23 @@ namespace big
 			}
 		}
 
-		const auto module      = std::make_shared<lua_module>(module_info, m_state);
-		const auto load_result = module->load_and_call_plugin(m_state);
+		const auto module_index = m_modules.size();
+		m_modules.push_back(std::make_unique<lua_module>(module_info, m_state));
+
+		const auto load_result = m_modules[module_index]->load_and_call_plugin(m_state);
 		if (load_result == load_module_result::SUCCESS || (load_result == load_module_result::FAILED_TO_LOAD && ignore_failed_to_load))
 		{
-			m_modules.push_back(module);
-
 			if (m_is_all_mods_loaded)
 			{
-				for (const auto& cb : module->m_data.m_on_all_mods_loaded_callbacks)
+				for (const auto& cb : m_modules[module_index]->m_data.m_on_all_mods_loaded_callbacks)
 				{
 					cb();
 				}
 			}
+		}
+		else
+		{
+			m_modules.pop_back();
 		}
 
 		return load_result;
@@ -598,21 +630,6 @@ namespace big
 		}
 
 		return false;
-	}
-
-	std::weak_ptr<lua_module> lua_manager::get_module(const std::string& module_guid)
-	{
-		std::lock_guard guard(m_module_lock);
-
-		for (const auto& module : m_modules)
-		{
-			if (module->guid() == module_guid)
-			{
-				return module;
-			}
-		}
-
-		return {};
 	}
 
 	static bool topological_sort_visit(const std::string& node, std::stack<std::string>& stack, std::vector<std::string>& sorted_list, const std::function<std::vector<std::string>(const std::string&)>& dependency_selector, std::unordered_set<std::string>& visited, std::unordered_set<std::string>& sorted)
