@@ -115,6 +115,8 @@ namespace big
 			    std::make_unique<wtr::watch>(m_plugins_folder.get_path(),
 			                                 [](const wtr::event& e)
 			                                 {
+				                                 std::scoped_lock l(g_lua_manager_mutex);
+
 				                                 if (!g_lua_manager || !g_lua_manager->m_is_all_mods_loaded)
 				                                 {
 					                                 return;
@@ -477,7 +479,7 @@ namespace big
 
 	void lua_manager::draw_menu_bar_callbacks()
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		for (const auto& module : m_modules)
 		{
@@ -513,7 +515,7 @@ namespace big
 
 	void lua_manager::always_draw_independent_gui()
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		for (const auto& module : m_modules)
 		{
@@ -526,7 +528,7 @@ namespace big
 
 	void lua_manager::draw_independent_gui()
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		for (const auto& module : m_modules)
 		{
@@ -539,7 +541,7 @@ namespace big
 
 	void lua_manager::unload_module(const std::string& module_guid)
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		std::erase_if(m_modules,
 		              [&](auto& module)
@@ -555,7 +557,7 @@ namespace big
 			return load_module_result::FILE_MISSING;
 		}
 
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 		for (const auto& module : m_modules)
 		{
 			if (module->guid() == module_info.m_guid)
@@ -585,7 +587,7 @@ namespace big
 
 	bool lua_manager::module_exists(const std::string& module_guid)
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		for (const auto& module : m_modules)
 		{
@@ -767,7 +769,7 @@ namespace big
 			}
 		}
 
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 		for (const auto& module : m_modules)
 		{
 			for (const auto& cb : module->m_data.m_on_all_mods_loaded_callbacks)
@@ -781,7 +783,7 @@ namespace big
 
 	void lua_manager::unload_all_modules()
 	{
-		std::lock_guard guard(m_module_lock);
+		std::scoped_lock guard(m_module_lock);
 
 		for (auto& module : m_modules)
 		{

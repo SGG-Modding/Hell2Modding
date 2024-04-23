@@ -33,7 +33,7 @@ namespace big
 	void thread_pool::destroy()
 	{
 		{
-			std::unique_lock lock(m_lock);
+			std::scoped_lock lock(m_lock);
 			m_accept_jobs = false;
 		}
 		m_data_condition.notify_all();
@@ -51,7 +51,7 @@ namespace big
 		if (func)
 		{
 			{
-				std::unique_lock lock(m_lock);
+				std::scoped_lock lock(m_lock);
 				m_job_stack.push({func, location});
 
 				if (m_allocated_thread_count < m_job_stack.size())

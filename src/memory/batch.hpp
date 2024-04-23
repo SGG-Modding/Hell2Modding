@@ -102,7 +102,7 @@ namespace memory
 			{
 				if (entry.m_on_signature_found)
 				{
-					std::lock_guard<std::mutex> lock(s_entry_mutex); // Acquire a lock on the mutex to synchronize access.
+					std::scoped_lock<std::mutex> lock(s_entry_mutex);
 
 					std::invoke(std::move(entry.m_on_signature_found), result.value());
 					LOG(INFO) << "Found '" << entry.m_name << "' Hades2.exe+"

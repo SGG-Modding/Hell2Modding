@@ -70,7 +70,7 @@ namespace big
 
 		inline void for_each_module(auto func)
 		{
-			std::lock_guard guard(m_module_lock);
+			std::scoped_lock guard(m_module_lock);
 
 			for (auto& module : m_modules)
 			{

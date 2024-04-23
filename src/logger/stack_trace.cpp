@@ -26,7 +26,7 @@ namespace big
 	void stack_trace::new_stack_trace(EXCEPTION_POINTERS* exception_info)
 	{
 		static std::mutex m;
-		std::lock_guard lock(m);
+		std::scoped_lock lock(m);
 
 		m_exception_info = exception_info;
 
