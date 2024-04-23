@@ -11,6 +11,7 @@
 #include <dxgi1_4.h>
 #include <lua/lua_manager.hpp>
 #include <memory/gm_address.hpp>
+#include <typeinfo>
 #pragma comment(lib, "dxguid.lib")
 
 static IDXGIFactory4* gDxgiFactory                 = nullptr;
@@ -23,57 +24,6 @@ static ID3D12GraphicsCommandList* gPd3DCommandList = nullptr;
 static std::vector<ID3D12CommandAllocator*> gCommandAllocators;
 static std::vector<ID3D12Resource*> gMainRenderTargetResource;
 static std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> gMainRenderTargetDescriptor;
-
-static bool CreateD3D12RenderDevice(HWND hwnd, int buffer_count)
-{
-	// Setup swap chain
-	DXGI_SWAP_CHAIN_DESC1 chainDesc = {};
-	chainDesc.BufferCount           = buffer_count;
-	chainDesc.Format                = DXGI_FORMAT_R8G8B8A8_UNORM;
-	chainDesc.Flags                 = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-	chainDesc.BufferUsage           = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	chainDesc.SampleDesc.Count      = 1;
-	chainDesc.SwapEffect            = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-
-	// Create device
-	D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
-	HRESULT device          = D3D12CreateDevice(nullptr, level, IID_ID3D12Device, (void**)&gPd3DDevice);
-	if (FAILED(device))
-	{
-		//todo error messages for function calls
-		return false;
-	}
-
-	D3D12_COMMAND_QUEUE_DESC desc = {};
-	device = gPd3DDevice->CreateCommandQueue(&desc, IID_ID3D12CommandQueue, (void**)&gPd3DCommandQueue);
-	if (FAILED(device))
-	{
-		return false;
-	}
-
-	IDXGISwapChain1* swapChain1 = nullptr;
-	device                      = CreateDXGIFactory1(IID_IDXGIFactory4, (void**)&gDxgiFactory);
-	if (FAILED(device))
-	{
-		return false;
-	}
-
-	device = gDxgiFactory->CreateSwapChainForHwnd(gPd3DCommandQueue, hwnd, &chainDesc, nullptr, nullptr, &swapChain1);
-	if (FAILED(device))
-	{
-		return false;
-	}
-
-	device = swapChain1->QueryInterface(IID_IDXGISwapChain3, (void**)&gPSwapChain);
-	if (FAILED(device))
-	{
-		return false;
-	}
-
-	swapChain1->Release();
-
-	return true;
-}
 
 static int get_correct_dxgi_format(int current_format)
 {
@@ -375,22 +325,367 @@ namespace big
 		big::hooking::get_original<hook_sgg_scriptmanager_update_for_imgui_callbacks>()(a);
 	}
 
-	void renderer::hook()
+	bool renderer::hook()
 	{
-		if (!CreateD3D12RenderDevice(GetConsoleWindow(), 3))
+		IDXGISwapChain1* swap_chain1{nullptr};
+		IDXGISwapChain3* swap_chain{nullptr};
+		ID3D12Device* device{nullptr};
+
+		D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
+		DXGI_SWAP_CHAIN_DESC1 swap_chain_desc1;
+
+		ZeroMemory(&swap_chain_desc1, sizeof(swap_chain_desc1));
+
+		swap_chain_desc1.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
+		swap_chain_desc1.BufferUsage      = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		swap_chain_desc1.SwapEffect       = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+		swap_chain_desc1.BufferCount      = 2;
+		swap_chain_desc1.SampleDesc.Count = 1;
+		swap_chain_desc1.AlphaMode        = DXGI_ALPHA_MODE_PREMULTIPLIED;
+		swap_chain_desc1.Width            = 1;
+		swap_chain_desc1.Height           = 1;
+
+		// Manually get D3D12CreateDevice export because the user may be running Windows 7
+		const auto d3d12_module = LoadLibraryA("d3d12.dll");
+		if (d3d12_module == nullptr)
 		{
-			LOG(FATAL) << "Failed to create DX12 Rendering Device.";
-			return;
+			LOG(FATAL) << "Failed to load d3d12.dll";
+			return false;
 		}
 
-		void** swapchain_vtable     = *reinterpret_cast<void***>(gPSwapChain);
-		void** dxgi_factory_vtable  = *reinterpret_cast<void***>(gDxgiFactory);
-		void** command_queue_vtable = *reinterpret_cast<void***>(gPd3DCommandQueue);
+		auto d3d12_create_device = (decltype(D3D12CreateDevice)*)GetProcAddress(d3d12_module, "D3D12CreateDevice");
+		if (d3d12_create_device == nullptr)
+		{
+			LOG(FATAL) << "Failed to get D3D12CreateDevice export";
+			return false;
+		}
 
-		gPd3DCommandQueue->Release();
-		gPd3DCommandQueue = nullptr;
+		LOG(INFO) << "Creating dummy device";
 
-		CleanupDeviceD3D12();
+		if (FAILED(d3d12_create_device(nullptr, feature_level, IID_PPV_ARGS(&device))))
+		{
+			LOG(FATAL) << "Failed to create D3D12 Dummy device";
+			return false;
+		}
+
+		LOG(INFO) << "Dummy device: " << HEX_TO_UPPER(device);
+
+		// Manually get CreateDXGIFactory export because the user may be running Windows 7
+		const auto dxgi_module = LoadLibraryA("dxgi.dll");
+		if (dxgi_module == nullptr)
+		{
+			LOG(FATAL) << "Failed to load dxgi.dll";
+			return false;
+		}
+
+		auto create_dxgi_factory = (decltype(CreateDXGIFactory)*)GetProcAddress(dxgi_module, "CreateDXGIFactory");
+
+		if (create_dxgi_factory == nullptr)
+		{
+			LOG(FATAL) << "Failed to get CreateDXGIFactory export";
+			return false;
+		}
+
+		LOG(INFO) << "Creating dummy DXGI factory";
+
+		IDXGIFactory4* factory{nullptr};
+		if (FAILED(create_dxgi_factory(IID_PPV_ARGS(&factory))))
+		{
+			LOG(FATAL) << "Failed to create D3D12 Dummy DXGI Factory";
+			return false;
+		}
+
+		D3D12_COMMAND_QUEUE_DESC queue_desc{};
+		queue_desc.Type     = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		queue_desc.Priority = 0;
+		queue_desc.Flags    = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queue_desc.NodeMask = 0;
+
+		LOG(INFO) << "Creating dummy command queue";
+
+		ID3D12CommandQueue* command_queue{nullptr};
+		if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&command_queue))))
+		{
+			LOG(FATAL) << "Failed to create D3D12 Dummy Command Queue";
+			return false;
+		}
+
+		LOG(INFO) << "Creating dummy swapchain";
+
+		// used in CreateSwapChainForHwnd fallback
+		HWND hwnd = 0;
+		WNDCLASSEX wc{};
+
+		auto init_dummy_window = [&]()
+		{
+			// fallback to CreateSwapChainForHwnd
+			wc.cbSize        = sizeof(WNDCLASSEX);
+			wc.style         = CS_HREDRAW | CS_VREDRAW;
+			wc.lpfnWndProc   = DefWindowProc;
+			wc.cbClsExtra    = 0;
+			wc.cbWndExtra    = 0;
+			wc.hInstance     = GetModuleHandle(NULL);
+			wc.hIcon         = NULL;
+			wc.hCursor       = NULL;
+			wc.hbrBackground = NULL;
+			wc.lpszMenuName  = NULL;
+			wc.lpszClassName = TEXT("H2M_DX12_DUMMY");
+			wc.hIconSm       = NULL;
+
+			::RegisterClassEx(&wc);
+
+			hwnd = ::CreateWindow(wc.lpszClassName, TEXT("H2M Dummy Window"), WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
+
+			swap_chain_desc1.BufferCount        = 3;
+			swap_chain_desc1.Width              = 0;
+			swap_chain_desc1.Height             = 0;
+			swap_chain_desc1.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+			swap_chain_desc1.Flags              = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+			swap_chain_desc1.BufferUsage        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+			swap_chain_desc1.SampleDesc.Count   = 1;
+			swap_chain_desc1.SampleDesc.Quality = 0;
+			swap_chain_desc1.SwapEffect         = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+			swap_chain_desc1.AlphaMode          = DXGI_ALPHA_MODE_UNSPECIFIED;
+			swap_chain_desc1.Scaling            = DXGI_SCALING_STRETCH;
+			swap_chain_desc1.Stereo             = FALSE;
+		};
+
+		std::vector<std::function<bool()>> swapchain_attempts{
+		    // we call CreateSwapChainForComposition instead of CreateSwapChainForHwnd
+		    // because some overlays will have hooks on CreateSwapChainForHwnd
+		    // and all we're doing is creating a dummy swapchain
+		    // we don't want to screw up the overlay
+		    [&]()
+		    {
+			    return !FAILED(factory->CreateSwapChainForComposition(command_queue, &swap_chain_desc1, nullptr, &swap_chain1));
+		    },
+		    [&]()
+		    {
+			    init_dummy_window();
+
+			    return !FAILED(factory->CreateSwapChainForHwnd(command_queue, hwnd, &swap_chain_desc1, nullptr, nullptr, &swap_chain1));
+		    },
+		    [&]()
+		    {
+			    return !FAILED(factory->CreateSwapChainForHwnd(command_queue, GetDesktopWindow(), &swap_chain_desc1, nullptr, nullptr, &swap_chain1));
+		    },
+		};
+
+		bool any_succeed = false;
+
+		for (auto i = 0; i < swapchain_attempts.size(); i++)
+		{
+			auto& attempt = swapchain_attempts[i];
+
+			try
+			{
+				LOG(INFO) << "Trying swapchain attempt " << i;
+
+				if (attempt())
+				{
+					LOG(INFO) << "Created dummy swapchain on attempt " << i;
+					any_succeed = true;
+					break;
+				}
+			}
+			catch (std::exception& e)
+			{
+				LOG(FATAL) << "Failed to create dummy swapchain on attempt " << i << " " << e.what();
+			}
+			catch (...)
+			{
+				LOG(FATAL) << "Failed to create dummy swapchain on attempt " << i;
+			}
+
+			LOG(FATAL) << "Attempt failed " << i;
+		}
+
+		if (!any_succeed)
+		{
+			LOG(FATAL) << "Failed to create D3D12 Dummy Swap Chain";
+
+			if (hwnd)
+			{
+				::DestroyWindow(hwnd);
+			}
+
+			if (wc.lpszClassName != nullptr)
+			{
+				::UnregisterClass(wc.lpszClassName, wc.hInstance);
+			}
+
+			return false;
+		}
+
+		LOG(INFO) << "Querying dummy swapchain";
+
+		if (FAILED(swap_chain1->QueryInterface(IID_PPV_ARGS(&swap_chain))))
+		{
+			LOG(FATAL) << "Failed to retrieve D3D12 DXGI SwapChain";
+			return false;
+		}
+
+		try
+		{
+			const auto& ti = typeid(swap_chain1);
+
+			const std::string swapchain_classname = ti.name() ? ti.name() : "";
+
+			LOG(INFO) << "swapchain classname: " << swapchain_classname;
+		}
+		catch (const std::exception& e)
+		{
+			LOG(FATAL) << "Failed to get type info: " << e.what();
+		}
+		catch (...)
+		{
+			LOG(FATAL) << "Failed to get type info: unknown exception";
+		}
+
+		LOG(INFO) << "Finding command queue offset";
+
+		size_t m_command_queue_offset = 0;
+
+		// Find the command queue offset in the swapchain
+		for (auto i = 0; i < 512 * sizeof(void*); i += sizeof(void*))
+		{
+			const auto base = (uintptr_t)swap_chain1 + i;
+
+			// reached the end
+			if (IsBadReadPtr((void*)base, sizeof(void*)))
+			{
+				break;
+			}
+
+			auto data = *(ID3D12CommandQueue**)base;
+
+			if (data == command_queue)
+			{
+				m_command_queue_offset = i;
+				LOG(INFO) << "Found command queue offset: " << i;
+				break;
+			}
+		}
+
+		auto target_swapchain = swap_chain;
+
+		// Scan throughout the swapchain for a valid pointer to scan through
+		// this is usually only necessary for Proton
+		if (m_command_queue_offset == 0)
+		{
+			bool should_break = false;
+
+			for (auto base = 0; base < 512 * sizeof(void*); base += sizeof(void*))
+			{
+				const auto pre_scan_base = (uintptr_t)swap_chain1 + base;
+
+				// reached the end
+				if (IsBadReadPtr((void*)pre_scan_base, sizeof(void*)))
+				{
+					break;
+				}
+
+				const auto scan_base = *(uintptr_t*)pre_scan_base;
+
+				if (scan_base == 0 || IsBadReadPtr((void*)scan_base, sizeof(void*)))
+				{
+					continue;
+				}
+
+				for (auto i = 0; i < 512 * sizeof(void*); i += sizeof(void*))
+				{
+					const auto pre_data = scan_base + i;
+
+					if (IsBadReadPtr((void*)pre_data, sizeof(void*)))
+					{
+						break;
+					}
+
+					auto data = *(ID3D12CommandQueue**)pre_data;
+
+					if (data == command_queue)
+					{
+						// If we hook Streamline's Swapchain, the menu fails to render correctly/flickers
+						// So we switch out the swapchain with the internal one owned by Streamline
+						// Side note: Even though we are scanning for Proton here,
+						// this doubles as an offset scanner for the real swapchain inside Streamline (or FSR3)
+						//if (m_using_frame_generation_swapchain)
+						{
+							target_swapchain = (IDXGISwapChain3*)scan_base;
+						}
+
+						//if (!m_using_frame_generation_swapchain)
+						{
+							//m_using_proton_swapchain = true;
+						}
+
+						m_command_queue_offset = i;
+						//m_proton_swapchain_offset = base;
+						should_break = true;
+
+						LOG(INFO) << "Proton potentially detected";
+						LOG(INFO) << "Found command queue offset: " << i;
+						break;
+					}
+				}
+
+				//if (m_using_proton_swapchain || should_break)
+				if (should_break)
+				{
+					break;
+				}
+			}
+		}
+
+		if (m_command_queue_offset == 0)
+		{
+			LOG(FATAL) << "Failed to find command queue offset";
+			return false;
+		}
+
+		//void** swapchain_vtable     = *reinterpret_cast<void***>(gPSwapChain);
+		void** swapchain_vtable = *reinterpret_cast<void***>(target_swapchain);
+		//void** dxgi_factory_vtable  = *reinterpret_cast<void***>(gDxgiFactory);
+		void** dxgi_factory_vtable = *reinterpret_cast<void***>(factory);
+		//void** command_queue_vtable = *reinterpret_cast<void***>(gPd3DCommandQueue);
+		void** command_queue_vtable = *reinterpret_cast<void***>(command_queue);
+
+		//utility::ThreadSuspender suspender{};
+
+		/*try
+		{
+			spdlog::info("Initializing hooks");
+
+			m_present_hook.reset();
+			m_swapchain_hook.reset();
+
+			m_is_phase_1 = true;
+
+			auto& present_fn = (*(void***)target_swapchain)[8]; // Present
+			m_present_hook   = std::make_unique<PointerHook>(&present_fn, (void*)&D3D12Hook::present);
+			m_hooked         = true;
+		}
+		catch (const std::exception& e)
+		{
+			spdlog::error("Failed to initialize hooks: {}", e.what());
+			m_hooked = false;
+		}*/
+
+		device->Release();
+		command_queue->Release();
+		factory->Release();
+		swap_chain1->Release();
+		swap_chain->Release();
+
+		if (hwnd)
+		{
+			::DestroyWindow(hwnd);
+		}
+
+		if (wc.lpszClassName != nullptr)
+		{
+			::UnregisterClass(wc.lpszClassName, wc.hInstance);
+		}
 
 		hooking::detour_hook_helper::add<hook_CreateSwapChain>("CSC", dxgi_factory_vtable[10]);
 		hooking::detour_hook_helper::add<hook_CreateSwapChainForHwnd>("CSCFH", dxgi_factory_vtable[15]);
@@ -405,9 +700,11 @@ namespace big
 
 		hooking::detour_hook_helper::add<hook_ExecuteCommandLists>("ECL", command_queue_vtable[10]);
 
-		big::hooking::detour_hook_helper::add<hook_sgg_scriptmanager_update_for_imgui_callbacks>(
+		hooking::detour_hook_helper::add<hook_sgg_scriptmanager_update_for_imgui_callbacks>(
 		    "SGG Script Manager Update - ImGui Callbacks",
 		    gmAddress::scan("4C 3B D6 74 3A").offset(-0x1'03).as<PVOID>());
+
+		return true;
 	}
 
 	void renderer::init_fonts()
@@ -494,7 +791,7 @@ namespace big
 
 	void renderer::init()
 	{
-		hook();
+		//hook();
 	}
 
 	renderer::renderer()

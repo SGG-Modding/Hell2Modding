@@ -65,7 +65,7 @@ namespace big
 
 	public:
 		void init_fonts();
-		void hook();
+		bool hook();
 
 		HWND m_window_handle;
 	};

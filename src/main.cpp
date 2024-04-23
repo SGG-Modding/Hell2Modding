@@ -21,6 +21,18 @@ static bool hook_skipcrashpadinit()
 	return false;
 }
 
+// void initRenderer(char *appName, const RendererDesc *pDesc, Renderer **)
+static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
+{
+	LOG(FATAL) << "initRenderer called";
+
+	big::g_hooking->get_original<hook_initRenderer>()(appName, pDesc, a3);
+
+	big::g_renderer->hook();
+
+	LOG(FATAL) << "initRenderer finished";
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -34,6 +46,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		// Purposely leak it, we are not unloading this module in any case.
 		auto exception_handling = new exception_handler();
+
+		big::hooking::detour_hook_helper::add_now<hook_initRenderer>("initRenderer",
+		                                                             gmAddress::scan("C1 E0 07 33 C1").offset(-0x83).as<void *>());
 
 		big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>("skipcrashpadinit",
 		                                                                 gmAddress::scan("74 13 48 8B C8").offset(-0x4C).as_func<bool()>());
