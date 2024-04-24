@@ -7,7 +7,7 @@ namespace = "Hell2Modding"
 name = "Hell2Modding"
 versionNumber = "1.0.0"
 description = "Lua Mod Loader for Hades 2"
-websiteUrl = "https://github.com/return-of-modding/Hell2Modding/"
+websiteUrl = "https://github.com/SGG-Modding/Hell2Modding/"
 containsNsfwContent = false
 
 [package.dependencies]
@@ -23,5 +23,5 @@ target = "./Hell2ModdingPack/d3d12.dll"
 
 [publish]
 repository = "https://thunderstore.io"
-communities = ["hades2"]
+communities = ["hades-ii"]
 categories = ["libraries"]
