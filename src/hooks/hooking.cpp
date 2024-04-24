@@ -154,6 +154,10 @@ namespace big
 		return big::g_hooking->get_original<hook_sgg_ScriptManager_Load>()(scriptFile);
 	}
 
+	static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
+	{
+	}
+
 	hooking::hooking()
 	{
 		for (auto& detour_hook_helper : m_detour_hook_helpers)
@@ -165,43 +169,25 @@ namespace big
 			}
 		}
 
-		hooking::detour_hook_helper::add<hook_log_write>("game logger", gmAddress::scan("8B D1 83 E2 08").offset(-0x2C).as<void*>());
+		hooking::detour_hook_helper::add<hook_log_write>("game logger",
+		                                                 gmAddress::scan("8B D1 83 E2 08", "game logger").offset(-0x2C).as<void*>());
 
-		hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>("Suppress SGG BacktraceHandleException",
-		                                                                    g_pointers->m_hades2.m_sgg_BacktraceHandleException);
-		hooking::detour_hook_helper::add<hook_sgg_ForgeRenderer_PrintErrorMessageAndAssert>("HSGGFRPEMAA",
-		                                                                                    g_pointers->m_hades2.m_sgg_ForgeRenderer_PrintErrorMessageAndAssert);
+		hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>(
+		    "Suppress SGG BacktraceHandleException",
+		    gmAddress::scan("B8 B0 FC 00 00", "BacktraceHandleException").offset(-0x20));
+
+		hooking::detour_hook_helper::add<hook_sgg_ForgeRenderer_PrintErrorMessageAndAssert>(
+		    "sgg_ForgeRenderer_PrintErrorMessageAndAssert",
+		    gmAddress::scan("48 63 44 24 34", "sgg_ForgeRenderer_PrintErrorMessageAndAssert").offset(-0x97));
 
 		// Lua stuff
 		{
 			//
 			hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>(
-			    "LC",
-			    gmAddress::scan("49 3B DF 76 29").offset(-0x6E).as<void*>());
+			    "ScriptManager_Load",
+			    gmAddress::scan("49 3B DF 76 29", "ScriptManager_Load").offset(-0x6E));
 
-			/*hooking::detour_hook_helper::add<hook_luaL_checkversion_>("Multiple Lua VM detected patch", luaL_checkversion_);
-
-			hooking::detour_hook_helper::add<hook_InitLua>("LNS", g_pointers->m_hades2.m_init_lua);
-
-			hooking::detour_hook_helper::add<hook_lua_close>(
-			    "LC",
-			    gmAddress::scan("E8 ? ? ? ? 44 89 3D ? ? ? ? 4C 8D 0D").offset(1).rip().as<void*>());
-
-			hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Clear>("SMC", g_pointers->m_hades2.m_scriptmanager_clear);
-
-
-			hooking::detour_hook_helper::add<hook_sgg_app_reset>("SGG APP RES", g_pointers->m_hades2.m_sgg_app_reset);
-
-			hooking::detour_hook_helper::add<hook_tg>("worker thread lua safety",
-			                                          gmAddress::scan("8B D5 49 8D 4E 10 E8").offset(-0x2A).as<void*>());*/
-
-
-			//hooking::detour_hook_helper::add<hook_l_alloc>("lua safety 2",
-			//gmAddress::scan("33 C0 48 83 C4 28 C3 41").offset(-0x15).as<void*>());
-
-			//hooking::detour_hook_helper::add<hook_malloc>("try stuff 1", malloc);
-			//hooking::detour_hook_helper::add<hook_realloc>("try stuff 2", realloc);
-			//hooking::detour_hook_helper::add<hook_free>("try stuff 3", free);
+			hooking::detour_hook_helper::add<hook_luaL_checkversion_>("Multiple Lua VM detected patch", luaL_checkversion_);
 		}
 
 		g_hooking = this;

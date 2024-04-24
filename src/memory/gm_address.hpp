@@ -124,7 +124,10 @@ private:
 		miss:;
 		}
 
-		LOG(FATAL) << "Missed " << debug_name;
+		if (debug_name)
+		{
+			LOG(FATAL) << "Missed " << debug_name;
+		}
 		return {0};
 	}
 

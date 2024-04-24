@@ -702,7 +702,7 @@ namespace big
 
 		hooking::detour_hook_helper::add<hook_sgg_scriptmanager_update_for_imgui_callbacks>(
 		    "SGG Script Manager Update - ImGui Callbacks",
-		    gmAddress::scan("4C 3B D6 74 3A").offset(-0x1'03).as<PVOID>());
+		    gmAddress::scan("4C 3B D6 74 3A", "SGG Script Manager Update").offset(-0x1'03).as<PVOID>());
 
 		return true;
 	}

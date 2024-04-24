@@ -18,40 +18,7 @@ namespace big
 			{
 				g_pointers->m_hades2.m_lua_state = ptr.sub(0xD2).add(3).rip().as<lua_State**>();
 			}
-		},
-		// sgg_InitLua
-		{
-            "IL",
-            "74 5F 48 8B C8",
-            [](memory::handle ptr)
-            {
-                g_pointers->m_hades2.m_init_lua = ptr.sub(0xA1).as_func<void()>();
-            }
-        },
-		{
-			"SMC",
-			"33 F6 48 8D 2D",
-			[](memory::handle ptr)
-			{
-				g_pointers->m_hades2.m_scriptmanager_clear = ptr.sub(0x2D).as_func<void()>();
-			}
-		},
-		{
-			"SGGEH",
-			"B8 60 FC 00 00",
-			[](memory::handle ptr)
-			{
-				g_pointers->m_hades2.m_sgg_BacktraceHandleException = ptr.sub(0x20).as_func<bool(_EXCEPTION_POINTERS*)>();
-			}
-		},
-        {
-            "SGGFRPEMAA",
-            "48 63 44 24 34",
-            [](memory::handle ptr)
-            {
-                g_pointers->m_hades2.m_sgg_ForgeRenderer_PrintErrorMessageAndAssert = ptr.sub(0x97).as_func<void()>();
-            }
-        }
+		}
         >(); // don't leave a trailing comma at the end
 
 		// clang-format on
