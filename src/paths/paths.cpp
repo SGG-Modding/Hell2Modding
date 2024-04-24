@@ -88,7 +88,7 @@ namespace big::paths
 	{
 		std::filesystem::path root_folder{};
 
-		constexpr auto root_folder_arg_name = "return_of_modding_root_folder";
+		constexpr auto root_folder_arg_name = "hell_2_modding_root_folder";
 
 		const char* env_root_folder = std::getenv(root_folder_arg_name);
 		if (env_root_folder)
