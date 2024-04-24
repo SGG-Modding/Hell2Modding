@@ -19,19 +19,6 @@
 
 namespace big
 {
-	static void hook_tg(void* this_, __int64 arg)
-	{
-		{
-			std::scoped_lock l(g_lua_manager_mutex);
-		}
-		{
-			big::g_hooking->get_original<hook_tg>()(this_, arg);
-		}
-		{
-			std::scoped_lock l(g_lua_manager_mutex);
-		}
-	}
-
 	static void hook_log_write(char level, const char* filename, int line_number, const char* message, ...)
 	{
 		va_list args;
@@ -52,23 +39,39 @@ namespace big
 
 		result.pop_back();
 
+		al::eLogLevel log_level;
 		const char* levelStr;
 		switch (level)
 		{
-		case 8:  levelStr = "WARN"; break;
-		case 4:  levelStr = "INFO"; break;
-		case 2:  levelStr = "DBG"; break;
-		case 16: levelStr = "ERR"; break;
-		default: levelStr = "UNK"; break;
+		case 8:
+			levelStr  = "WARN";
+			log_level = WARNING;
+			break;
+		case 4:
+			levelStr  = "INFO";
+			log_level = INFO;
+			break;
+		case 2:
+			levelStr  = "DBG";
+			log_level = VERBOSE;
+			break;
+		case 16:
+			levelStr  = "ERR";
+			log_level = FATAL;
+			break;
+		default:
+			levelStr  = "UNK";
+			log_level = INFO;
+			break;
 		}
 
 		if (strlen(filename) > 41)
 		{
-			LOG(INFO) << "[" << levelStr << "] [" << (filename + 41) << ":" << line_number << "] " << result;
+			LOG(log_level) << "[" << levelStr << "] [" << (filename + 41) << ":" << line_number << "] " << result;
 		}
 		else
 		{
-			LOG(INFO) << "[" << levelStr << "] [" << filename << ":" << line_number << "] " << result;
+			LOG(log_level) << "[" << levelStr << "] [" << filename << ":" << line_number << "] " << result;
 		}
 	}
 
@@ -129,6 +132,7 @@ namespace big
 
 			g_lua_modules.push_back({.m_file_entry = entry, .m_imgui_callbacks = {}});
 			g_lua_current_guid = entry;
+			LOG(INFO) << "Loading " << (char*)entry.path().u8string().c_str();
 			auto result = g_lua_state_view->safe_script_file((char*)entry.path().u8string().c_str(), &sol::script_pass_on_error, sol::load_mode::text);
 
 			if (!result.valid())
@@ -146,6 +150,11 @@ namespace big
 
 	static char hook_sgg_ScriptManager_Load(const char* scriptFile)
 	{
+		if (scriptFile)
+		{
+			LOG(INFO) << "Game loading lua script: " << scriptFile;
+		}
+
 		if (!strcmp(scriptFile, "Main.lua"))
 		{
 			hook_in(*g_pointers->m_hades2.m_lua_state);
@@ -182,7 +191,6 @@ namespace big
 
 		// Lua stuff
 		{
-			//
 			hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>(
 			    "ScriptManager_Load",
 			    gmAddress::scan("49 3B DF 76 29", "ScriptManager_Load").offset(-0x6E));
