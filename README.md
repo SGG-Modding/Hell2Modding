@@ -1,7 +1,6 @@
 # Hell 2 Modding
 
-[Hades Modding Discord](https://discord.gg/VjS57cszMq)
-
+[Hades Modding Discord](https://discord.com/invite/KuMbyrN)
 ---
 
 ## Manual Installation
