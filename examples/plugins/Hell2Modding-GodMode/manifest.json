@@ -1,7 +1,7 @@
 ﻿{
   "name": "ImGui Example",
   "version_number": "1.0.0",
-  "website_url": "https://github.com/xiaoxiao921/Hell2Modding",
+  "website_url": "https://github.com/SGG-Modding/Hell2Modding",
   "description": "ImGui Example for Hades II",
   "dependencies": [
     "Hell2Modding-Hell2Modding-1.0.0"

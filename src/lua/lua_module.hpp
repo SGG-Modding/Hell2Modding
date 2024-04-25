@@ -50,6 +50,9 @@ namespace big
 
 		load_module_result load_and_call_plugin(sol::state_view& state);
 
+		// Returns true if any lua file change in the module folder happened.
+		bool update_lua_file_entries(const std::string& new_hash);
+
 		sol::environment& env();
 
 		static std::string guid_from(sol::this_environment this_env);

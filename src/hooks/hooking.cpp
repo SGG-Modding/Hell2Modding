@@ -3,7 +3,6 @@
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
 #include "hades2/disable_sgg_analytics/disable_sgg_analytics.hpp"
-#include "hades2/lua/sgg_lua.hpp"
 #include "hades2/sgg_exception_handler/disable_sgg_handler.hpp"
 #include "memory/module.hpp"
 #include "pointers.hpp"
@@ -75,77 +74,23 @@ namespace big
 		}
 	}
 
-	static std::unique_ptr<sol::state_view> g_lua_state_view;
-
-	void delete_everything()
-	{
-		std::scoped_lock l(g_lua_manager_mutex);
-
-		g_is_lua_state_valid = false;
-		g_lua_modules.clear();
-		g_lua_state_view.reset();
-		LOG(FATAL) << "state is no longer valid!";
-	}
-
-	int the_state_is_going_down(lua_State* L)
-	{
-		delete_everything();
-
-		return 0;
-	}
-
 	void hook_in(lua_State* L)
 	{
+		/*while (!IsDebuggerPresent())
+		{
+			Sleep(1000);
+		}*/
+
 		std::scoped_lock l(g_lua_manager_mutex);
 
-		g_lua_state_view = std::make_unique<sol::state_view>(L);
+		g_lua_manager_instance = std::make_unique<lua_manager>(L,
+		                                                       g_file_manager.get_project_folder("config"),
+		                                                       g_file_manager.get_project_folder("plugins_data"),
+		                                                       g_file_manager.get_project_folder("plugins"));
 
-		const std::string my_inscrutable_key =
-		    "..catchy_id.\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4";
-		sol::table my_takedown_metatable                           = g_lua_state_view->create_table_with();
-		my_takedown_metatable[sol::meta_function::garbage_collect] = the_state_is_going_down;
-		sol::table my_takedown_table = g_lua_state_view->create_named_table(my_inscrutable_key, sol::metatable_key, my_takedown_metatable);
-
-		sol::table g_table = g_lua_state_view->globals();
-		//lua::gui::bind(g_table);
-		g_table.create_named("gui").set_function("add_imgui",
-		                                         [](sol::protected_function cb)
-		                                         {
-			                                         for (auto& lua_mod : g_lua_modules)
-			                                         {
-				                                         if (lua_mod.m_file_entry == g_lua_current_guid)
-				                                         {
-					                                         lua_mod.m_imgui_callbacks.push_back(cb);
-				                                         }
-			                                         }
-		                                         });
-		lua::imgui::bind(g_table);
-		//lua::log::bind(g_table);
-
-		const auto script_folder = g_file_manager.get_project_folder("plugins");
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(script_folder.get_path(), std::filesystem::directory_options::skip_permission_denied))
-		{
-			if (!entry.exists() || entry.path().extension() != ".lua")
-			{
-				continue;
-			}
-
-			g_lua_modules.push_back({.m_file_entry = entry, .m_imgui_callbacks = {}});
-			g_lua_current_guid = entry;
-			LOG(INFO) << "Loading " << (char*)entry.path().u8string().c_str();
-			auto result = g_lua_state_view->safe_script_file((char*)entry.path().u8string().c_str(), &sol::script_pass_on_error, sol::load_mode::text);
-
-			if (!result.valid())
-			{
-				LOG(FATAL) << (char*)entry.path().u8string().c_str() << " failed to load: " << result.get<sol::error>().what();
-				Logger::FlushQueue();
-
-				g_lua_modules.pop_back();
-			}
-		}
 
 		g_is_lua_state_valid = true;
-		LOG(FATAL) << "state is valid";
+		LOG(INFO) << "state is valid";
 	}
 
 	static char hook_sgg_ScriptManager_Load(const char* scriptFile)
@@ -153,11 +98,11 @@ namespace big
 		if (scriptFile)
 		{
 			LOG(INFO) << "Game loading lua script: " << scriptFile;
-		}
 
-		if (!strcmp(scriptFile, "Main.lua"))
-		{
-			hook_in(*g_pointers->m_hades2.m_lua_state);
+			if (!strcmp(scriptFile, "Main.lua"))
+			{
+				hook_in(*g_pointers->m_hades2.m_lua_state);
+			}
 		}
 
 		return big::g_hooking->get_original<hook_sgg_ScriptManager_Load>()(scriptFile);
@@ -181,9 +126,12 @@ namespace big
 		hooking::detour_hook_helper::add<hook_log_write>("game logger",
 		                                                 gmAddress::scan("8B D1 83 E2 08", "game logger").offset(-0x2C).as<void*>());
 
-		hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>(
-		    "Suppress SGG BacktraceHandleException",
-		    gmAddress::scan("B8 B0 FC 00 00", "BacktraceHandleException").offset(-0x20));
+		const auto backtraceHandleException = gmAddress::scan("B8 B0 FC 00 00", "BacktraceHandleException");
+		if (backtraceHandleException)
+		{
+			hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>("Suppress SGG BacktraceHandleException",
+			                                                                    backtraceHandleException.offset(-0x20));
+		}
 
 		hooking::detour_hook_helper::add<hook_sgg_ForgeRenderer_PrintErrorMessageAndAssert>(
 		    "sgg_ForgeRenderer_PrintErrorMessageAndAssert",

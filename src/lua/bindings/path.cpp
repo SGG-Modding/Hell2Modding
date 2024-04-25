@@ -165,7 +165,7 @@ namespace lua::path
 
 	void bind(sol::table& state)
 	{
-		auto ns               = state["path"].get_or_create<sol::table>();
+		auto ns               = state.create_named("path");
 		ns["combine"]         = combine;
 		ns["get_parent"]      = get_parent;
 		ns["get_directories"] = get_directories;

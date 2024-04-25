@@ -35,7 +35,7 @@ namespace lua::paths
 
 	void bind(sol::table& state)
 	{
-		auto ns            = state["paths"].get_or_create<sol::table>();
+		auto ns            = state.create_named("paths");
 		ns["config"]       = config;
 		ns["plugins_data"] = plugins_data;
 	}

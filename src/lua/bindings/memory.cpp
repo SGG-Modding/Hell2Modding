@@ -119,7 +119,7 @@ namespace lua::memory
 
 	void bind(sol::table& state)
 	{
-		auto ns = state["memory"].get_or_create<sol::table>();
+		auto ns = state.create_named("memory");
 
 		auto pointer_ut = ns.new_usertype<pointer>("pointer", sol::constructors<pointer(uintptr_t)>());
 

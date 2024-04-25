@@ -15,8 +15,6 @@
 
 namespace big
 {
-	static std::unique_ptr<wtr::watch> g_lua_file_watcher = nullptr;
-
 	static std::optional<module_info> get_module_info(const std::filesystem::path& module_path)
 	{
 		constexpr auto thunderstore_manifest_json_file_name = "manifest.json";
@@ -83,17 +81,35 @@ namespace big
 			     manifest.name);
 		}
 
+		std::vector<std::string> lua_file_entries;
+		for (const auto& entry : std::filesystem::recursive_directory_iterator(current_folder, std::filesystem::directory_options::skip_permission_denied))
+		{
+			if (entry.exists() && entry.path().extension() == ".lua")
+			{
+				std::string lua_file_entry  = (char*)entry.path().filename().u8string().c_str();
+				lua_file_entry             += std::to_string(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(entry.last_write_time().time_since_epoch()).count());
+				lua_file_entries.push_back(lua_file_entry);
+			}
+		}
+
+		std::sort(lua_file_entries.begin(), lua_file_entries.end());
+		std::string final_hash = "";
+		for (const auto& file_entry : lua_file_entries)
+		{
+			final_hash += file_entry;
+		}
+
 		const std::string guid = folder_name;
 		return {{
-		    .m_path              = module_path,
-		    .m_folder_path       = current_folder,
-		    .m_guid              = guid,
-		    .m_guid_with_version = guid + "-" + manifest.version_number,
-		    .m_manifest          = manifest,
+		    .m_lua_file_entries_hash = final_hash,
+		    .m_path                  = module_path,
+		    .m_folder_path           = current_folder,
+		    .m_guid                  = guid,
+		    .m_guid_with_version     = guid + "-" + manifest.version_number,
+		    .m_manifest              = manifest,
 		}};
 	}
-
-	static std::unordered_map<std::wstring, size_t> modify_reload_count;
 
 	lua_manager::lua_manager(lua_State* game_lua_state, folder config_folder, folder plugins_data_folder, folder plugins_folder) :
 	    m_state(game_lua_state),
@@ -108,358 +124,52 @@ namespace big
 		load_all_modules();
 
 		lua::window::deserialize();
-
-		if (g_lua_file_watcher == nullptr)
-		{
-			g_lua_file_watcher =
-			    std::make_unique<wtr::watch>(m_plugins_folder.get_path(),
-			                                 [](const wtr::event& e)
-			                                 {
-				                                 std::scoped_lock l(g_lua_manager_mutex);
-
-				                                 if (!g_lua_manager || !g_lua_manager->m_is_all_mods_loaded)
-				                                 {
-					                                 return;
-				                                 }
-
-				                                 if (e.effect_type == wtr::event::effect_type::owner || e.effect_type == wtr::event::effect_type::other)
-				                                 {
-					                                 return;
-				                                 }
-
-				                                 if (e.path_name.extension() != ".lua")
-				                                 {
-					                                 return;
-				                                 }
-
-				                                 // Windows file modify notification get triggered twice on file saves it seems.
-				                                 {
-					                                 if (e.effect_type == wtr::event::effect_type::modify)
-					                                 {
-						                                 const auto path_name_wstring = e.path_name.wstring();
-						                                 modify_reload_count[path_name_wstring]++;
-						                                 if (modify_reload_count[path_name_wstring] % 2 == 0)
-						                                 {
-							                                 return;
-						                                 }
-					                                 }
-				                                 }
-
-				                                 const std::filesystem::path root_folder = g_file_manager.get_base_dir();
-				                                 g_lua_manager->for_each_module(
-				                                     [&](const auto& module)
-				                                     {
-					                                     const std::filesystem::path module_path = module->path();
-					                                     const auto module_info = get_module_info(module_path);
-					                                     if (module_info)
-					                                     {
-						                                     const auto& module_folder = (*module_info).m_folder_path;
-						                                     std::filesystem::path current_folder = e.path_name;
-						                                     while (true)
-						                                     {
-							                                     if (current_folder == root_folder)
-							                                     {
-								                                     break;
-							                                     }
-
-							                                     if (current_folder.has_parent_path())
-							                                     {
-								                                     current_folder = current_folder.parent_path();
-							                                     }
-							                                     else
-							                                     {
-								                                     break;
-							                                     }
-
-							                                     if (current_folder == module_folder)
-							                                     {
-								                                     module->cleanup();
-								                                     module->load_and_call_plugin(g_lua_manager->m_state);
-								                                     return;
-							                                     }
-						                                     }
-					                                     }
-				                                     });
-			                                 });
-		}
 	}
 
 	lua_manager::~lua_manager()
 	{
-		LOG(WARNING) << "killin lua_mgr";
-
 		lua::window::serialize();
 
 		unload_all_modules();
 
-		sol::table xd     = m_state.globals();
-		xd["gui"]         = sol::lua_nil;
-		xd["ImGui"]       = sol::lua_nil;
-		xd["ImGuiKey"]    = sol::lua_nil;
-		xd["ImGuiKeyMod"] = sol::lua_nil;
-
-		m_state.collect_garbage();
-
 		g_lua_manager = nullptr;
 	}
 
-	// https://sol2.readthedocs.io/en/latest/exceptions.html
-	static int exception_handler(lua_State* L, sol::optional<const std::exception&> maybe_exception, sol::string_view description)
+	static void delete_everything()
 	{
-		// L is the lua state, which you can wrap in a state_view if necessary
-		// maybe_exception will contain exception, if it exists
-		// description will either be the what() of the exception or a description saying that we hit the general-case catch(...)
-		if (maybe_exception)
-		{
-			const std::exception& ex = *maybe_exception;
-			LOG(FATAL) << ex.what();
-		}
-		else
-		{
-			LOG(FATAL) << description;
-		}
-		Logger::FlushQueue();
+		std::scoped_lock l(g_lua_manager_mutex);
 
-		// you must push 1 element onto the stack to be
-		// transported through as the error object in Lua
-		// note that Lua -- and 99.5% of all Lua users and libraries -- expects a string
-		// so we push a single string (in our case, the description of the error)
-		return sol::stack::push(L, description);
+		g_is_lua_state_valid = false;
+
+		g_lua_manager_instance.reset();
+
+		LOG(INFO) << "state is no longer valid!";
 	}
 
-	static void panic_handler(sol::optional<std::string> maybe_msg)
+	static int the_state_is_going_down(lua_State* L)
 	{
-		LOG(FATAL) << "Lua is in a panic state and will now abort() the application";
-		if (maybe_msg)
-		{
-			const std::string& msg = maybe_msg.value();
-			LOG(FATAL) << "error message: " << msg;
-		}
-		Logger::FlushQueue();
+		delete_everything();
 
-		// When this function exits, Lua will exhibit default behavior and abort()
-	}
-
-	/*void lua_manager::set_folder_for_lua_require()
-	{
-		std::string plugins_search_path = m_plugins_folder.get_path().string() + "/?.lua;";
-
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(m_plugins_folder.get_path(), std::filesystem::directory_options::skip_permission_denied))
-		{
-			if (!entry.is_directory())
-			{
-				continue;
-			}
-
-			plugins_search_path += entry.path().string() + "/?.lua;";
-		}
-		// Remove final ';'
-		plugins_search_path.pop_back();
-
-		m_state["package"]["path"] = plugins_search_path;
-	}
-
-	void lua_manager::sandbox_lua_os_library()
-	{
-		const auto& os = m_state["os"];
-		sol::table sandbox_os(m_state, sol::create);
-
-		sandbox_os["clock"]    = os["clock"];
-		sandbox_os["date"]     = os["date"];
-		sandbox_os["difftime"] = os["difftime"];
-		sandbox_os["time"]     = os["time"];
-
-		m_state["os"] = sandbox_os;
-	}*/
-
-	/*template<size_t N>
-	static constexpr auto not_supported_lua_function(const char (&function_name)[N])
-	{
-		return [function_name](sol::this_environment env, sol::variadic_args args)
-		{
-			LOG(FATAL) << big::lua_module::guid_from(env) << " tried calling a currently not supported lua function: " << function_name;
-			Logger::FlushQueue();
-		};
-	}
-
-	void lua_manager::sandbox_lua_loads()
-	{
-		// That's from lua base lib, luaB
-		m_loadfile = m_state["loadfile"];
-
-		// That's from lua package lib.
-		// We only allow dependencies between .lua files, no DLLs.
-		m_state["package"]["loadlib"] = not_supported_lua_function("package.loadlib");
-		m_state["package"]["cpath"]   = "";
-
-		// 1                   2               3            4
-		// {searcher_preload, searcher_Lua, searcher_C, searcher_Croot, NULL};
-		m_state["package"]["searchers"][3] = not_supported_lua_function("package.searcher C");
-		m_state["package"]["searchers"][4] = not_supported_lua_function("package.searcher Croot");
-
-		// Custom require for setting environment on required modules, the setenv is based on
-		// which folder (and so ultimately package/mod) contains the required module file.
-		// If no match is found with the folder path then we just set the same env as the require caller.
-		// TODO: This is hacked together, need to be cleaned up at some point.
-		// TODO: sub folders are not supported currently.
-		m_state["require"] = [&](std::string path, sol::variadic_args args, sol::this_environment this_env) -> sol::object
-		{
-			sol::environment& env = this_env;
-
-			// Example of a non local require (mod is requiring a file from another mod/package):
-			// require "Hell2Modding-DebugToolkit/lib_debug"
-			const auto is_non_local_require = !path.starts_with("./") && path.contains('-') && path.contains('/');
-			std::string required_module_guid{};
-			if (is_non_local_require)
-			{
-				LOG(INFO) << "Non Local require: " << path;
-				required_module_guid = string::split(path, '/')[0];
-				if (std::ranges::count(path, '/') > 1)
-				{
-					LOG(WARNING) << "Require with sub folders are currently not supported";
-				}
-			}
-			else
-			{
-				LOG(INFO) << "Local require: " << path;
-				if (path.starts_with("./"))
-				{
-					path.erase(0, 2);
-				}
-				if (path.contains('/'))
-				{
-					LOG(WARNING) << "Require with sub folders are currently not supported";
-				}
-				required_module_guid = lua_module::guid_from(this_env);
-			}
-
-			const auto path_stem = std::filesystem::path(path).stem();
-
-			for (const auto& entry : std::filesystem::recursive_directory_iterator(m_plugins_folder.get_path(), std::filesystem::directory_options::skip_permission_denied))
-			{
-				if (entry.path().extension() == ".lua")
-				{
-					if (entry.path().stem() == path_stem)
-					{
-						const auto full_path_ = entry.path().u8string();
-						const auto full_path  = (char*)full_path_.c_str();
-
-						if (!strstr(full_path, required_module_guid.c_str()))
-						{
-							LOG(WARNING) << "Skipping " << full_path << " because the required module guid was not in the path " << required_module_guid;
-							continue;
-						}
-
-						const auto guid_from_path = get_module_info(full_path);
-						if (!guid_from_path)
-						{
-							LOG(WARNING) << "Couldnt get module info from path " << full_path;
-							break;
-						}
-
-						static std::unordered_map<std::string, sol::protected_function> required_module_cache;
-
-						if (!required_module_cache.contains(full_path))
-						{
-							auto fresh_result = m_loadfile(full_path);
-							if (!fresh_result.valid() || fresh_result.get_type() == sol::type::nil)
-							{
-								const auto error_msg =
-								    !fresh_result.valid() ? fresh_result.get<sol::error>().what() : fresh_result.get<const char*>(1);
-
-								LOG(FATAL) << "Failed require: " << error_msg;
-								Logger::FlushQueue();
-								break;
-							}
-							required_module_cache[full_path] = fresh_result.get<sol::protected_function>();
-						}
-
-						auto& result = required_module_cache[full_path];
-
-						bool found_the_other_module = false;
-						for (const auto& mod : m_modules)
-						{
-							if (guid_from_path.value().m_guid == mod->guid())
-							{
-								env                    = mod->env();
-								found_the_other_module = true;
-
-								break;
-							}
-						}
-
-						if (!found_the_other_module && is_non_local_require)
-						{
-							LOG(FATAL) << "You require'd a module called " << path << " but did not have a package manifest.json level dependency on it. Which lead to the owning package of that module to not be properly init yet. Expect unstable behaviors related to your dependencies.";
-						}
-
-						env.set_on(result);
-
-						//LOG(INFO) << "Calling require on " << full_path;
-
-						const auto res = result(args);
-
-						//LOG(INFO) << "type: " << (int)res.get_type();
-
-						return res;
-					}
-				}
-			}
-
-			return {};
-		};
-
-		set_folder_for_lua_require();
-	}*/
-
-	static int traceback_error_handler(lua_State* L)
-	{
-		std::string msg = "An unknown error has triggered the error handler";
-		sol::optional<sol::string_view> maybetopmsg = sol::stack::unqualified_check_get<sol::string_view>(L, 1, &sol::no_panic);
-		if (maybetopmsg)
-		{
-			const sol::string_view& topmsg = maybetopmsg.value();
-			msg.assign(topmsg.data(), topmsg.size());
-		}
-		luaL_traceback(L, L, msg.c_str(), 1);
-		sol::optional<sol::string_view> maybetraceback = sol::stack::unqualified_check_get<sol::string_view>(L, -1, &sol::no_panic);
-		if (maybetraceback)
-		{
-			const sol::string_view& traceback = maybetraceback.value();
-			msg.assign(traceback.data(), traceback.size());
-		}
-		LOG(FATAL) << msg;
-		return sol::stack::push(L, msg);
+		return 0;
 	}
 
 	void lua_manager::init_lua_state()
 	{
-		/*m_state.set_exception_handler(exception_handler);
-		m_state.set_panic(sol::c_call<decltype(&panic_handler), &panic_handler>);
-		lua_CFunction traceback_function = sol::c_call<decltype(&traceback_error_handler), &traceback_error_handler>;
-		sol::protected_function::set_default_handler(sol::object(m_state.lua_state(), sol::in_place, traceback_function));*/
+		// Register our cleanup functions when the state get destroyed.
+		{
+			const std::string my_inscrutable_key = "..hell2modding\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 "
+			                                       "\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4";
+			sol::table my_takedown_metatable     = m_state.create_table_with();
+			my_takedown_metatable[sol::meta_function::garbage_collect] = the_state_is_going_down;
+			sol::table my_takedown_table = m_state.create_named_table(my_inscrutable_key, sol::metatable_key, my_takedown_metatable);
+		}
 
-		// clang-format off
+		// Crash!!!
 		/*m_state.open_libraries(
 			sol::lib::package,
-		    sol::lib::os,
+			sol::lib::os,
 			sol::lib::debug,
 			sol::lib::io
-		);*/
-		// clang-format on
-
-		/*m_state.open_libraries(
-			sol::lib::base,
-			sol::lib::package,
-			sol::lib::coroutine,
-			sol::lib::string,
-		    sol::lib::os,
-		    sol::lib::math,
-		    sol::lib::table,
-			sol::lib::debug,
-			sol::lib::bit32,
-			sol::lib::io,
-			sol::lib::utf8
 		);*/
 
 		init_lua_api();
@@ -467,7 +177,7 @@ namespace big
 
 	void lua_manager::init_lua_api()
 	{
-		/*sol::table lua_ext = m_state.create_named_table(lua_ext_namespace);
+		sol::table lua_ext = m_state.create_named_table(lua_api_namespace);
 		sol::table mods    = lua_ext.create_named("mods");
 		// Lua API: Function
 		// Table: mods
@@ -481,20 +191,19 @@ namespace big
 			{
 				mdl->m_data.m_on_all_mods_loaded_callbacks.push_back(cb);
 			}
-		};*/
-
-		sol::table xd = m_state.globals();
-		lua::gui::bind(xd);
-		lua::imgui::bind(xd);
+		};
 
 		// Let's keep that list sorted the same as the solution file explorer
-		/*lua::toml_lua::bind(lua_ext);
+
+		// Crash!!!
+		//lua::toml_lua::bind(lua_ext);
+
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
 		lua::log::bind(m_state, lua_ext);
-		lua::memory::bind(lua_ext);
+		//lua::memory::bind(lua_ext);
 		lua::path::bind(lua_ext);
-		lua::paths::bind(lua_ext);*/
+		lua::paths::bind(lua_ext);
 	}
 
 	static void imgui_text(const char* fmt, const std::string& str)
@@ -802,11 +511,49 @@ namespace big
 	{
 		std::scoped_lock guard(m_module_lock);
 
-		for (auto& module : m_modules)
-		{
-			module.reset();
-		}
-
 		m_modules.clear();
+	}
+
+	static auto g_lua_file_watcher_last_time = std::chrono::high_resolution_clock::now();
+
+	void lua_manager::update_file_watch_reload_modules()
+	{
+		std::scoped_lock guard(m_module_lock);
+
+		const auto time_now = std::chrono::high_resolution_clock::now();
+		if ((time_now - g_lua_file_watcher_last_time) > 500ms)
+		{
+			g_lua_file_watcher_last_time = time_now;
+
+			std::unordered_set<std::string> already_reloaded_this_frame;
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(m_plugins_folder.get_path(), std::filesystem::directory_options::skip_permission_denied))
+			{
+				if (entry.path().extension() == ".lua")
+				{
+					const auto module_info = get_module_info(entry.path());
+					if (module_info)
+					{
+						if (already_reloaded_this_frame.contains(module_info.value().m_guid))
+						{
+							continue;
+						}
+
+						for (const auto& already_loaded_module : m_modules)
+						{
+							if (already_loaded_module->guid() == module_info.value().m_guid)
+							{
+								if (already_loaded_module->update_lua_file_entries(module_info.value().m_lua_file_entries_hash))
+								{
+									already_loaded_module->cleanup();
+									already_loaded_module->load_and_call_plugin(m_state);
+									already_reloaded_this_frame.insert(module_info.value().m_guid);
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 } // namespace big

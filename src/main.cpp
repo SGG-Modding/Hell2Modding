@@ -24,13 +24,13 @@ static bool hook_skipcrashpadinit()
 // void initRenderer(char *appName, const RendererDesc *pDesc, Renderer **)
 static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 {
-	LOG(FATAL) << "initRenderer called";
+	LOG(INFO) << "initRenderer called";
 
 	big::g_hooking->get_original<hook_initRenderer>()(appName, pDesc, a3);
 
 	big::g_renderer->hook();
 
-	LOG(FATAL) << "initRenderer finished";
+	LOG(INFO) << "initRenderer finished";
 }
 
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
@@ -39,18 +39,12 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 	if (reason == DLL_PROCESS_ATTACH)
 	{
-		// Comment this out because doesnt seem to be needed for this game.
-		// this will also inevitably break when the game release on game pass
-		/*const auto steam_env_env_var     = _wgetenv(L"SteamEnv");
+		// This will inevitably break when the game release on game pass or some other platforms.
+		const auto steam_env_env_var          = _wgetenv(L"SteamEnv");
 		const std::wstring good_steam_env_var = L"1";
 		if (!steam_env_env_var || steam_env_env_var != good_steam_env_var)
 		{
 			return true;
-		}*/
-
-		//while (!IsDebuggerPresent())
-		{
-			//Sleep(1000);
 		}
 
 		// Purposely leak it, we are not unloading this module in any case.

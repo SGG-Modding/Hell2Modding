@@ -118,95 +118,16 @@ namespace big
 
 	static bool editing_gui_keybind = false;
 
-	static auto g_lua_file_watcher_last_time = std::chrono::high_resolution_clock::now();
-
 	void gui::dx_on_tick()
 	{
 		std::scoped_lock l(big::g_lua_manager_mutex);
-		if (g_is_lua_state_valid)
-		{
-			sol::state_view lua(*g_pointers->m_hades2.m_lua_state);
-
-			const auto time_now = std::chrono::high_resolution_clock::now();
-			if ((time_now - g_lua_file_watcher_last_time) > 500ms)
-			{
-				g_lua_file_watcher_last_time = time_now;
-
-				const auto script_folder = g_file_manager.get_project_folder("plugins");
-				for (const auto& entry : std::filesystem::recursive_directory_iterator(script_folder.get_path(), std::filesystem::directory_options::skip_permission_denied))
-				{
-					if (!entry.exists() || entry.path().extension() != ".lua")
-					{
-						continue;
-					}
-
-					bool should_load                  = true;
-					bool should_delete_existing_entry = false;
-					size_t i                          = 0;
-					for (const auto& existing_entry : g_lua_modules)
-					{
-						const auto is_already_loaded = existing_entry.m_file_entry.path() == entry.path();
-						if (is_already_loaded)
-						{
-							const auto is_disk_newer = entry.last_write_time() > existing_entry.m_file_entry.last_write_time();
-							if (is_disk_newer)
-							{
-								should_delete_existing_entry = true;
-							}
-							else
-							{
-								should_load = false;
-							}
-
-							break;
-						}
-						i++;
-					}
-					if (should_delete_existing_entry)
-					{
-						g_lua_modules.erase(g_lua_modules.begin() + i);
-					}
-
-					if (should_load)
-					{
-						g_lua_modules.push_back({.m_file_entry = entry, .m_imgui_callbacks = {}});
-						g_lua_current_guid = entry;
-						auto result = lua.safe_script_file((char*)entry.path().u8string().c_str(), &sol::script_pass_on_error, sol::load_mode::text);
-
-						if (!result.valid())
-						{
-							LOG(FATAL) << (char*)entry.path().u8string().c_str()
-							           << " failed to load: " << result.get<sol::error>().what();
-							Logger::FlushQueue();
-
-							g_lua_modules.pop_back();
-						}
-					}
-				}
-			}
-
-			if (m_is_open)
-			{
-				for (const auto& lua_module : g_lua_modules)
-				{
-					for (const auto& f : lua_module.m_imgui_callbacks)
-					{
-						auto res = f();
-						if (!res.valid())
-						{
-							LOG(FATAL) << "Failed executing imgui callback: ";
-						}
-					}
-				}
-			}
-		}
-
-		return;
 
 		if (!g_lua_manager)
 		{
 			return;
 		}
+
+		g_lua_manager->update_file_watch_reload_modules();
 
 		push_theme_colors();
 

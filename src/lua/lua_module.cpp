@@ -9,8 +9,6 @@ namespace big
 	    m_info(module_info),
 	    m_env(state, sol::create, state.globals())
 	{
-		//return;
-
 		// Lua API: Table
 		// Name: _ENV - Plugin Specific Global Table
 		// Each mod/plugin have their own global table containing helpers, such as:
@@ -78,15 +76,6 @@ namespace big
 		}
 
 		m_data = {};
-
-		m_env["!guid"]                         = sol::lua_nil;
-		m_env["!config_mod_folder_path"]       = sol::lua_nil;
-		m_env["!plugins_data_mod_folder_path"] = sol::lua_nil;
-		m_env["!plugins_mod_folder_path"]      = sol::lua_nil;
-		m_env["!this"]                         = sol::lua_nil;
-		m_env                                  = sol::lua_nil;
-
-		LOG(FATAL) << "lua module data cleaned up";
 	}
 
 	lua_module::~lua_module()
@@ -133,11 +122,19 @@ namespace big
 			// Table: mods
 			// Field: [Mod GUID]: string
 			// Each mod once loaded will have a key in this table, the key will be their guid string and the value their `_ENV`.
-			//state.traverse_set(lua_manager::lua_ext_namespace, "mods", m_info.m_guid, m_env);
-			//state.traverse_set("mods", m_info.m_guid, m_env);
+			state.traverse_set(lua_manager::lua_api_namespace, "mods", m_info.m_guid, m_env);
 		}
 
 		return load_module_result::SUCCESS;
+	}
+
+	bool lua_module::update_lua_file_entries(const std::string& new_hash)
+	{
+		const bool is_different = m_info.m_lua_file_entries_hash != new_hash;
+
+		m_info.m_lua_file_entries_hash = new_hash;
+
+		return is_different;
 	}
 
 	static std::string dummy_guid = "No guid (issue with a required module?)";

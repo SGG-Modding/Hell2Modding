@@ -3,15 +3,12 @@
 #include "lua_module.hpp"
 #include "module_info.hpp"
 
-#include <file_manager/file_watcher.hpp>
-
 namespace big
 {
 	class lua_manager
 	{
 	private:
 		sol::state_view m_state;
-		//sol::protected_function m_loadfile;
 
 		std::recursive_mutex m_module_lock;
 		std::vector<std::unique_ptr<lua_module>> m_modules;
@@ -23,20 +20,18 @@ namespace big
 		bool m_is_all_mods_loaded{};
 
 	public:
-		static constexpr auto lua_ext_namespace = "LuaExt2";
+		static inline constexpr auto lua_api_namespace = "h2m";
 
 		lua_manager(lua_State* game_lua_state, folder config_folder, folder plugins_data_folder, folder plugins_folder);
 		~lua_manager();
 
 		void init_lua_state();
-		// used for sandboxing and limiting to only our custom search path for the lua require function
-		void set_folder_for_lua_require();
-		void sandbox_lua_os_library();
-		void sandbox_lua_loads();
 		void init_lua_api();
 
 		void load_all_modules();
 		void unload_all_modules();
+
+		void update_file_watch_reload_modules();
 
 		inline auto get_module_count() const
 		{
@@ -79,15 +74,7 @@ namespace big
 	};
 
 	inline std::recursive_mutex g_lua_manager_mutex;
-
-	struct lua_module_info
-	{
-		std::filesystem::directory_entry m_file_entry;
-		std::vector<sol::protected_function> m_imgui_callbacks;
-	};
-
-	inline std::filesystem::directory_entry g_lua_current_guid;
 	inline bool g_is_lua_state_valid = false;
-	inline std::vector<lua_module_info> g_lua_modules;
+	inline std::unique_ptr<lua_manager> g_lua_manager_instance;
 	inline lua_manager* g_lua_manager;
 } // namespace big

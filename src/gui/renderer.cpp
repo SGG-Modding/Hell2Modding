@@ -61,8 +61,6 @@ static void CreateRenderTarget(IDXGISwapChain* pSwapChain, int buffer_count)
 		else
 		{
 			LOG(FATAL) << "Failed getting buffer " << i;
-
-			// Handle error, e.g., log or cleanup and return
 		}
 	}
 }
