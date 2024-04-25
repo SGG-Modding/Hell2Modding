@@ -1,7 +1,6 @@
 #pragma once
 #include "load_module_result.hpp"
 #include "lua/bindings/gui_element.hpp"
-#include "lua_patch.hpp"
 #include "module_info.hpp"
 
 #include <thunderstore/v1/manifest.hpp>
@@ -31,8 +30,6 @@ namespace big
 			std::vector<std::unique_ptr<lua::gui::gui_element>> m_menu_bar_callbacks;
 			std::vector<std::unique_ptr<lua::gui::gui_element>> m_always_draw_independent_gui;
 			std::vector<std::unique_ptr<lua::gui::gui_element>> m_independent_gui;
-
-			std::vector<std::unique_ptr<lua_patch>> m_registered_patches;
 
 			std::vector<void*> m_allocated_memory;
 		};

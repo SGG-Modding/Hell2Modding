@@ -27,7 +27,7 @@ namespace big
 		// ```lua
 		// print(_ENV["!guid"])
 		//
-		// for n in pairs(mods[_ENV["!guid"]]) do
+		// for n in pairs(h2m.mods[_ENV["!guid"]]) do
 		//     log.info(n)
 		// end
 		// ```
@@ -119,7 +119,7 @@ namespace big
 			LOG(INFO) << "Loaded " << m_info.m_guid;
 
 			// Lua API: Field
-			// Table: mods
+			// Table: h2m.mods
 			// Field: [Mod GUID]: string
 			// Each mod once loaded will have a key in this table, the key will be their guid string and the value their `_ENV`.
 			state.traverse_set(lua_manager::lua_api_namespace, "mods", m_info.m_guid, m_env);

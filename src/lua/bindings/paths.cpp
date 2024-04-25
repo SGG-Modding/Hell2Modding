@@ -6,11 +6,11 @@
 namespace lua::paths
 {
 	// Lua API: Table
-	// Name: paths
+	// Name: h2m.paths
 	// Table containing helpers for retrieving Hell2Modding related IO file/folder paths.
 
 	// Lua API: Function
-	// Table: paths
+	// Table: h2m.paths
 	// Name: config
 	// Returns: string: Returns the Hell2Modding/config folder path
 	// Used for data that must persist between sessions and that can be manipulated by the user.
@@ -22,7 +22,7 @@ namespace lua::paths
 	}
 
 	// Lua API: Function
-	// Table: paths
+	// Table: h2m.paths
 	// Name: plugins_data
 	// Returns: string: Returns the Hell2Modding/plugins_data folder path
 	// Used for data that must persist between sessions but not be manipulated by the user.

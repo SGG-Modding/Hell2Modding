@@ -1,4 +1,4 @@
-# Table: ImGui
+# Table: h2m.ImGui
 
 # Documentation
 You can find all the supported functions and overloads below.

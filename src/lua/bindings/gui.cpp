@@ -34,7 +34,7 @@ namespace lua::gui
 	}
 
 	// Lua API: Function
-	// Table: gui
+	// Table: h2m.gui
 	// Name: is_open
 	// Returns: bool: Returns true if the GUI is open.
 	static bool is_open()
@@ -43,18 +43,18 @@ namespace lua::gui
 	}
 
 	// Lua API: Function
-	// Table: gui
+	// Table: h2m.gui
 	// Name: add_to_menu_bar
 	// Param: imgui_rendering: function: Function that will be called under your dedicated space in the imgui main menu bar.
 	// Registers a function that will be called under your dedicated space in the imgui main menu bar.
 	// **Example Usage:**
 	// ```lua
-	// gui.add_to_menu_bar(function()
-	//   if ImGui.BeginMenu("Ayo") then
-	//       if ImGui.Button("Label") then
-	//         log.info("hi")
+	// h2m.gui.add_to_menu_bar(function()
+	//   if h2m.ImGui.BeginMenu("Ayo") then
+	//       if h2m.ImGui.Button("Label") then
+	//         h2m.log.info("hi")
 	//       end
-	//       ImGui.EndMenu()
+	//       h2m.ImGui.EndMenu()
 	//   end
 	// end)
 	// ```
@@ -67,20 +67,20 @@ namespace lua::gui
 	}
 
 	// Lua API: Function
-	// Table: gui
+	// Table: h2m.gui
 	// Name: add_always_draw_imgui
 	// Param: imgui_rendering: function: Function that will be called every rendering frame, regardless of the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 	// Registers a function that will be called every rendering frame, regardless of the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 	// **Example Usage:**
 	// ```lua
-	// gui.add_always_draw_imgui(function()
-	//   if ImGui.Begin("My Custom Window") then
-	//       if ImGui.Button("Label") then
-	//         log.info("hi")
+	// h2m.gui.add_always_draw_imgui(function()
+	//   if h2m.ImGui.Begin("My Custom Window") then
+	//       if h2m.ImGui.Button("Label") then
+	//         h2m.log.info("hi")
 	//       end
 	//
 	//   end
-	//   ImGui.End()
+	//   h2m.ImGui.End()
 	// end)
 	// ```
 	static lua::gui::raw_imgui_callback* add_always_draw_imgui(sol::protected_function imgui_rendering, sol::this_environment state)
@@ -92,20 +92,20 @@ namespace lua::gui
 	}
 
 	// Lua API: Function
-	// Table: gui
+	// Table: h2m.gui
 	// Name: add_imgui
 	// Param: imgui_rendering: function: Function that will be called every rendering frame, only if the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 	// Registers a function that will be called every rendering frame, only if the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 	// **Example Usage:**
 	// ```lua
-	// gui.add_imgui(function()
-	//   if ImGui.Begin("My Custom Window") then
-	//       if ImGui.Button("Label") then
-	//         log.info("hi")
+	// h2m.gui.add_imgui(function()
+	//   if h2m.ImGui.Begin("My Custom Window") then
+	//       if h2m.ImGui.Button("Label") then
+	//         h2m.log.info("hi")
 	//       end
 	//
 	//   end
-	//   ImGui.End()
+	//   h2m.ImGui.End()
 	// end)
 	// ```
 	static lua::gui::raw_imgui_callback* add_imgui(sol::protected_function imgui_rendering, sol::this_environment state)

@@ -27,11 +27,11 @@ namespace lua::log
 	}
 
 	// Lua API: Table
-	// Name: log
+	// Name: h2m.log
 	// Table containing functions for printing to console / log file.
 
 	// Lua API: Function
-	// Table: log
+	// Table: h2m.log
 	// Name: info
 	// Param: args: any
 	// Logs an informational message.
@@ -41,7 +41,7 @@ namespace lua::log
 	}
 
 	// Lua API: Function
-	// Table: log
+	// Table: h2m.log
 	// Name: warning
 	// Param: args: any
 	// Logs a warning message.
@@ -51,7 +51,7 @@ namespace lua::log
 	}
 
 	// Lua API: Function
-	// Table: log
+	// Table: h2m.log
 	// Name: debug
 	// Param: args: any
 	// Logs a debug message.
@@ -61,7 +61,7 @@ namespace lua::log
 	}
 
 	// Lua API: Function
-	// Table: log
+	// Table: h2m.log
 	// Name: error
 	// Param: args: any
 	// Logs an error message.

@@ -3,7 +3,6 @@
 #include "bindings/gui.hpp"
 #include "bindings/imgui.hpp"
 #include "bindings/log.hpp"
-#include "bindings/memory.hpp"
 #include "bindings/path.hpp"
 #include "bindings/paths.hpp"
 #include "bindings/toml/toml_lua.hpp"
@@ -180,7 +179,7 @@ namespace big
 		sol::table lua_ext = m_state.create_named_table(lua_api_namespace);
 		sol::table mods    = lua_ext.create_named("mods");
 		// Lua API: Function
-		// Table: mods
+		// Table: h2m.mods
 		// Name: on_all_mods_loaded
 		// Param: callback: function: callback that will be called once all mods are loaded. The callback function should match signature func()
 		// Registers a callback that will be called once all mods are loaded. Will be called instantly if mods are already loaded and that you are just hot-reloading your mod.
@@ -195,13 +194,9 @@ namespace big
 
 		// Let's keep that list sorted the same as the solution file explorer
 
-		// Crash!!!
-		//lua::toml_lua::bind(lua_ext);
-
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
 		lua::log::bind(m_state, lua_ext);
-		//lua::memory::bind(lua_ext);
 		lua::path::bind(lua_ext);
 		lua::paths::bind(lua_ext);
 	}
