@@ -19,7 +19,7 @@ jobs:
           arch: amd64
           
       - name: Generate CMake project
-        run: cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo -D FINAL=YES -S. -Bbuild -G Ninja
+        run: cmake -D CMAKE_BUILD_TYPE=Debug -D FINAL=YES -S. -Bbuild -G Ninja
 
       - name: Prepare 64bit release DLL
         shell: bash
@@ -53,7 +53,7 @@ jobs:
 
       - name: Build 64bit release DLL
         run: |
-          cmake --build ./build --config RelWithDebInfo --target Hell2Modding --
+          cmake --build ./build --config Debug --target Hell2Modding --
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3
