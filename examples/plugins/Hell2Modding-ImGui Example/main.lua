@@ -1,8 +1,13 @@
 local example_bool = true
 h2m.gui.add_to_menu_bar(function()
-    local new_value, clicked = LuaExt.ImGui.Checkbox("Checkbox Example", example_bool)
-    if clicked then
-        example_bool = new_value
+    if h2m.ImGui.BeginMenu("Ayo") then
+
+        local new_value, clicked = h2m.ImGui.Checkbox("Checkbox Example", example_bool)
+        if clicked then
+            example_bool = new_value
+        end
+
+        h2m.ImGui.EndMenu()
     end
 end)
 
@@ -14,7 +19,3 @@ h2m.gui.add_imgui(function()
     end
     h2m.ImGui.End()
 end)
-
-print(h2m.paths.config())
-
-print(ScreenData)

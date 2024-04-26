@@ -79,8 +79,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    constexpr auto is_console_enabled = true;
 			    auto logger_instance = std::make_unique<logger>(g_project_name, g_file_manager.get_project_file("./LogOutput.log"), is_console_enabled);
 
-			    std::srand(std::chrono::system_clock::now().time_since_epoch().count());
-
 			    LOG(INFO) << g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
 

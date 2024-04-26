@@ -152,8 +152,70 @@ namespace big
 		return 0;
 	}
 
+	// https://sol2.readthedocs.io/en/latest/exceptions.html
+	static int exception_handler(lua_State* L, sol::optional<const std::exception&> maybe_exception, sol::string_view description)
+	{
+		// L is the lua state, which you can wrap in a state_view if necessary
+		// maybe_exception will contain exception, if it exists
+		// description will either be the what() of the exception or a description saying that we hit the general-case catch(...)
+		if (maybe_exception)
+		{
+			const std::exception& ex = *maybe_exception;
+			LOG(FATAL) << ex.what();
+		}
+		else
+		{
+			LOG(FATAL) << description;
+		}
+		Logger::FlushQueue();
+
+		// you must push 1 element onto the stack to be
+		// transported through as the error object in Lua
+		// note that Lua -- and 99.5% of all Lua users and libraries -- expects a string
+		// so we push a single string (in our case, the description of the error)
+		return sol::stack::push(L, description);
+	}
+
+	static void panic_handler(sol::optional<std::string> maybe_msg)
+	{
+		LOG(FATAL) << "Lua is in a panic state and will now abort() the application";
+		if (maybe_msg)
+		{
+			const std::string& msg = maybe_msg.value();
+			LOG(FATAL) << "error message: " << msg;
+		}
+		Logger::FlushQueue();
+
+		// When this function exits, Lua will exhibit default behavior and abort()
+	}
+
+	static int traceback_error_handler(lua_State* L)
+	{
+		std::string msg = "An unknown error has triggered the error handler";
+		sol::optional<sol::string_view> maybetopmsg = sol::stack::unqualified_check_get<sol::string_view>(L, 1, &sol::no_panic);
+		if (maybetopmsg)
+		{
+			const sol::string_view& topmsg = maybetopmsg.value();
+			msg.assign(topmsg.data(), topmsg.size());
+		}
+		luaL_traceback(L, L, msg.c_str(), 1);
+		sol::optional<sol::string_view> maybetraceback = sol::stack::unqualified_check_get<sol::string_view>(L, -1, &sol::no_panic);
+		if (maybetraceback)
+		{
+			const sol::string_view& traceback = maybetraceback.value();
+			msg.assign(traceback.data(), traceback.size());
+		}
+		LOG(FATAL) << msg;
+		return sol::stack::push(L, msg);
+	}
+
 	void lua_manager::init_lua_state()
 	{
+		m_state.set_exception_handler(exception_handler);
+		m_state.set_panic(sol::c_call<decltype(&panic_handler), &panic_handler>);
+		lua_CFunction traceback_function = sol::c_call<decltype(&traceback_error_handler), &traceback_error_handler>;
+		sol::protected_function::set_default_handler(sol::object(m_state.lua_state(), sol::in_place, traceback_function));
+
 		// Register our cleanup functions when the state get destroyed.
 		{
 			const std::string my_inscrutable_key = "..hell2modding\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 "
@@ -163,13 +225,12 @@ namespace big
 			sol::table my_takedown_table = m_state.create_named_table(my_inscrutable_key, sol::metatable_key, my_takedown_metatable);
 		}
 
-		// Crash!!!
-		/*m_state.open_libraries(
-			sol::lib::package,
+		// clang-format off
+		m_state.open_libraries(
 			sol::lib::os,
 			sol::lib::debug,
-			sol::lib::io
-		);*/
+			sol::lib::io);
+		// clang-format on
 
 		init_lua_api();
 	}
@@ -193,7 +254,6 @@ namespace big
 		};
 
 		// Let's keep that list sorted the same as the solution file explorer
-
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
 		lua::log::bind(m_state, lua_ext);
