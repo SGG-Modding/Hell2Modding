@@ -1,12 +1,14 @@
 #include "gui.hpp"
 
 #include "gui/renderer.hpp"
+#include "hooks/hooking.hpp"
 #include "lua/bindings/imgui_window.hpp"
 
 #include <gui/widgets/imgui_hotkey.hpp>
 #include <input/hotkey.hpp>
 #include <input/is_key_pressed.hpp>
 #include <lua/lua_manager.hpp>
+#include <memory/gm_address.hpp>
 #include <pointers.hpp>
 
 namespace big
@@ -118,8 +120,43 @@ namespace big
 
 	static bool editing_gui_keybind = false;
 
+	static void hook_readanimdata()
+	{
+	}
+
 	void gui::dx_on_tick()
 	{
+		if (GetAsyncKeyState(VK_F6) & 0x80'00)
+		{
+			LOG(WARNING) << "Reloading game data";
+			Logger::FlushQueue();
+
+			static auto read_anim_data = gmAddress::scan("BA 2A 00 00 00", "ReadAnimData").offset(-0x1'97).as_func<void()>();
+			if (read_anim_data)
+			{
+				static bool init = true;
+				if (init)
+				{
+					init = false;
+					hooking::detour_hook_helper::add<hook_readanimdata>("readanimdatahook", read_anim_data);
+				}
+
+				static auto f = gmAddress::scan("7D 70 4C 8D 05", "ReadGameData").offset(-0x7B).as_func<void()>();
+				if (f)
+				{
+					f();
+				}
+				else
+				{
+					LOG(FATAL) << "Failed finding ReadGameData";
+				}
+			}
+			else
+			{
+				LOG(FATAL) << "Failed hooking readanimdata";
+			}
+		}
+
 		std::scoped_lock l(big::g_lua_manager_mutex);
 
 		if (!g_lua_manager)
