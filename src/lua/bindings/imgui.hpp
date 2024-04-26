@@ -3814,10 +3814,10 @@ namespace lua::imgui
 
 	inline void bind(sol::table& state)
 	{
-		sol::table ImGui = state.create_named("ImGui");
+		InitUserType(state);
+		InitEnums(state);
 
-		InitUserType(ImGui);
-		InitEnums(ImGui);
+		sol::table ImGui = state.create_named("ImGui");
 
 #pragma region Windows
 		ImGui.set_function("ShowDemoWindow", ShowDemoWindow);
