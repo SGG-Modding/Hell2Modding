@@ -228,6 +228,7 @@ namespace big
 
 		// clang-format off
 		m_state.open_libraries(
+			sol::lib::package,
 			sol::lib::os,
 			sol::lib::debug,
 			sol::lib::io);
