@@ -4,6 +4,9 @@ namespace big::debug
 {
 	inline void wait_until_debugger()
 	{
+		LOG(INFO) << "Waiting for debugger";
+		Logger::FlushQueue();
+
 #ifndef FINAL
 		while (!IsDebuggerPresent())
 		{
