@@ -120,6 +120,7 @@ namespace big
 
 		init_lua_state();
 
+		load_fallback_module();
 		load_all_modules();
 
 		lua::window::deserialize();
@@ -448,6 +449,41 @@ namespace big
 		}
 
 		return sorted_list;
+	}
+
+	void lua_manager::load_fallback_module()
+	{
+		try
+		{
+			auto tmp_path  = std::filesystem::temp_directory_path();
+			tmp_path      /= "h2m_fallback_module.lua";
+			std::ofstream ofs(tmp_path);
+			ofs << "#\n";
+			ofs.close();
+
+			const module_info mod_info = {
+			    .m_lua_file_entries_hash = "",
+			    .m_path                  = tmp_path,
+			    .m_folder_path           = m_plugins_folder.get_path(),
+			    .m_guid                  = "Hell2Modding-GLOBAL",
+			    .m_guid_with_version     = "Hell2Modding-GLOBAL-1.0.0",
+			    .m_manifest = {.name = "GLOBAL", .version_number = "1.0.0", .version = semver::version(1, 0, 0), .website_url = "", .description = "Fallback module"},
+			};
+			const auto load_result = load_module(mod_info);
+		}
+		catch (const std::exception& e)
+		{
+			LOG(FATAL) << e.what();
+		}
+		catch (...)
+		{
+			LOG(FATAL) << "Unknown exception while trying to create fallback module";
+		}
+	}
+
+	lua_module* lua_manager::get_fallback_module()
+	{
+		return m_modules[0].get();
 	}
 
 	void lua_manager::load_all_modules()

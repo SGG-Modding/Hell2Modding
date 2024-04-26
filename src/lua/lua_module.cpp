@@ -137,8 +137,6 @@ namespace big
 		return is_different;
 	}
 
-	static std::string dummy_guid = "No guid (issue with a required module?)";
-
 	std::string lua_module::guid_from(sol::this_environment this_env)
 	{
 		sol::environment& env            = this_env;
@@ -147,7 +145,8 @@ namespace big
 		{
 			return _guid.value();
 		}
-		return dummy_guid;
+
+		return g_lua_manager->get_fallback_module()->guid();
 	}
 
 	big::lua_module* lua_module::this_from(sol::this_environment this_env)
@@ -158,6 +157,7 @@ namespace big
 		{
 			return _this.value();
 		}
-		return nullptr;
+
+		return g_lua_manager->get_fallback_module();
 	}
 } // namespace big

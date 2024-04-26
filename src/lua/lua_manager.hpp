@@ -28,6 +28,9 @@ namespace big
 		void init_lua_state();
 		void init_lua_api();
 
+		void load_fallback_module();
+		lua_module* get_fallback_module();
+
 		void load_all_modules();
 		void unload_all_modules();
 
