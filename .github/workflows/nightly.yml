@@ -19,7 +19,7 @@ jobs:
           arch: amd64
           
       - name: Generate CMake project
-        run: cmake -D CMAKE_BUILD_TYPE=Debug -D -S. -Bbuild -G Ninja
+        run: cmake -D CMAKE_BUILD_TYPE=Debug -S. -Bbuild -G Ninja
 
       - name: Prepare 64bit release DLL
         shell: bash
