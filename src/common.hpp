@@ -59,11 +59,9 @@
 #include "sol/sol.hpp"
 
 #define IMGUI_DEFINE_MATH_OPERATORS
-#define IM_ASSERT(_EXPR)  ((void)(_EXPR))     // Disable asserts
 #include <imgui.h>
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui_internal.h>
-#define IM_ASSERT(_EXPR)  ((void)(_EXPR))     // Disable asserts
 
 #include "logger/logger.hpp"
 
