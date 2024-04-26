@@ -52,8 +52,12 @@ jobs:
           cd ..
 
       - name: Build 64bit release DLL
+        shell: bash
         run: |
           cmake --build ./build --config Debug --target Hell2Modding --
+          mv ./build/d3d12_.dll ./build/d3d12.dll
+          mv ./build/d3d12_.pdb ./build/d3d12.pdb
+
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3

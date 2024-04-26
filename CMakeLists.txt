@@ -109,4 +109,4 @@ if (MSVC)
     endif()
 endif()
 
-set_target_properties(Hell2Modding PROPERTIES OUTPUT_NAME "d3d12")
+set_target_properties(Hell2Modding PROPERTIES OUTPUT_NAME "d3d12_")
