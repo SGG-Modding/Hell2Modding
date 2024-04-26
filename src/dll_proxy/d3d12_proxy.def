@@ -1,4 +1,3 @@
-LIBRARY D3D12
 EXPORTS
 	GetBehaviorValue=fGetBehaviorValue @100
 	D3D12CreateDevice=fD3D12CreateDevice @101
