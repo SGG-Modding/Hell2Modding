@@ -59,6 +59,19 @@ private:
 		}
 	}
 
+	static inline uint64_t s_module_base_our_module;
+	static inline uint64_t s_module_size_our_module;
+
+	static inline void init_if_needed_our_module_info()
+	{
+		static bool is_init = false;
+		if (!is_init)
+		{
+			module_info_helper::get_module_base_and_size(&s_module_base_our_module, &s_module_size_our_module, "d3d12.dll");
+			is_init = true;
+		}
+	}
+
 	static gmAddress scan_internal(const char* pattern_str, const char* debug_name, uint64_t module_base, uint64_t module_size)
 	{
 		// Convert string pattern into byte array form
@@ -137,6 +150,13 @@ public:
 		init_if_needed_default_module_info();
 
 		return scan_internal(pattern_str, debug_name, s_module_base_default_module, s_module_size_default_module);
+	}
+
+	static inline gmAddress scan_me(const char* pattern_str, const char* debug_name = nullptr)
+	{
+		init_if_needed_our_module_info();
+
+		return scan_internal(pattern_str, debug_name, s_module_base_our_module, s_module_size_our_module);
 	}
 
 	gmAddress offset(int32_t offset) const
