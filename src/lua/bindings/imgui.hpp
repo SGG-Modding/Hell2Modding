@@ -3821,7 +3821,7 @@ namespace lua::imgui
 
 #pragma region Windows
 		ImGui.set_function("ShowDemoWindow", ShowDemoWindow);
-		ImGui.set_function("Begin", sol::overload(sol::resolve<bool(const std::string&, sol::this_environment env)>(Begin), sol::resolve<bool(const std::string&, int, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool)>(Begin)));
+		ImGui.set_function("Begin", sol::overload(sol::resolve<bool(const std::string&, sol::this_environment)>(Begin), sol::resolve<bool(const std::string&, int, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, sol::this_environment)>(Begin), sol::resolve<std::tuple<bool, bool>(const std::string&, bool, int, sol::this_environment)>(Begin)));
 		ImGui.set_function("End", End);
 #pragma endregion Windows
 
