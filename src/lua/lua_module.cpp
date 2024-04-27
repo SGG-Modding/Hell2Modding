@@ -153,7 +153,9 @@ namespace big
 	{
 		sol::environment& env                 = this_env;
 		sol::optional<big::lua_module*> _this = env["!this"];
-		if (_this)
+
+		// That's weird.
+		if (_this && _this.value())
 		{
 			return _this.value();
 		}
