@@ -256,6 +256,7 @@ namespace big
 		};
 
 		// Let's keep that list sorted the same as the solution file explorer
+		lua::toml_lua::bind(lua_ext);
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
 		lua::log::bind(m_state, lua_ext);
