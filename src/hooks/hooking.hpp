@@ -70,7 +70,7 @@ namespace big
 			}
 
 			template<auto detour_function>
-			static void add_now(const std::string& name, void* target)
+			static void* add_now(const std::string& name, void* target)
 			{
 				hook_to_detour_hook_helper<detour_function>::m_detour_hook.set_instance(name, target, detour_function);
 
@@ -80,10 +80,12 @@ namespace big
 				d.enable_now();
 
 				m_detour_hook_helpers.push_back(d);
+
+				return nullptr;
 			}
 
 			template<auto detour_function>
-			static void add(const std::string& name, void* target)
+			static void* add(const std::string& name, void* target)
 			{
 				hook_to_detour_hook_helper<detour_function>::m_detour_hook.set_instance(name, target, detour_function);
 
@@ -93,6 +95,8 @@ namespace big
 				d.enable_hook_if_hooking_is_already_running();
 
 				m_detour_hook_helpers.push_back(d);
+
+				return nullptr;
 			}
 
 			template<auto detour_function>

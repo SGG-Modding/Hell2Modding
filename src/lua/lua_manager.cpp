@@ -1,6 +1,7 @@
 #include "lua_manager.hpp"
 
 #include "bindings/gui.hpp"
+#include "bindings/hades/audio.hpp"
 #include "bindings/imgui.hpp"
 #include "bindings/log.hpp"
 #include "bindings/path.hpp"
@@ -256,6 +257,7 @@ namespace big
 		};
 
 		// Let's keep that list sorted the same as the solution file explorer
+		lua::hades::audio::bind(lua_ext);
 		lua::toml_lua::bind(lua_ext);
 		lua::gui::bind(lua_ext);
 		lua::imgui::bind(lua_ext);
