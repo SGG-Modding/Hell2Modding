@@ -163,14 +163,39 @@ namespace lua::path
 		return "";
 	}
 
+	// Lua API: Function
+	// Table: h2m.path
+	// Name: create_directory
+	// Param: path: string: The path to the new directory to create.
+	// Returns: boolean: true if a directory was newly created for the directory p resolves to, false otherwise.
+	static bool create_directory(const std::string& path)
+	{
+		try
+		{
+			return std::filesystem::create_directories(path);
+		}
+		catch (const std::exception& e)
+		{
+			LOG(WARNING) << e.what();
+		}
+		catch (...)
+		{
+			LOG(WARNING) << "Unknown exception while creating directory " << path;
+		}
+
+		return false;
+	}
+
 	void bind(sol::table& state)
 	{
-		auto ns               = state.create_named("path");
-		ns["combine"]         = combine;
-		ns["get_parent"]      = get_parent;
-		ns["get_directories"] = get_directories;
-		ns["get_files"]       = get_files;
-		ns["filename"]        = filename;
-		ns["stem"]            = stem;
+		auto ns = state.create_named("path");
+
+		ns["combine"]          = combine;
+		ns["get_parent"]       = get_parent;
+		ns["get_directories"]  = get_directories;
+		ns["get_files"]        = get_files;
+		ns["filename"]         = filename;
+		ns["stem"]             = stem;
+		ns["create_directory"] = create_directory;
 	}
 } // namespace lua::path
