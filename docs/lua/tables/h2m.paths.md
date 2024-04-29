@@ -2,7 +2,7 @@
 
 Table containing helpers for retrieving Hell2Modding related IO file/folder paths.
 
-## Functions (2)
+## Functions (4)
 
 ### `config()`
 
@@ -26,6 +26,26 @@ Used for data that must persist between sessions but not be manipulated by the u
 **Example Usage:**
 ```lua
 string = h2m.paths.plugins_data()
+```
+
+### `Content()`
+
+- **Returns:**
+  - `string`: Returns the GameFolder/Content folder path
+
+**Example Usage:**
+```lua
+string = h2m.paths.Content()
+```
+
+### `Ship()`
+
+- **Returns:**
+  - `string`: Returns the GameFolder/Ship folder path
+
+**Example Usage:**
+```lua
+string = h2m.paths.Ship()
 ```
 
 

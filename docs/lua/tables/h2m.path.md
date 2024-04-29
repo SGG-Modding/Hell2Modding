@@ -2,7 +2,7 @@
 
 Table containing helpers for manipulating file or directory paths
 
-## Functions (6)
+## Functions (7)
 
 ### `combine(path)`
 
@@ -84,6 +84,19 @@ string = h2m.path.filename(path)
 **Example Usage:**
 ```lua
 string = h2m.path.stem(path)
+```
+
+### `create_directory(path)`
+
+- **Parameters:**
+  - `path` (string): The path to the new directory to create.
+
+- **Returns:**
+  - `boolean`: true if a directory was newly created for the directory p resolves to, false otherwise.
+
+**Example Usage:**
+```lua
+boolean = h2m.path.create_directory(path)
 ```
 
 
