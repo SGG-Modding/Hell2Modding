@@ -32,6 +32,9 @@ namespace big
 			std::vector<std::unique_ptr<lua::gui::gui_element>> m_independent_gui;
 
 			std::vector<void*> m_allocated_memory;
+
+			std::vector<sol::protected_function> m_on_pre_import;
+			std::vector<sol::protected_function> m_on_post_import;
 		};
 
 		lua_module_data m_data;

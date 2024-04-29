@@ -93,6 +93,18 @@ namespace big
 		LOG(INFO) << "state is valid";
 	}
 
+	static sol::optional<sol::environment> env_to_add;
+
+	static int hook_lua_pcallk(lua_State* L, int nargs, int nresults, int errfunc, int ctx, lua_CFunction k)
+	{
+		if (env_to_add.has_value() && env_to_add.value().valid())
+		{
+			sol::set_environment(env_to_add.value(), sol::stack_reference(L, -1));
+		}
+
+		return big::g_hooking->get_original<hook_lua_pcallk>()(L, nargs, nresults, errfunc, ctx, k);
+	}
+
 	static char hook_sgg_ScriptManager_Load(const char* scriptFile)
 	{
 		if (scriptFile)
@@ -103,9 +115,40 @@ namespace big
 			{
 				hook_in(*g_pointers->m_hades2.m_lua_state);
 			}
+
+			g_lua_manager->for_each_module(
+			    [&](std::unique_ptr<lua_module>& mod)
+			    {
+				    for (const auto& cb : mod->m_data.m_on_pre_import)
+				    {
+					    auto res        = cb(scriptFile, env_to_add.has_value() ? env_to_add.value() : sol::lua_nil);
+					    auto env_to_set = res.get<sol::optional<sol::environment>>();
+					    if (env_to_set && env_to_set.value() && env_to_set.value().valid())
+					    {
+						    env_to_add = env_to_set;
+						    LOG(INFO) << "Setting _ENV for this script to " << mod->guid();
+					    }
+				    }
+			    });
 		}
 
-		return big::g_hooking->get_original<hook_sgg_ScriptManager_Load>()(scriptFile);
+		const auto res = big::g_hooking->get_original<hook_sgg_ScriptManager_Load>()(scriptFile);
+
+		env_to_add = {};
+
+		if (scriptFile)
+		{
+			g_lua_manager->for_each_module(
+			    [&](std::unique_ptr<lua_module>& mod)
+			    {
+				    for (const auto& cb : mod->m_data.m_on_post_import)
+				    {
+					    cb(scriptFile);
+				    }
+			    });
+		}
+
+		return res;
 	}
 
 	static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
@@ -139,6 +182,9 @@ namespace big
 
 		// Lua stuff
 		{
+			hooking::detour_hook_helper::add<hook_lua_pcallk>("lua_pcallk",
+			                                                  gmAddress::scan("75 05 44 8B D6", "lua_pcallk").offset(-0x1D));
+
 			hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>(
 			    "ScriptManager_Load",
 			    gmAddress::scan("49 3B DF 76 29", "ScriptManager_Load").offset(-0x6E));

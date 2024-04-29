@@ -10,6 +10,8 @@
 #include "file_manager/file_manager.hpp"
 #include "string/string.hpp"
 
+#include <hooks/hooking.hpp>
+#include <memory/gm_address.hpp>
 #include <thunderstore/v1/manifest.hpp>
 #include <unordered_set>
 
@@ -255,6 +257,37 @@ namespace big
 				mdl->m_data.m_on_all_mods_loaded_callbacks.push_back(cb);
 			}
 		};
+
+		// Lua API: Function
+		// Table: h2m
+		// Name: on_pre_import
+		// Param: function: signature (string file_name, current_ENV_for_this_import) return nil or _ENV
+		// The passed function will be called before the game loads a .lua script from the game's Content/Scripts folder.
+		// The _ENV returned (if not nil) by the passed function gives you a way to define the _ENV of this lua script.
+		lua_ext.set_function("on_pre_import",
+		                     [](sol::protected_function f, sol::this_environment env)
+		                     {
+			                     auto mod = lua_module::this_from(env);
+			                     if (mod)
+			                     {
+				                     mod->m_data.m_on_pre_import.push_back(f);
+			                     }
+		                     });
+
+		// Lua API: Function
+		// Table: h2m
+		// Name: on_pre_import
+		// Param: function: signature (string file_name)
+		// The passed function will be called after the game loads a .lua script from the game's Content/Scripts folder.
+		lua_ext.set_function("on_post_import",
+		                     [](sol::protected_function f, sol::this_environment env)
+		                     {
+			                     auto mod = lua_module::this_from(env);
+			                     if (mod)
+			                     {
+				                     mod->m_data.m_on_post_import.push_back(f);
+			                     }
+		                     });
 
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
