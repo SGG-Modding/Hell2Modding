@@ -3,6 +3,7 @@
 #include "gui/renderer.hpp"
 #include "hooks/hooking.hpp"
 #include "lua/bindings/imgui_window.hpp"
+#include "lua_extensions/lua_manager_extension.hpp"
 
 #include <gui/widgets/imgui_hotkey.hpp>
 #include <input/hotkey.hpp>
@@ -131,33 +132,23 @@ namespace big
 			LOG(WARNING) << "Reloading game data";
 			Logger::FlushQueue();
 
-			static auto read_anim_data = gmAddress::scan("BA 2A 00 00 00", "ReadAnimData").offset(-0x1'97).as_func<void()>();
-			if (read_anim_data)
+			static auto read_anim_data_ptr = gmAddress::scan("BA 2A 00 00 00", "ReadAnimData");
+			if (read_anim_data_ptr)
 			{
-				static bool init = true;
-				if (init)
-				{
-					init = false;
-					hooking::detour_hook_helper::add<hook_readanimdata>("readanimdatahook", read_anim_data);
-				}
+				static auto read_anim_data = read_anim_data_ptr.offset(-0x1'97).as_func<void()>();
 
-				static auto f = gmAddress::scan("7D 70 4C 8D 05", "ReadGameData").offset(-0x7B).as_func<void()>();
-				if (f)
+				static auto hook_ = hooking::detour_hook_helper::add<hook_readanimdata>("readanimdatahook", read_anim_data);
+
+				static auto read_game_data_ptr = gmAddress::scan("7D 70 4C 8D 05", "ReadGameData");
+				if (read_game_data_ptr)
 				{
+					static auto f = read_game_data_ptr.offset(-0x7B).as_func<void()>();
 					f();
 				}
-				else
-				{
-					LOG(FATAL) << "Failed finding ReadGameData";
-				}
-			}
-			else
-			{
-				LOG(FATAL) << "Failed hooking readanimdata";
 			}
 		}
 
-		std::scoped_lock l(big::g_lua_manager_mutex);
+		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
 
 		if (!g_lua_manager)
 		{
@@ -394,7 +385,8 @@ namespace big
 	{
 		try
 		{
-			m_file_path = g_file_manager.get_project_folder("config").get_path() / m_file_name;
+			const auto file_name = rom::g_project_name + '-' + rom::g_project_name + '-' + "GUI.cfg";
+			m_file_path          = g_file_manager.get_project_folder("config").get_path() / file_name;
 			if (std::filesystem::exists(m_file_path))
 			{
 				m_table = toml::parse_file(m_file_path.c_str());

@@ -8,10 +8,12 @@
 
 #include <backends/imgui_impl_dx12.h>
 #include <backends/imgui_impl_win32.h>
+#include <d3d12.h>
 #include <dxgi1_4.h>
 #include <lua/lua_manager.hpp>
 #include <memory/gm_address.hpp>
 #include <typeinfo>
+#pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 
 static IDXGIFactory4* gDxgiFactory                 = nullptr;

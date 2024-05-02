@@ -8,15 +8,8 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 
 # Fetch modules
 message("\nFetching modules")
-include(cmake_scripts/async-logger.cmake)
-include(cmake_scripts/cpp-semver.cmake)
-include(cmake_scripts/cxxopts.cmake)
 include(cmake_scripts/git.cmake)
-include(cmake_scripts/imgui.cmake)
-include(cmake_scripts/json.cmake)
-include(cmake_scripts/lua.cmake)
-include(cmake_scripts/polyhook.cmake)
-include(cmake_scripts/pugixml.cmake)
+include(cmake_scripts/rom.cmake)
 
 message(STATUS "Hell2Modding")
 file(GLOB_RECURSE SRC_MAIN
@@ -47,20 +40,11 @@ source_group(TREE ${SRC_DIR} PREFIX "src" FILES ${SRC_MAIN})
 
 target_include_directories(Hell2Modding PRIVATE
     "${SRC_DIR}"
-    "${cxxopts_SOURCE_DIR}/include"
-    "${json_SOURCE_DIR}/single_include"
-    "${imgui_SOURCE_DIR}"
-    "${polyhook_SOURCE_DIR}"
-    "${cpp-semver_SOURCE_DIR}/include"
-    "${toml++_SOURCE_DIR}"
-    "${sol2_SOURCE_DIR}/include"
-    ${LUA_INCLUDE_DIR}
-    "${magic_enum_SOURCE_DIR}/include"
 )
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE pugixml AsyncLogger dbghelp imgui lua_shared sol2 tomlplusplus::tomlplusplus magic_enum PolyHook_2)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)

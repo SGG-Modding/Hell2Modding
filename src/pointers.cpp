@@ -67,7 +67,7 @@ namespace big
 	{
 		g_pointers = this;
 
-		const auto mem_region = memory::module("Hades2.exe");
+		const auto mem_region = memory::module(rom::g_target_module_name);
 
 		constexpr auto hades2_batch_and_hash = pointers::get_hades2_batch();
 		constexpr cstxpr_str hades2_batch_name{"H2"};

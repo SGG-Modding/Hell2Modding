@@ -6,9 +6,6 @@
 #include <sdkddkver.h>
 #include <winsock2.h>
 #include <windows.h>
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "dxgi.lib")
-#include <d3d12.h>
 
 #include <cinttypes>
 #include <cstddef>
@@ -54,16 +51,10 @@
 #include <format>
 #include <nlohmann/json.hpp>
 
-#define SOL_ALL_SAFETIES_ON 1
-#define SOL_NO_CHECK_NUMBER_PRECISION 1
-#include "sol/sol.hpp"
-
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include <imgui.h>
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include <imgui_internal.h>
-
 #include "logger/logger.hpp"
+#include "lua/sol_include.hpp"
+#include "gui/imgui_include.hpp"
+#include "rom/rom.hpp"
 
 // clang-format on
 
@@ -78,9 +69,6 @@ namespace big
 
 	inline std::atomic_bool g_abort{false};
 	inline std::atomic_bool g_running{false};
-
-	inline constexpr auto g_project_name             = "Hell2Modding";
-	inline constexpr auto g_target_window_class_name = "The Forge";
 } // namespace big
 
 #endif

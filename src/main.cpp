@@ -1,6 +1,7 @@
 #include "dll_proxy/dll_proxy.hpp"
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
+#include "hades2/hooks.hpp"
 #include "hooks/hooking.hpp"
 #include "logger/exception_handler.hpp"
 #include "ltable.h"
@@ -80,6 +81,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
 
+	// Lua API: Namespace
+	// Name: h2m
+	rom::init("Hell2Modding", "Hades2.exe", "h2m");
+
 	if (reason == DLL_PROCESS_ATTACH)
 	{
 		// This will inevitably break when the game release on game pass or some other platforms.
@@ -116,7 +121,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			// clang-format on
 		}
 
-
 		dll_proxy::init();
 
 		DisableThreadLibraryCalls(hmod);
@@ -136,9 +140,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    paths::init_dump_file_path();
 
 			    constexpr auto is_console_enabled = true;
-			    auto logger_instance = std::make_unique<logger>(g_project_name, g_file_manager.get_project_file("./LogOutput.log"), is_console_enabled);
+			    auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"), is_console_enabled);
 
-			    LOG(INFO) << g_project_name;
+			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
 
 #ifdef FINAL
@@ -157,6 +161,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    auto hooking_instance = std::make_unique<hooking>();
 			    LOG(INFO) << "Hooking initialized.";
 
+			    big::hades::init_hooks();
+
 			    auto renderer_instance = std::make_unique<renderer>();
 			    LOG(INFO) << "Renderer initialized.";
 
@@ -172,7 +178,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    if (g_abort)
 			    {
-				    LOG(FATAL) << "Hell2Modding failed to init properly, exiting.";
+				    LOG(FATAL) << rom::g_project_name << "failed to init properly, exiting.";
 				    g_running = false;
 			    }
 

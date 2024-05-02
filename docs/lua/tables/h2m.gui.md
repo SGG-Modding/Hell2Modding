@@ -2,27 +2,17 @@
 
 ## Functions (4)
 
-### `is_open()`
-
-- **Returns:**
-  - `bool`: Returns true if the GUI is open.
-
-**Example Usage:**
-```lua
-bool = h2m.gui.is_open()
-```
-
 ### `add_to_menu_bar(imgui_rendering)`
 
 Registers a function that will be called under your dedicated space in the imgui main menu bar.
 **Example Usage:**
 ```lua
 h2m.gui.add_to_menu_bar(function()
-   if h2m.ImGui.BeginMenu("Ayo") then
-       if h2m.ImGui.Button("Label") then
-         h2m.log.info("hi")
+   if ImGui.BeginMenu("Ayo") then
+       if ImGui.Button("Label") then
+         log.info("hi")
        end
-       h2m.ImGui.EndMenu()
+       ImGui.EndMenu()
    end
 end)
 ```
@@ -41,13 +31,13 @@ Registers a function that will be called every rendering frame, regardless of th
 **Example Usage:**
 ```lua
 h2m.gui.add_always_draw_imgui(function()
-   if h2m.ImGui.Begin("My Custom Window") then
-       if h2m.ImGui.Button("Label") then
-         h2m.log.info("hi")
+   if ImGui.Begin("My Custom Window") then
+       if ImGui.Button("Label") then
+         log.info("hi")
        end
 
    end
-   h2m.ImGui.End()
+   ImGui.End()
 end)
 ```
 
@@ -65,13 +55,13 @@ Registers a function that will be called every rendering frame, only if the gui 
 **Example Usage:**
 ```lua
 h2m.gui.add_imgui(function()
-   if h2m.ImGui.Begin("My Custom Window") then
-       if h2m.ImGui.Button("Label") then
-         h2m.log.info("hi")
+   if ImGui.Begin("My Custom Window") then
+       if ImGui.Button("Label") then
+         log.info("hi")
        end
 
    end
-   h2m.ImGui.End()
+   ImGui.End()
 end)
 ```
 
@@ -81,6 +71,16 @@ end)
 **Example Usage:**
 ```lua
 h2m.gui.add_imgui(imgui_rendering)
+```
+
+### `is_open()`
+
+- **Returns:**
+  - `bool`: Returns true if the GUI is open.
+
+**Example Usage:**
+```lua
+bool = h2m.gui.is_open()
 ```
 
 

@@ -42,7 +42,6 @@ namespace big
 	private:
 		void toggle_mouse();
 
-		static inline constexpr auto m_file_name = "Hell2Modding-Hell2Modding-GUI.cfg";
 		std::filesystem::path m_file_path;
 		toml::table m_table;
 		void init_pref();
