@@ -81,12 +81,17 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
 
-	// Lua API: Namespace
-	// Name: rom
-	rom::init("Hell2Modding", "Hades2.exe", "rom");
-
 	if (reason == DLL_PROCESS_ATTACH)
 	{
+		if (!rom::is_rom_enabled())
+		{
+			return true;
+		}
+
+		// Lua API: Namespace
+		// Name: rom
+		rom::init("Hell2Modding", "Hades2.exe", "rom");
+
 		// This will inevitably break when the game release on game pass or some other platforms.
 		/*const auto steam_env_env_var     = _wgetenv(L"SteamEnv");
 		const std::wstring good_steam_env_var = L"1";
