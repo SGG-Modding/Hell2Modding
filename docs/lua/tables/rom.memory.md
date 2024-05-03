@@ -1,4 +1,4 @@
-# Table: h2m.memory
+# Table: rom.memory
 
 Table containing helper functions related to process memory.
 
@@ -16,7 +16,7 @@ Scans the specified memory pattern within the target main module and returns a p
 
 **Example Usage:**
 ```lua
-pointer = h2m.memory.scan_pattern(pattern)
+pointer = rom.memory.scan_pattern(pattern)
 ```
 
 ### `allocate(size)`
@@ -29,7 +29,7 @@ pointer = h2m.memory.scan_pattern(pattern)
 
 **Example Usage:**
 ```lua
-pointer = h2m.memory.allocate(size)
+pointer = rom.memory.allocate(size)
 ```
 
 ### `free(ptr)`
@@ -39,7 +39,7 @@ pointer = h2m.memory.allocate(size)
 
 **Example Usage:**
 ```lua
-h2m.memory.free(ptr)
+rom.memory.free(ptr)
 ```
 
 

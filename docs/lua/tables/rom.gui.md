@@ -1,4 +1,4 @@
-# Table: h2m.gui
+# Table: rom.gui
 
 ## Functions (4)
 
@@ -7,7 +7,7 @@
 Registers a function that will be called under your dedicated space in the imgui main menu bar.
 **Example Usage:**
 ```lua
-h2m.gui.add_to_menu_bar(function()
+rom.gui.add_to_menu_bar(function()
    if ImGui.BeginMenu("Ayo") then
        if ImGui.Button("Label") then
          log.info("hi")
@@ -22,7 +22,7 @@ end)
 
 **Example Usage:**
 ```lua
-h2m.gui.add_to_menu_bar(imgui_rendering)
+rom.gui.add_to_menu_bar(imgui_rendering)
 ```
 
 ### `add_always_draw_imgui(imgui_rendering)`
@@ -30,7 +30,7 @@ h2m.gui.add_to_menu_bar(imgui_rendering)
 Registers a function that will be called every rendering frame, regardless of the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 **Example Usage:**
 ```lua
-h2m.gui.add_always_draw_imgui(function()
+rom.gui.add_always_draw_imgui(function()
    if ImGui.Begin("My Custom Window") then
        if ImGui.Button("Label") then
          log.info("hi")
@@ -46,7 +46,7 @@ end)
 
 **Example Usage:**
 ```lua
-h2m.gui.add_always_draw_imgui(imgui_rendering)
+rom.gui.add_always_draw_imgui(imgui_rendering)
 ```
 
 ### `add_imgui(imgui_rendering)`
@@ -54,7 +54,7 @@ h2m.gui.add_always_draw_imgui(imgui_rendering)
 Registers a function that will be called every rendering frame, only if the gui is in its open state. You can call ImGui functions in it, please check the ImGui.md documentation file for more info.
 **Example Usage:**
 ```lua
-h2m.gui.add_imgui(function()
+rom.gui.add_imgui(function()
    if ImGui.Begin("My Custom Window") then
        if ImGui.Button("Label") then
          log.info("hi")
@@ -70,7 +70,7 @@ end)
 
 **Example Usage:**
 ```lua
-h2m.gui.add_imgui(imgui_rendering)
+rom.gui.add_imgui(imgui_rendering)
 ```
 
 ### `is_open()`
@@ -80,7 +80,7 @@ h2m.gui.add_imgui(imgui_rendering)
 
 **Example Usage:**
 ```lua
-bool = h2m.gui.is_open()
+bool = rom.gui.is_open()
 ```
 
 

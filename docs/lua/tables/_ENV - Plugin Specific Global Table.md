@@ -1,4 +1,4 @@
-# Table: h2m._ENV - Plugin Specific Global Table
+# Table: rom._ENV - Plugin Specific Global Table
 
 Each mod/plugin have their own global table containing helpers, such as:
 - Their own guid
@@ -9,14 +9,14 @@ Each mod/plugin have their own global table containing helpers, such as:
 
 - Path to their own folder inside `plugins`: Location of .lua, README, manifest.json files.
 
-You can access other mods helpers through the `h2m.mods[OTHER_MOD_GUID]` table.
+You can access other mods helpers through the `rom.mods[OTHER_MOD_GUID]` table.
 
 **Example Usage:**
 
 ```lua
 print(_ENV._PLUGIN.guid)
 
-for n in pairs(h2m.mods[_ENV._PLUGIN.guid]) do
+for n in pairs(rom.mods[_ENV._PLUGIN.guid]) do
      log.info(n)
 end
 ```

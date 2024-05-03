@@ -82,8 +82,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 	using namespace big;
 
 	// Lua API: Namespace
-	// Name: h2m
-	rom::init("Hell2Modding", "Hades2.exe", "h2m");
+	// Name: rom
+	rom::init("Hell2Modding", "Hades2.exe", "rom");
 
 	if (reason == DLL_PROCESS_ATTACH)
 	{

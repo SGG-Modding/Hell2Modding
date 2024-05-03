@@ -1,4 +1,4 @@
-# Class: h2m.lua_patch
+# Class: rom.lua_patch
 
 Class representing a in-memory patch.
 
@@ -10,7 +10,7 @@ Apply the modified value.
 
 **Example Usage:**
 ```lua
-h2m.lua_patch:apply()
+rom.lua_patch:apply()
 ```
 
 ### `restore()`
@@ -19,7 +19,7 @@ Restore the original value.
 
 **Example Usage:**
 ```lua
-h2m.lua_patch:restore()
+rom.lua_patch:restore()
 ```
 
 

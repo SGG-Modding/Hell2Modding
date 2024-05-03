@@ -62,7 +62,7 @@ namespace big::lua_manager_extension
 		auto on_import_table = lua_ext.create_named("on_import");
 
 		// Lua API: Function
-		// Table: h2m
+		// Table: on_import
 		// Name: pre
 		// Param: function: signature (string file_name, current_ENV_for_this_import) return nil or _ENV
 		// The passed function will be called before the game loads a .lua script from the game's Content/Scripts folder.
@@ -78,7 +78,7 @@ namespace big::lua_manager_extension
 		                             });
 
 		// Lua API: Function
-		// Table: h2m
+		// Table: on_import
 		// Name: post
 		// Param: function: signature (string file_name)
 		// The passed function will be called after the game loads a .lua script from the game's Content/Scripts folder.

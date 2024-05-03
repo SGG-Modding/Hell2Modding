@@ -1,4 +1,4 @@
-# Table: h2m.log
+# Table: rom.log
 
 Table containing functions for printing to console / log file.
 
@@ -13,7 +13,7 @@ Logs an informational message.
 
 **Example Usage:**
 ```lua
-h2m.log.info(args)
+rom.log.info(args)
 ```
 
 ### `warning(args)`
@@ -25,7 +25,7 @@ Logs a warning message.
 
 **Example Usage:**
 ```lua
-h2m.log.warning(args)
+rom.log.warning(args)
 ```
 
 ### `debug(args)`
@@ -37,7 +37,7 @@ Logs a debug message.
 
 **Example Usage:**
 ```lua
-h2m.log.debug(args)
+rom.log.debug(args)
 ```
 
 ### `error(args)`
@@ -49,7 +49,7 @@ Logs an error message.
 
 **Example Usage:**
 ```lua
-h2m.log.error(args)
+rom.log.error(args)
 ```
 
 

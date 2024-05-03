@@ -1,4 +1,4 @@
-# Table: h2m.mods
+# Table: rom.mods
 
 ## Fields (1)
 
@@ -19,7 +19,7 @@ Registers a callback that will be called once all mods are loaded. Will be calle
 
 **Example Usage:**
 ```lua
-h2m.mods.on_all_mods_loaded(callback)
+rom.mods.on_all_mods_loaded(callback)
 ```
 
 

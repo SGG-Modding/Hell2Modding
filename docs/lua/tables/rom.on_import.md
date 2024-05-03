@@ -1,4 +1,4 @@
-# Table: h2m.h2m
+# Table: rom.on_import
 
 ## Functions (2)
 
@@ -12,7 +12,7 @@ The _ENV returned (if not nil) by the passed function gives you a way to define 
 
 **Example Usage:**
 ```lua
-h2m.h2m.pre(function)
+rom.on_import.pre(function)
 ```
 
 ### `post(function)`
@@ -24,7 +24,7 @@ The passed function will be called after the game loads a .lua script from the g
 
 **Example Usage:**
 ```lua
-h2m.h2m.post(function)
+rom.on_import.post(function)
 ```
 
 

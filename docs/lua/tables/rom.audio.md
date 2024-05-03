@@ -1,4 +1,4 @@
-# Table: h2m.audio
+# Table: rom.audio
 
 ## Functions (1)
 
@@ -12,7 +12,7 @@
 
 **Example Usage:**
 ```lua
-bool = h2m.audio.load_bank(file_path)
+bool = rom.audio.load_bank(file_path)
 ```
 
 

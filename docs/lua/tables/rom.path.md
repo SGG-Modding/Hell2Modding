@@ -1,4 +1,4 @@
-# Table: h2m.path
+# Table: rom.path
 
 Table containing helpers for manipulating file or directory paths
 
@@ -16,7 +16,7 @@ Combines strings into a path.
 
 **Example Usage:**
 ```lua
-string = h2m.path.combine(path)
+string = rom.path.combine(path)
 ```
 
 ### `get_parent(path)`
@@ -31,7 +31,7 @@ Retrieves the parent directory of the specified path, including both absolute an
 
 **Example Usage:**
 ```lua
-string = h2m.path.get_parent(path)
+string = rom.path.get_parent(path)
 ```
 
 ### `get_directories(root_path)`
@@ -44,7 +44,7 @@ string = h2m.path.get_parent(path)
 
 **Example Usage:**
 ```lua
-string table = h2m.path.get_directories(root_path)
+string table = rom.path.get_directories(root_path)
 ```
 
 ### `get_files(root_path)`
@@ -57,7 +57,7 @@ string table = h2m.path.get_directories(root_path)
 
 **Example Usage:**
 ```lua
-string table = h2m.path.get_files(root_path)
+string table = rom.path.get_files(root_path)
 ```
 
 ### `filename(path)`
@@ -70,7 +70,7 @@ string table = h2m.path.get_files(root_path)
 
 **Example Usage:**
 ```lua
-string = h2m.path.filename(path)
+string = rom.path.filename(path)
 ```
 
 ### `stem(path)`
@@ -83,7 +83,7 @@ string = h2m.path.filename(path)
 
 **Example Usage:**
 ```lua
-string = h2m.path.stem(path)
+string = rom.path.stem(path)
 ```
 
 ### `create_directory(path)`
@@ -96,7 +96,7 @@ string = h2m.path.stem(path)
 
 **Example Usage:**
 ```lua
-boolean = h2m.path.create_directory(path)
+boolean = rom.path.create_directory(path)
 ```
 
 

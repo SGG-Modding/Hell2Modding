@@ -1,4 +1,4 @@
-# Class: h2m.pointer
+# Class: rom.pointer
 
 Class representing a 64-bit memory address.
 
@@ -30,7 +30,7 @@ Adds an offset to the current memory address and returns a new pointer object.
 
 **Example Usage:**
 ```lua
-pointer = h2m.pointer:add(offset)
+pointer = rom.pointer:add(offset)
 ```
 
 ### `sub(offset)`
@@ -45,7 +45,7 @@ Subs an offset to the current memory address and returns a new pointer object.
 
 **Example Usage:**
 ```lua
-pointer = h2m.pointer:sub(offset)
+pointer = rom.pointer:sub(offset)
 ```
 
 ### `rip(offset)`
@@ -60,7 +60,7 @@ Rips the current memory address and returns a new pointer object.
 
 **Example Usage:**
 ```lua
-pointer = h2m.pointer:rip(offset)
+pointer = rom.pointer:rip(offset)
 ```
 
 ### `rip_cmp(offset)`
@@ -75,7 +75,7 @@ Rips (cmp instruction) the current memory address and returns a new pointer obje
 
 **Example Usage:**
 ```lua
-pointer = h2m.pointer:rip_cmp(offset)
+pointer = rom.pointer:rip_cmp(offset)
 ```
 
 ### `get_byte()`
@@ -87,7 +87,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-number = h2m.pointer:get_byte()
+number = rom.pointer:get_byte()
 ```
 
 ### `get_word()`
@@ -99,7 +99,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-number = h2m.pointer:get_word()
+number = rom.pointer:get_word()
 ```
 
 ### `get_dword()`
@@ -111,7 +111,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-number = h2m.pointer:get_dword()
+number = rom.pointer:get_dword()
 ```
 
 ### `get_float()`
@@ -123,7 +123,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-float = h2m.pointer:get_float()
+float = rom.pointer:get_float()
 ```
 
 ### `get_qword()`
@@ -135,7 +135,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-number = h2m.pointer:get_qword()
+number = rom.pointer:get_qword()
 ```
 
 ### `set_byte(value)`
@@ -147,7 +147,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_byte(value)
+rom.pointer:set_byte(value)
 ```
 
 ### `set_word(value)`
@@ -159,7 +159,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_word(value)
+rom.pointer:set_word(value)
 ```
 
 ### `set_dword(value)`
@@ -171,7 +171,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_dword(value)
+rom.pointer:set_dword(value)
 ```
 
 ### `set_float(value)`
@@ -183,7 +183,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_float(value)
+rom.pointer:set_float(value)
 ```
 
 ### `set_qword(value)`
@@ -195,7 +195,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_qword(value)
+rom.pointer:set_qword(value)
 ```
 
 ### `get_string()`
@@ -207,7 +207,7 @@ Retrieves the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-string = h2m.pointer:get_string()
+string = rom.pointer:get_string()
 ```
 
 ### `set_string(value)`
@@ -219,7 +219,7 @@ Sets the value at the memory address to the specified value of the given type.
 
 **Example Usage:**
 ```lua
-h2m.pointer:set_string(value)
+rom.pointer:set_string(value)
 ```
 
 ### `patch_byte(value)`
@@ -236,7 +236,7 @@ The original value is restored when you call the restore function on the lua_pat
 
 **Example Usage:**
 ```lua
-lua_patch = h2m.pointer:patch_byte(value)
+lua_patch = rom.pointer:patch_byte(value)
 ```
 
 ### `patch_word(value)`
@@ -253,7 +253,7 @@ The original value is restored when you call the restore function on the lua_pat
 
 **Example Usage:**
 ```lua
-lua_patch = h2m.pointer:patch_word(value)
+lua_patch = rom.pointer:patch_word(value)
 ```
 
 ### `patch_dword(value)`
@@ -270,7 +270,7 @@ The original value is restored when you call the restore function on the lua_pat
 
 **Example Usage:**
 ```lua
-lua_patch = h2m.pointer:patch_dword(value)
+lua_patch = rom.pointer:patch_dword(value)
 ```
 
 ### `patch_qword(value)`
@@ -287,7 +287,7 @@ The original value is restored when you call the restore function on the lua_pat
 
 **Example Usage:**
 ```lua
-lua_patch = h2m.pointer:patch_qword(value)
+lua_patch = rom.pointer:patch_qword(value)
 ```
 
 ### `is_null()`
@@ -297,7 +297,7 @@ lua_patch = h2m.pointer:patch_qword(value)
 
 **Example Usage:**
 ```lua
-boolean = h2m.pointer:is_null()
+boolean = rom.pointer:is_null()
 ```
 
 ### `is_valid()`
@@ -307,7 +307,7 @@ boolean = h2m.pointer:is_null()
 
 **Example Usage:**
 ```lua
-boolean = h2m.pointer:is_valid()
+boolean = rom.pointer:is_valid()
 ```
 
 ### `deref()`
@@ -319,7 +319,7 @@ Dereferences the memory address and returns a new pointer object pointing to the
 
 **Example Usage:**
 ```lua
-pointer = h2m.pointer:deref()
+pointer = rom.pointer:deref()
 ```
 
 ### `get_address()`
@@ -331,7 +331,7 @@ Retrieves the memory address stored in the pointer object.
 
 **Example Usage:**
 ```lua
-number = h2m.pointer:get_address()
+number = rom.pointer:get_address()
 ```
 
 
