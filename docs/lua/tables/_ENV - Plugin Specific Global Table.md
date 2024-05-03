@@ -1,4 +1,4 @@
-# Table: rom._ENV - Plugin Specific Global Table
+# Table: _ENV - Plugin Specific Global Table
 
 Each mod/plugin have their own global table containing helpers, such as:
 - Their own guid
