@@ -13,7 +13,7 @@ namespace lua::hades::audio
 	{
 		if (need_path_fix_fsAppendPathComponent)
 		{
-			LOG(INFO) << rom::g_project_name << " detected in path, setting path to " << fixed_path_fsAppendPathComponent;
+			LOG(INFO) << "setting path to " << fixed_path_fsAppendPathComponent;
 			strcpy(output, fixed_path_fsAppendPathComponent.c_str());
 		}
 		else
