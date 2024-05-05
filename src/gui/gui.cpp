@@ -127,6 +127,7 @@ namespace big
 
 	void gui::dx_on_tick()
 	{
+		// TODO: turn this into a lua api function.
 		if (GetAsyncKeyState(VK_F6) & 0x80'00)
 		{
 			LOG(WARNING) << "Reloading game data";
