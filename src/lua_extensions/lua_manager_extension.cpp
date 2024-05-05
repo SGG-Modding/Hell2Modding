@@ -2,6 +2,7 @@
 
 #include "bindings/gui_ext.hpp"
 #include "bindings/hades/audio.hpp"
+#include "bindings/hades/lz4.hpp"
 #include "bindings/paths_ext.hpp"
 #include "file_manager/file_manager.hpp"
 #include "lua_module_ext.hpp"
@@ -94,6 +95,7 @@ namespace big::lua_manager_extension
 
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
+		lua::hades::lz4::bind(lua_ext);
 		lua::gui_ext::bind(lua_ext);
 		lua::paths_ext::bind(lua_ext);
 	}
