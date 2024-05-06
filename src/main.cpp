@@ -13,6 +13,8 @@
 #include "threads/util.hpp"
 #include "version.hpp"
 
+#include <lua_extensions/bindings/hades/hades_ida.hpp>
+#include <lua_extensions/bindings/hades/ui.hpp>
 #include <memory/gm_address.hpp>
 
 //#include "debug/debug.hpp"
@@ -77,6 +79,39 @@ static __int64 hook_setnodevector(lua_State *L, __int64 a2, int a3)
 	return hades_func(L, a2, a3);
 }
 
+static void hook_SGD_Deserialize_ThingDataDef(void *ctx, int loc, sgg::ThingDataDef *val)
+{
+	big::g_hooking->get_original<hook_SGD_Deserialize_ThingDataDef>()(ctx, loc, val);
+	//val->mScale *= 2;
+}
+
+static void sgg__GUIComponentTextBox__GUIComponentTextBox(GUIComponentTextBox *this_, Vectormath::Vector2 location)
+{
+	//std::scoped_lock l(g_GUIComponentTextBoxes_mutex);
+
+	big::g_hooking->get_original<sgg__GUIComponentTextBox__GUIComponentTextBox>()(this_, location);
+
+	g_GUIComponentTextBoxes.insert(this_);
+}
+
+static void sgg__GUIComponentTextBox__Update(GUIComponentTextBox *this_)
+{
+	std::scoped_lock l(g_GUIComponentTextBoxes_mutex);
+
+	big::g_hooking->get_original<sgg__GUIComponentTextBox__Update>()(this_);
+
+	g_GUIComponentTextBoxes.insert(this_);
+}
+
+static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentTextBox *this_)
+{
+	std::scoped_lock l(g_GUIComponentTextBoxes_mutex);
+
+	big::g_hooking->get_original<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>()(this_);
+
+	g_GUIComponentTextBoxes.erase(this_);
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -125,6 +160,39 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			big::hooking::detour_hook_helper::add_now<hook_setnodevector>("setnodevector", gmAddress::scan_me("39 44 24 24 7D 3E", "our setnodevector").offset(-0xE6));
 			// clang-format on
 		}
+
+		/*{
+			static auto GUIComponentTextBox_ctor_ptr = gmAddress::scan("89 BB 2C 06 00 00", "sgg::GUIComponentTextBox::GUIComponentTextBox");
+			if (GUIComponentTextBox_ctor_ptr)
+			{
+				static auto GUIComponentTextBox_ctor = GUIComponentTextBox_ctor_ptr.offset(-0x3B);
+				static auto hook_ = hooking::detour_hook_helper::add_now<sgg__GUIComponentTextBox__GUIComponentTextBox>("sgg__GUIComponentTextBox__GUIComponentTextBox", GUIComponentTextBox_ctor);
+			}
+		}*/
+
+		{
+			static auto GUIComponentTextBox_update_ptr = gmAddress::scan("76 30 8B 43 74", "sgg::GUIComponentTextBox::Update");
+			if (GUIComponentTextBox_update_ptr)
+			{
+				static auto GUIComponentTextBox_update = GUIComponentTextBox_update_ptr.offset(-0x51);
+				static auto hook_ = hooking::detour_hook_helper::add_now<sgg__GUIComponentTextBox__Update>(
+				    "sgg__GUIComponentTextBox__Update",
+				    GUIComponentTextBox_update);
+			}
+		}
+
+		{
+			static auto GUIComponentTextBox_dctor_ptr = gmAddress::scan("8D 05 ? ? ? ? 48 8B F1 4C 8D B1", "sgg::GUIComponentTextBox::GUIComponentTextBox_dctor");
+			if (GUIComponentTextBox_dctor_ptr)
+			{
+				static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr.offset(-0x19);
+				static auto hook_ = hooking::detour_hook_helper::add<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
+			}
+		}
+
+		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
+		    "void __fastcall sgg::SGD_Deserialize(sgg::SGD_Context *ctx, int loc, sgg::ThingDataDef *val)",
+		    gmAddress::scan("44 88 74 24 21", "SGD_Deserialize ThingData").offset(-0x59));*/
 
 		dll_proxy::init();
 

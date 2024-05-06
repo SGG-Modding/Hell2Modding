@@ -1,6 +1,7 @@
 #include "audio.hpp"
 
 #include <hooks/hooking.hpp>
+#include <lua_extensions/bindings/hades/ui.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
 
@@ -32,12 +33,6 @@ namespace lua::hades::audio
 		enum class sgg__PackageGroup : uint8_t
 		{
 			Base = 2
-		};
-
-		struct eastl_basic_string_view_char
-		{
-			const char* mpBegin;
-			size_t mnCount;
 		};
 
 		static auto LoadBank_ptr = gmAddress::scan("90 84 C0 75 2B", "sgg::AudioManager::LoadBank");

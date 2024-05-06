@@ -9,6 +9,8 @@
 #include <input/hotkey.hpp>
 #include <input/is_key_pressed.hpp>
 #include <lua/lua_manager.hpp>
+#include <lua_extensions/bindings/hades/hades_ida.hpp>
+#include <lua_extensions/bindings/hades/ui.hpp>
 #include <memory/gm_address.hpp>
 #include <pointers.hpp>
 
@@ -127,6 +129,59 @@ namespace big
 
 	void gui::dx_on_tick()
 	{
+		// Screen Reader stuff
+		if (GetAsyncKeyState(VK_F7) & 0x80'00)
+		{
+			LOG(FATAL) << "pressed";
+
+			std::vector<std::pair<GUIComponentTextBox*, Vectormath::Vector2>> sorted_components;
+
+			static auto gui_comp_get_location = gmAddress::scan("F3 0F 59 4A 48").offset(-0xBE).as_func<Vectormath::Vector2*(GUIComponentTextBox*, Vectormath::Vector2*)>();
+			for (auto* gui_comp : g_GUIComponentTextBoxes)
+			{
+				Vectormath::Vector2 loc;
+				gui_comp_get_location(gui_comp, &loc);
+				sorted_components.push_back({gui_comp, loc});
+			}
+
+			std::sort(sorted_components.begin(),
+			          sorted_components.end(),
+			          [](std::pair<GUIComponentTextBox*, Vectormath::Vector2>& a, std::pair<GUIComponentTextBox*, Vectormath::Vector2>& b)
+			          {
+				          if (std::abs(a.second.mY - b.second.mY) < 5)
+				          {
+					          return a.second.mX < b.second.mX;
+				          }
+				          else
+				          {
+					          return a.second.mY < b.second.mY;
+				          }
+			          });
+
+			std::unordered_set<std::string> already_printed;
+			std::stringstream text_buffer;
+			for (auto& [gui_comp, gui_comp_loc] : sorted_components)
+			{
+				if (gui_comp->vtbl->ShouldDraw(gui_comp))
+				{
+					for (auto i = gui_comp->mLines.mpBegin; i < gui_comp->mLines.mpEnd; i++)
+					{
+						const auto text = i->mText.get_text();
+						if (text.size() && !already_printed.contains(text))
+						{
+							already_printed.insert(text);
+							//LOG(INFO) << text << " (" << gui_comp_loc.mX << ", " << gui_comp_loc.mY << ")";
+							text_buffer << text << "\n";
+						}
+					}
+				}
+			}
+			if (text_buffer.str().size())
+			{
+				LOG(INFO) << text_buffer.str();
+			}
+		}
+
 		// TODO: turn this into a lua api function.
 		if (GetAsyncKeyState(VK_F6) & 0x80'00)
 		{
