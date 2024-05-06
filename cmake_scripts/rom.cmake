@@ -5,6 +5,6 @@ include(FetchContent)
 FetchContent_Declare(
 	rom
 	GIT_REPOSITORY https://github.com/xiaoxiao921/ReturnOfModdingBase.git
-	GIT_TAG 1667090b021200caa85d201e6a6236a64c1f9df1
+	GIT_TAG a0f261c1aee825846cdb7bec97bcc14c19d71e01
 )
 FetchContent_MakeAvailable(rom)
