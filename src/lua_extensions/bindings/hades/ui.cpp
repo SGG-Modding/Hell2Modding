@@ -6,9 +6,6 @@
 
 namespace lua::hades::ui
 {
-	// Lua API: Function
-	// Table: ui
-	// Name: test_stuff
 	static void test_stuff()
 	{
 	}

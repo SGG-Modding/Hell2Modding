@@ -256,7 +256,7 @@ namespace big
 			}
 		}
 
-		// TODO: turn this into a lua api function.
+		// TODO turn this into a lua api function.
 		if (GetAsyncKeyState(VK_F6) & 0x80'00)
 		{
 			LOG(WARNING) << "Reloading game data";
