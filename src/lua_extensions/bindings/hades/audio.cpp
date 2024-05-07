@@ -1,7 +1,7 @@
 #include "audio.hpp"
 
 #include <hooks/hooking.hpp>
-#include <lua_extensions/bindings/hades/ui.hpp>
+#include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
 

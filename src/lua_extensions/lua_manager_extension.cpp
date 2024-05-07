@@ -6,6 +6,7 @@
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
+#include "bindings/tolk/tolk.hpp"
 #include "file_manager/file_manager.hpp"
 #include "lua_module_ext.hpp"
 #include "string/string.hpp"
@@ -98,9 +99,10 @@ namespace big::lua_manager_extension
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
 		lua::hades::lz4::bind(lua_ext);
+		lua::luasocket::bind(lua_ext);
+		lua::tolk::bind(lua_ext);
 		lua::gui_ext::bind(lua_ext);
 		lua::lpeg::bind(lua_ext);
-		lua::luasocket::bind(lua_ext);
 		lua::paths_ext::bind(lua_ext);
 	}
 } // namespace big::lua_manager_extension

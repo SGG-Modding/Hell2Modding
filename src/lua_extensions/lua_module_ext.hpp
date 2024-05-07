@@ -8,6 +8,8 @@ namespace big
 	{
 		std::vector<sol::protected_function> m_on_pre_import;
 		std::vector<sol::protected_function> m_on_post_import;
+
+		std::vector<sol::protected_function> m_on_button_hover;
 	};
 
 	class lua_module_ext : public lua_module

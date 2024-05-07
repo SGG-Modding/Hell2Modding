@@ -4,7 +4,6 @@
 #include "hooks/hooking.hpp"
 #include "lua/bindings/imgui_window.hpp"
 #include "lua_extensions/lua_manager_extension.hpp"
-#include "Tolk.h"
 
 #include <codecvt>
 #include <gui/widgets/imgui_hotkey.hpp>
@@ -12,7 +11,6 @@
 #include <input/is_key_pressed.hpp>
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
-#include <lua_extensions/bindings/hades/ui.hpp>
 #include <memory/gm_address.hpp>
 #include <pointers.hpp>
 
@@ -129,44 +127,6 @@ namespace big
 	{
 	}
 
-	std::string wstring_to_utf8(const std::wstring& wstr)
-	{
-		int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-		if (utf8_length == 0)
-		{
-			// Failed to get UTF-8 length
-			// You might want to handle this error case appropriately
-			return "";
-		}
-
-		std::string utf8_str(utf8_length, 0);
-		WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8_str[0], utf8_length, nullptr, nullptr);
-
-		// Remove the null-terminator that WideCharToMultiByte added
-		utf8_str.pop_back();
-
-		return utf8_str;
-	}
-
-	std::wstring utf8_to_wstring(const std::string& utf8_str)
-	{
-		int wstr_length = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
-		if (wstr_length == 0)
-		{
-			// Failed to get wide string length
-			// You might want to handle this error case appropriately
-			return L"";
-		}
-
-		std::wstring wstr(wstr_length, 0);
-		MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], wstr_length);
-
-		// Remove the null-terminator that MultiByteToWideChar added
-		wstr.pop_back();
-
-		return wstr;
-	}
-
 	static auto last_screen_reader_time = std::chrono::steady_clock::now();
 
 	void gui::dx_on_tick()
@@ -175,85 +135,11 @@ namespace big
 		const auto time_now = std::chrono::steady_clock::now();
 		if (GetAsyncKeyState(VK_F8) & 0x80'00)
 		{
-			if (Tolk_IsLoaded())
-			{
-				Tolk_Silence();
-			}
 		}
 		if (GetAsyncKeyState(VK_F7) & 0x80'00 && time_now - last_screen_reader_time > 750ms)
 		{
 			last_screen_reader_time = time_now;
 			LOG(FATAL) << "pressed";
-
-			std::vector<std::pair<GUIComponentTextBox*, Vectormath::Vector2>> sorted_components;
-
-			static auto gui_comp_get_location = gmAddress::scan("F3 0F 59 4A 48").offset(-0xBE).as_func<Vectormath::Vector2*(GUIComponentTextBox*, Vectormath::Vector2*)>();
-			for (auto* gui_comp : g_GUIComponentTextBoxes)
-			{
-				Vectormath::Vector2 loc;
-				gui_comp_get_location(gui_comp, &loc);
-				sorted_components.push_back({gui_comp, loc});
-			}
-
-			std::sort(sorted_components.begin(),
-			          sorted_components.end(),
-			          [](std::pair<GUIComponentTextBox*, Vectormath::Vector2>& a, std::pair<GUIComponentTextBox*, Vectormath::Vector2>& b)
-			          {
-				          if (std::abs(a.second.mY - b.second.mY) < 5)
-				          {
-					          return a.second.mX < b.second.mX;
-				          }
-				          else
-				          {
-					          return a.second.mY < b.second.mY;
-				          }
-			          });
-
-			std::unordered_set<std::string> already_printed;
-			std::stringstream text_buffer;
-			for (auto& [gui_comp, gui_comp_loc] : sorted_components)
-			{
-				if (gui_comp->vtbl->ShouldDraw(gui_comp))
-				{
-					for (auto i = gui_comp->mLines.mpBegin; i < gui_comp->mLines.mpEnd; i++)
-					{
-						const auto text = i->mText.get_text();
-						if (text.size() && !already_printed.contains(text))
-						{
-							already_printed.insert(text);
-							//LOG(INFO) << text << " (" << gui_comp_loc.mX << ", " << gui_comp_loc.mY << ")";
-							text_buffer << text << "\n";
-						}
-					}
-				}
-			}
-			if (text_buffer.str().size())
-			{
-				LOG(INFO) << text_buffer.str();
-
-				if (!Tolk_IsLoaded())
-				{
-					Tolk_TrySAPI(true);
-
-					Tolk_Load();
-
-					const wchar_t* name = Tolk_DetectScreenReader();
-					if (name)
-					{
-						LOG(INFO) << "The active screen reader driver is: " << wstring_to_utf8(name);
-					}
-					else
-					{
-						LOG(INFO) << "None of the supported screen readers is running";
-					}
-				}
-
-				const auto text_buffer_wide = utf8_to_wstring(text_buffer.str());
-				if (!Tolk_Output(text_buffer_wide.c_str()))
-				{
-					LOG(FATAL) << "Failed to output to tolk";
-				}
-			}
 		}
 
 		// TODO turn this into a lua api function.

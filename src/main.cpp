@@ -14,7 +14,7 @@
 #include "version.hpp"
 
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
-#include <lua_extensions/bindings/hades/ui.hpp>
+#include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
 
 //#include "debug/debug.hpp"
@@ -112,6 +112,41 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 	g_GUIComponentTextBoxes.erase(this_);
 }
 
+struct GUIComponentButton
+{
+	char m_pad[0x6'68];
+	GUIComponentTextBox *mTextBox;
+};
+
+static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUIComponentTextBox *prevSelection)
+{
+	big::g_hooking->get_original<hook_GUIComponentButton_OnSelected>()(this_, prevSelection);
+
+	g_currently_selected_gui_comp = this_;
+
+	auto gui_button = (GUIComponentButton *)g_currently_selected_gui_comp;
+	auto gui_text   = gui_button->mTextBox;
+
+	std::vector<std::string> lines;
+	for (auto i = gui_text->mLines.mpBegin; i < gui_text->mLines.mpEnd; i++)
+	{
+		const auto text = i->mText.get_text();
+		if (text.size())
+		{
+			lines.push_back(text);
+		}
+	}
+
+	for (const auto &mod_ : big::g_lua_manager->m_modules)
+	{
+		auto mod = (big::lua_module_ext *)mod_.get();
+		for (const auto &f : mod->m_data_ext.m_on_button_hover)
+		{
+			f(lines);
+		}
+	}
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -187,6 +222,17 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr.offset(-0x19);
 				static auto hook_ = hooking::detour_hook_helper::add<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
+			}
+		}
+
+		{
+			static auto GUIComponentButton_OnSelected_ptr = gmAddress::scan("8B D9 E8 ? ? ? ? 80 BB AA", "sgg::GUIComponentButton::OnSelected");
+			if (GUIComponentButton_OnSelected_ptr)
+			{
+				static auto GUIComponentButton_OnSelected = GUIComponentButton_OnSelected_ptr.offset(-0x7);
+				static auto hook_ = hooking::detour_hook_helper::add<hook_GUIComponentButton_OnSelected>(
+				    "GUIComponentButton_OnSelected",
+				    GUIComponentButton_OnSelected);
 			}
 		}
 

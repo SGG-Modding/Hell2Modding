@@ -71,7 +71,9 @@ static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'F8);
 inline std::mutex g_GUIComponentTextBoxes_mutex;
 inline std::unordered_set<GUIComponentTextBox*> g_GUIComponentTextBoxes;
 
-namespace lua::hades::ui
+inline GUIComponentTextBox* g_currently_selected_gui_comp = nullptr;
+
+namespace lua::tolk
 {
 	void bind(sol::table& state);
 }
