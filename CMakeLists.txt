@@ -10,6 +10,7 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 message("\nFetching modules")
 include(cmake_scripts/git.cmake)
 include(cmake_scripts/rom.cmake)
+include(cmake_scripts/tolk.cmake)
 
 message(STATUS "Hell2Modding")
 file(GLOB_RECURSE SRC_MAIN
@@ -40,11 +41,12 @@ source_group(TREE ${SRC_DIR} PREFIX "src" FILES ${SRC_MAIN})
 
 target_include_directories(Hell2Modding PRIVATE
     "${SRC_DIR}"
+    "${tolk_SOURCE_DIR}/include"
 )
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
