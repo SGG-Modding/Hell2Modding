@@ -9,9 +9,10 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 # Fetch modules
 message("\nFetching modules")
 include(cmake_scripts/git.cmake)
+include(cmake_scripts/lpeg.cmake)
+include(cmake_scripts/luasocket.cmake)
 include(cmake_scripts/rom.cmake)
 include(cmake_scripts/tolk.cmake)
-include(cmake_scripts/lpeg.cmake)
 
 message(STATUS "Hell2Modding")
 file(GLOB_RECURSE SRC_MAIN
@@ -44,11 +45,12 @@ target_include_directories(Hell2Modding PRIVATE
     "${SRC_DIR}"
     "${tolk_SOURCE_DIR}/include"
     "${lpeg_SOURCE_DIR}"
+    "${luasocket_SOURCE_DIR}/src"
 )
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk lpeg)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk lpeg luasocket wsock32 ws2_32)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)

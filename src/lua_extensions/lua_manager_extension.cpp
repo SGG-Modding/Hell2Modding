@@ -4,6 +4,7 @@
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/lz4.hpp"
 #include "bindings/lpeg.hpp"
+#include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
 #include "file_manager/file_manager.hpp"
 #include "lua_module_ext.hpp"
@@ -99,6 +100,7 @@ namespace big::lua_manager_extension
 		lua::hades::lz4::bind(lua_ext);
 		lua::gui_ext::bind(lua_ext);
 		lua::lpeg::bind(lua_ext);
+		lua::luasocket::bind(lua_ext);
 		lua::paths_ext::bind(lua_ext);
 	}
 } // namespace big::lua_manager_extension
