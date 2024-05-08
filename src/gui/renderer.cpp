@@ -198,7 +198,10 @@ static HRESULT WINAPI hook_ResizeBuffers(IDXGISwapChain* pSwapChain, UINT Buffer
 
 static HRESULT WINAPI hook_Present(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags)
 {
-	big::g_renderer->render_imgui(pSwapChain);
+	if (((Flags & (UINT)DXGI_PRESENT_TEST) != (UINT)DXGI_PRESENT_TEST))
+	{
+		big::g_renderer->render_imgui(pSwapChain);
+	}
 
 	const auto res = big::g_hooking->get_original<hook_Present>()(pSwapChain, SyncInterval, Flags);
 
@@ -207,7 +210,10 @@ static HRESULT WINAPI hook_Present(IDXGISwapChain3* pSwapChain, UINT SyncInterva
 
 static HRESULT WINAPI hook_Present1(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT PresentFlags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
-	big::g_renderer->render_imgui(pSwapChain);
+	if (((PresentFlags & (UINT)DXGI_PRESENT_TEST) != (UINT)DXGI_PRESENT_TEST))
+	{
+		big::g_renderer->render_imgui(pSwapChain);
+	}
 
 	const auto res = big::g_hooking->get_original<hook_Present1>()(pSwapChain, SyncInterval, PresentFlags, pPresentParameters);
 
