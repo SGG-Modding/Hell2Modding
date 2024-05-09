@@ -168,6 +168,43 @@ static void hook_HandleInput(void *this_, float elapsedSeconds)
 	}
 }
 
+static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigned int flags, bool defaultValue)
+{
+	bool is_UseAnalytics = false;
+	if (name && strstr(name, "UseAnalytics"))
+	{
+		defaultValue    = false;
+		is_UseAnalytics = true;
+	}
+
+	auto res = big::g_hooking->get_original<hook_ConfigOption_registerField_bool>()(name, addr, flags, defaultValue);
+
+	if (is_UseAnalytics)
+	{
+		LOG(INFO) << "Making sure UseAnalytics is false.";
+		res = false;
+		std::thread(
+		    [=]
+		    {
+			    while (true)
+			    {
+				    *addr = false;
+
+				    using namespace std::chrono_literals;
+				    std::this_thread::sleep_for(1s);
+			    }
+		    })
+		    .detach();
+	}
+
+	return res;
+}
+
+static void hook_PlatformAnalytics_Start()
+{
+	LOG(INFO) << "PlatformAnalytics_Start denied";
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -270,6 +307,18 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		{
 			static auto hook_ = hooking::detour_hook_helper::add<hook_HandleInput>("HandleInput Hook", gmAddress::scan("40 53 41 56 41 57 48 83 EC 30", "HandleInput"));
+		}
+
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_now<hook_ConfigOption_registerField_bool>(
+			    "registerField<bool> hook",
+			    gmAddress::scan("4C 8B C1 88 5C 24 38", "registerField<bool>").offset(-0x2B));
+
+			//
+
+			static auto hook_analy_start = hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>(
+			    "PlatformAnalytics Start",
+			    gmAddress::scan("75 65 48 8D 05", "Analy Start").offset(-0xE));
 		}
 
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
