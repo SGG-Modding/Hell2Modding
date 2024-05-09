@@ -10,13 +10,13 @@ extern "C"
 namespace lua::luasocket
 {
 	// Lua API: Table
-	// Name: socket.core
-	// Table containing the socket library.
+	// Name: socket
+	// Table containing the socket library. Documentation here: https://tst2005.github.io/lua-socket/socket.html
 	// Can also be accessed through `require`
 
 	// Lua API: Table
-	// Name: mime.core
-	// Table containing the mime library.
+	// Name: mime
+	// Table containing the mime library. Documentation here: https://tst2005.github.io/lua-socket/mime.html
 	// Can also be accessed through `require`
 
 	void bind(sol::table& state)
