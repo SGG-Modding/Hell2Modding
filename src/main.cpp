@@ -233,7 +233,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		big::hooking::detour_hook_helper::add_now<hook_initRenderer>(
 		    "initRenderer",
-		    gmAddress::scan("C1 E0 07 33 C1", "initRenderer").offset(-0x83).as<void *>());
+		    gmAddress::scan("C1 E0 07 33 C1", "initRenderer").offset(-0x81).as<void *>());
 
 		big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>(
 		    "backtrace::initializeCrashpad",
