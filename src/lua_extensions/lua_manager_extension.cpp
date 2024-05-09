@@ -2,6 +2,7 @@
 
 #include "bindings/gui_ext.hpp"
 #include "bindings/hades/audio.hpp"
+#include "bindings/hades/data.hpp"
 #include "bindings/hades/lz4.hpp"
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
@@ -98,6 +99,7 @@ namespace big::lua_manager_extension
 
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
+		lua::hades::data::bind(lua_ext);
 		lua::hades::lz4::bind(lua_ext);
 		lua::luasocket::bind(lua_ext);
 		lua::tolk::bind(lua_ext);

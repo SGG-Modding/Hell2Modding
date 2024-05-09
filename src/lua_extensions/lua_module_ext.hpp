@@ -10,6 +10,15 @@ namespace big
 		std::vector<sol::protected_function> m_on_post_import;
 
 		std::vector<sol::protected_function> m_on_button_hover;
+
+		struct on_sjson_game_data_read_t
+		{
+			std::string m_file_path;
+			bool m_is_string_read{};
+			sol::protected_function m_callback;
+		};
+
+		std::vector<on_sjson_game_data_read_t> m_on_sjson_game_data_read;
 	};
 
 	class lua_module_ext : public lua_module
