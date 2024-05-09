@@ -147,6 +147,27 @@ static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUICo
 	}
 }
 
+static void hook_ReadAllAnimationData()
+{
+	// Not calling it ever again because it crashes inside the func when hotreloading game data.
+	// Make sure it's atleast called once though on game start.
+
+	static bool call_it_once = true;
+	if (call_it_once)
+	{
+		call_it_once = false;
+		big::g_hooking->get_original<hook_ReadAllAnimationData>()();
+	}
+}
+
+static void hook_HandleInput(void *this_, float elapsedSeconds)
+{
+	if (!big::g_gui || !big::g_gui->is_open())
+	{
+		big::g_hooking->get_original<hook_HandleInput>()(this_, elapsedSeconds);
+	}
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -234,6 +255,21 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				    "GUIComponentButton_OnSelected",
 				    GUIComponentButton_OnSelected);
 			}
+		}
+
+		{
+			static auto read_anim_data_ptr = gmAddress::scan("BA 2A 00 00 00", "ReadAllAnimationData");
+			if (read_anim_data_ptr)
+			{
+				static auto read_anim_data = read_anim_data_ptr.offset(-0x1'97).as_func<void()>();
+
+				static auto hook_ =
+				    hooking::detour_hook_helper::add<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
+			}
+		}
+
+		{
+			static auto hook_ = hooking::detour_hook_helper::add<hook_HandleInput>("HandleInput Hook", gmAddress::scan("40 53 41 56 41 57 48 83 EC 30", "HandleInput"));
 		}
 
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(

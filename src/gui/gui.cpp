@@ -123,47 +123,8 @@ namespace big
 
 	static bool editing_gui_keybind = false;
 
-	static void hook_readanimdata()
-	{
-	}
-
-	static auto last_screen_reader_time = std::chrono::steady_clock::now();
-
 	void gui::dx_on_tick()
 	{
-		// Screen Reader stuff
-		const auto time_now = std::chrono::steady_clock::now();
-		if (GetAsyncKeyState(VK_F8) & 0x80'00)
-		{
-		}
-		if (GetAsyncKeyState(VK_F7) & 0x80'00 && time_now - last_screen_reader_time > 750ms)
-		{
-			last_screen_reader_time = time_now;
-			LOG(FATAL) << "pressed";
-		}
-
-		// TODO turn this into a lua api function.
-		if (GetAsyncKeyState(VK_F6) & 0x80'00)
-		{
-			LOG(WARNING) << "Reloading game data";
-			Logger::FlushQueue();
-
-			static auto read_anim_data_ptr = gmAddress::scan("BA 2A 00 00 00", "ReadAnimData");
-			if (read_anim_data_ptr)
-			{
-				static auto read_anim_data = read_anim_data_ptr.offset(-0x1'97).as_func<void()>();
-
-				static auto hook_ = hooking::detour_hook_helper::add<hook_readanimdata>("readanimdatahook", read_anim_data);
-
-				static auto read_game_data_ptr = gmAddress::scan("7D 70 4C 8D 05", "ReadGameData");
-				if (read_game_data_ptr)
-				{
-					static auto f = read_game_data_ptr.offset(-0x7B).as_func<void()>();
-					f();
-				}
-			}
-		}
-
 		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
 
 		if (!g_lua_manager)
