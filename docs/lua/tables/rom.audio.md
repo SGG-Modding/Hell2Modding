@@ -5,7 +5,7 @@
 ### `load_bank(file_path)`
 
 - **Parameters:**
-  - `file_path` (Path to the fmod .bank to load)
+  - `file_path` (string): Path to the fmod .bank to load
 
 - **Returns:**
   - `bool`: Returns true if bank loaded successfully.

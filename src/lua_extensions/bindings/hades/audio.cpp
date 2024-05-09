@@ -26,7 +26,7 @@ namespace lua::hades::audio
 	// Lua API: Function
 	// Table: audio
 	// Name: load_bank
-	// Param: file_path: Path to the fmod .bank to load
+	// Param: file_path: string: Path to the fmod .bank to load
 	// Returns: bool: Returns true if bank loaded successfully.
 	static bool load_bank(const std::string& file_path, sol::this_environment env)
 	{

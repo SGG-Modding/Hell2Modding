@@ -9,8 +9,8 @@ namespace lua::hades::lz4
 	// Lua API: Function
 	// Table: lz4
 	// Name: decompress_folder
-	// Param: folder_path_with_lz4_compressed_files: Path to folder containing lz4 compressed files.
-	// Param: output_folder_path: Path to the folder where decompressed files will be placed.
+	// Param: folder_path_with_lz4_compressed_files: string: Path to folder containing lz4 compressed files.
+	// Param: output_folder_path: string: Path to the folder where decompressed files will be placed.
 	static void decompress_folder(const std::string &folder_path_with_lz4_compressed_files, const std::string &output_folder_path)
 	{
 		static auto lz4_decompress_safe = gmAddress::scan("E9 B0 05 00 00", "lz4_decompress_safe").offset(-0x77).as_func<__int64(const char *, char *, int, int)>();

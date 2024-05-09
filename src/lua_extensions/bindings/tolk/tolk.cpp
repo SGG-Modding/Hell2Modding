@@ -63,7 +63,7 @@ namespace lua::tolk
 	// Lua API: Function
 	// Table: tolk
 	// Name: output
-	// Param: str: The text to output.
+	// Param: str: string: The text to output.
 	// Outputs text through the current screen reader driver.
 	static void output(const std::string& str)
 	{
@@ -162,7 +162,7 @@ namespace lua::tolk
 	// Lua API: Function
 	// Table: tolk
 	// Name: get_lines_from_thing
-	// Param: thing_id: Id of the sgg::Thing.
+	// Param: thing_id: integer: Id of the sgg::Thing.
 	// Returns: table<int, string>: Returns the lines inside a lua table
 	static std::vector<std::string> get_lines_from_thing(int thing_id)
 	{
@@ -187,7 +187,7 @@ namespace lua::tolk
 	// Lua API: Function
 	// Table: tolk
 	// Name: on_button_hover
-	// Param: function: Function called when a button is hovered. The function must match signature: (table of string) -> returns nothing
+	// Param: function: function: Function called when a button is hovered. The function must match signature: (table of string) -> returns nothing
 	// **Example Usage:**
 	//
 	// ```lua

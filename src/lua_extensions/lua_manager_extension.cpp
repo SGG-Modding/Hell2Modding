@@ -68,7 +68,7 @@ namespace big::lua_manager_extension
 		// Lua API: Function
 		// Table: on_import
 		// Name: pre
-		// Param: function: signature (string file_name, current_ENV_for_this_import) return nil or _ENV
+		// Param: function: function: signature (string file_name, current_ENV_for_this_import) return nil or _ENV
 		// The passed function will be called before the game loads a .lua script from the game's Content/Scripts folder.
 		// The _ENV returned (if not nil) by the passed function gives you a way to define the _ENV of this lua script.
 		on_import_table.set_function("pre",
@@ -84,7 +84,7 @@ namespace big::lua_manager_extension
 		// Lua API: Function
 		// Table: on_import
 		// Name: post
-		// Param: function: signature (string file_name)
+		// Param: function: function: signature (string file_name)
 		// The passed function will be called after the game loads a .lua script from the game's Content/Scripts folder.
 		on_import_table.set_function("post",
 		                             [](sol::protected_function f, sol::this_environment env)

@@ -16,7 +16,7 @@ rom.tolk.silence()
 Outputs text through the current screen reader driver.
 
 - **Parameters:**
-  - `str` (The text to output.)
+  - `str` (string): The text to output.
 
 **Example Usage:**
 ```lua
@@ -35,7 +35,7 @@ rom.tolk.screen_read()
 ### `get_lines_from_thing(thing_id)`
 
 - **Parameters:**
-  - `thing_id` (Id of the sgg): :Thing.
+  - `thing_id` (integer): Id of the sgg::Thing.
 
 - **Returns:**
   - `table<int, string>`: Returns the lines inside a lua table
@@ -59,7 +59,7 @@ end)
 ```
 
 - **Parameters:**
-  - `function` (Function called when a button is hovered. The function must match signature): (table of string) -> returns nothing
+  - `function` (function): Function called when a button is hovered. The function must match signature: (table of string) -> returns nothing
 
 **Example Usage:**
 ```lua
