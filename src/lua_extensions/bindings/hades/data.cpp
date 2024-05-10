@@ -68,6 +68,10 @@ namespace lua::hades::data
 
 		if (is_game_data)
 		{
+			bool any_modif_happened = false;
+			std::string new_string;
+			bool assigned_new_string = false;
+
 			std::scoped_lock l(big::g_lua_manager->m_module_lock);
 			for (const auto& mod_ : big::g_lua_manager->m_modules)
 			{
@@ -78,10 +82,16 @@ namespace lua::hades::data
 					{
 						if (info.m_is_string_read)
 						{
-							const auto res = info.m_callback(it->second, (const char*)outputBuffer);
+							if (!assigned_new_string)
+							{
+								new_string.assign((const char*)outputBuffer, bufferSizeInBytes);
+								assigned_new_string = true;
+							}
+
+							const auto res = info.m_callback(it->second, new_string.data());
 							if (res.valid() && res.get_type() == sol::type::string)
 							{
-								const auto new_string = res.get<std::string>();
+								new_string = res.get<std::string>();
 
 								if (bufferSizeInBytes * 2 < new_string.size())
 								{
@@ -94,11 +104,16 @@ namespace lua::hades::data
 									MessageBoxA(0, ss.str().c_str(), "Hell2Modding", 0);
 								}
 
-								memcpy(outputBuffer, new_string.data(), new_string.size());
+								any_modif_happened = true;
 							}
 						}
 					}
 				}
+			}
+
+			if (any_modif_happened)
+			{
+				memcpy(outputBuffer, new_string.data(), new_string.size());
 			}
 
 			if (original_GetFileSize != nullptr)
