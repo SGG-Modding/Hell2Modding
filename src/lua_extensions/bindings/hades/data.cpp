@@ -8,9 +8,10 @@
 
 namespace lua::hades::data
 {
-	static std::unordered_map<void*, std::string> g_FileStream_to_filename;
+	static std::unordered_map<void*, std::filesystem::path> g_FileStream_to_filename;
 
 	static void* original_GetFileSize = nullptr;
+	static void* current_file_stream  = nullptr;
 
 	static size_t hook_FileStreamGetFileSize(uintptr_t pFile)
 	{
@@ -18,7 +19,7 @@ namespace lua::hades::data
 
 		// Used for allocating the output buffer and the Read call.
 		auto it = g_FileStream_to_filename.find((void*)pFile);
-		if (it != g_FileStream_to_filename.end() && it->second.contains(".sjson"))
+		if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
 		{
 			size *= 2;
 		}
@@ -26,13 +27,27 @@ namespace lua::hades::data
 		return size;
 	}
 
+	static void hook_fsAppendPathComponent(const char* basePath, const char* pathComponent, char* output /*size: 512*/)
+	{
+		big::g_hooking->get_original<hook_fsAppendPathComponent>()(basePath, pathComponent, output);
+
+		if (current_file_stream && output)
+		{
+			std::filesystem::path output_ = output;
+			if (output_.is_absolute() && std::filesystem::exists(output_))
+			{
+				g_FileStream_to_filename[current_file_stream] = output_;
+			}
+		}
+	}
+
 	static bool hook_FileStreamOpen(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
 	{
+		current_file_stream = file_stream;
+
 		const auto res = big::g_hooking->get_original<hook_FileStreamOpen>()(resourceDir, fileName, mode, file_stream);
 		if (res)
 		{
-			g_FileStream_to_filename[file_stream] = fileName;
-
 			// We need to hook GetFileSize too because the buffer is preallocated through malloc before the Read call happens.
 			// This is dirty as hell but we'll just double the size as I don't think
 			// it's possible to know in advance what our patches to the game files will do to the file size.
@@ -45,18 +60,32 @@ namespace lua::hades::data
 				FileStream_vtable[6] = hook_FileStreamGetFileSize;
 			}
 		}
+
+		current_file_stream = nullptr;
+
 		return res;
+	}
+
+	static bool check_path(const std::filesystem::path& firstPath, const std::filesystem::path& secondPath)
+	{
+		std::string full_file_path = (char*)firstPath.u8string().c_str();
+		std::string user_path      = (char*)secondPath.u8string().c_str();
+
+		full_file_path = big::string::replace(full_file_path, "\\", "/");
+		user_path      = big::string::replace(user_path, "\\", "/");
+
+		return full_file_path.contains(user_path);
 	}
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
-		std::unordered_map<void*, std::string>::iterator it;
+		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
 			it = g_FileStream_to_filename.find(file_stream);
-			if (it != g_FileStream_to_filename.end() && it->second.contains(".sjson"))
+			if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
 			{
 				// The actual size of the buffer in this case is half.
 				bufferSizeInBytes /= 2;
@@ -78,7 +107,7 @@ namespace lua::hades::data
 				auto mod = (big::lua_module_ext*)mod_.get();
 				for (const auto& info : mod->m_data_ext.m_on_sjson_game_data_read)
 				{
-					if (info.m_file_path.empty() || (info.m_file_path.size() && it->second == info.m_file_path))
+					if (info.m_file_path.empty() || (info.m_file_path.size() && check_path(it->second, info.m_file_path)))
 					{
 						if (info.m_is_string_read)
 						{
@@ -88,7 +117,7 @@ namespace lua::hades::data
 								assigned_new_string = true;
 							}
 
-							const auto res = info.m_callback(it->second, new_string.data());
+							const auto res = info.m_callback((char*)it->second.u8string().c_str(), new_string.data());
 							if (res.valid() && res.get_type() == sol::type::string)
 							{
 								new_string = res.get<std::string>();
@@ -172,6 +201,13 @@ namespace lua::hades::data
 			static auto hook_read = big::hooking::detour_hook_helper::add<hook_FileStreamRead>(
 			    "hook_FileStreamRead",
 			    gmAddress::scan("48 3B C3 74 42", "FileStreamRead").offset(-0x2D));
+
+			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
+			if (fsAppendPathComponent_ptr)
+			{
+				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.offset(-0x97).as_func<void(const char*, const char*, char*)>();
+				static auto hook_fsAppendPathComponent_ = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent>("hook_fsAppendPathComponent", fsAppendPathComponent);
+			}
 		}
 
 		auto ns = state.create_named("data");
