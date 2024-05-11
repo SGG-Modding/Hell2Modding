@@ -345,6 +345,14 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    constexpr auto is_console_enabled = true;
 			    auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"), is_console_enabled);
+			    static struct logger_cleanup
+			    {
+				    ~logger_cleanup()
+				    {
+					    Logger::Destroy();
+				    }
+			    } g_logger_cleanup;
+
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
