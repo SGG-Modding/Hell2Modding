@@ -21,11 +21,14 @@ static ID3D12Device* gPd3DDevice                   = nullptr;
 static IDXGISwapChain3* gPSwapChain                = nullptr;
 static ID3D12DescriptorHeap* gPd3DRtvDescHeap      = nullptr;
 static ID3D12DescriptorHeap* gPd3DSrvDescHeap      = nullptr;
-static ID3D12CommandQueue* gPd3DCommandQueue       = nullptr;
 static ID3D12GraphicsCommandList* gPd3DCommandList = nullptr;
 static std::vector<ID3D12CommandAllocator*> gCommandAllocators;
 static std::vector<ID3D12Resource*> gMainRenderTargetResource;
 static std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> gMainRenderTargetDescriptor;
+static bool m_using_proton_swapchain       = false;
+static size_t m_command_queue_offset       = 0;
+static size_t m_proton_swapchain_offset    = 0;
+static ID3D12CommandQueue* m_command_queue = nullptr;
 
 static int get_correct_dxgi_format(int current_format)
 {
@@ -255,13 +258,6 @@ static HRESULT WINAPI hook_CreateSwapChainForComposition(IDXGIFactory* pFactory,
 	return big::g_hooking->get_original<hook_CreateSwapChainForComposition>()(pFactory, pDevice, pDesc, pRestrictToOutput, ppSwapChain);
 }
 
-static void WINAPI hook_ExecuteCommandLists(ID3D12CommandQueue* pCommandQueue, UINT NumCommandLists, ID3D12CommandList* ppCommandLists)
-{
-	gPd3DCommandQueue = pCommandQueue;
-
-	return big::g_hooking->get_original<hook_ExecuteCommandLists>()(pCommandQueue, NumCommandLists, ppCommandLists);
-}
-
 IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace big
@@ -301,7 +297,7 @@ namespace big
 
 	static void render_imgui_frame()
 	{
-		if (ImGui::GetCurrentContext() && gPd3DCommandQueue && gMainRenderTargetResource[0])
+		if (ImGui::GetCurrentContext() && m_command_queue && gMainRenderTargetResource[0])
 		{
 			if (!g_imgui_draw_data_mutex.try_lock())
 			{
@@ -550,7 +546,6 @@ namespace big
 
 		LOG(INFO) << "Finding command queue offset";
 
-		size_t m_command_queue_offset = 0;
 
 		// Find the command queue offset in the swapchain
 		for (auto i = 0; i < 512 * sizeof(void*); i += sizeof(void*))
@@ -620,14 +615,10 @@ namespace big
 							target_swapchain = (IDXGISwapChain3*)scan_base;
 						}
 
-						//if (!m_using_frame_generation_swapchain)
-						{
-							//m_using_proton_swapchain = true;
-						}
-
-						m_command_queue_offset = i;
-						//m_proton_swapchain_offset = base;
-						should_break = true;
+						m_using_proton_swapchain  = true;
+						m_command_queue_offset    = i;
+						m_proton_swapchain_offset = base;
+						should_break              = true;
 
 						LOG(INFO) << "Proton potentially detected";
 						LOG(INFO) << "Found command queue offset: " << i;
@@ -649,33 +640,9 @@ namespace big
 			return false;
 		}
 
-		//void** swapchain_vtable     = *reinterpret_cast<void***>(gPSwapChain);
-		void** swapchain_vtable = *reinterpret_cast<void***>(target_swapchain);
-		//void** dxgi_factory_vtable  = *reinterpret_cast<void***>(gDxgiFactory);
-		void** dxgi_factory_vtable = *reinterpret_cast<void***>(factory);
-		//void** command_queue_vtable = *reinterpret_cast<void***>(gPd3DCommandQueue);
+		void** swapchain_vtable     = *reinterpret_cast<void***>(target_swapchain);
+		void** dxgi_factory_vtable  = *reinterpret_cast<void***>(factory);
 		void** command_queue_vtable = *reinterpret_cast<void***>(command_queue);
-
-		//utility::ThreadSuspender suspender{};
-
-		/*try
-		{
-			spdlog::info("Initializing hooks");
-
-			m_present_hook.reset();
-			m_swapchain_hook.reset();
-
-			m_is_phase_1 = true;
-
-			auto& present_fn = (*(void***)target_swapchain)[8]; // Present
-			m_present_hook   = std::make_unique<PointerHook>(&present_fn, (void*)&D3D12Hook::present);
-			m_hooked         = true;
-		}
-		catch (const std::exception& e)
-		{
-			spdlog::error("Failed to initialize hooks: {}", e.what());
-			m_hooked = false;
-		}*/
 
 		device->Release();
 		command_queue->Release();
@@ -703,8 +670,6 @@ namespace big
 
 		hooking::detour_hook_helper::add<hook_ResizeBuffers>("RB", swapchain_vtable[13]);
 		hooking::detour_hook_helper::add<hook_ResizeBuffers1>("RB1", swapchain_vtable[39]);
-
-		hooking::detour_hook_helper::add<hook_ExecuteCommandLists>("ECL", command_queue_vtable[10]);
 
 		hooking::detour_hook_helper::add<hook_sgg_scriptmanager_update_for_imgui_callbacks>(
 		    "SGG Script Manager Update - ImGui Callbacks",
@@ -976,6 +941,18 @@ namespace big
 			LOG(INFO) << "made it";
 		}
 
+		{
+			if (m_using_proton_swapchain)
+			{
+				const auto real_swapchain = *(uintptr_t*)((uintptr_t)pSwapChain + m_proton_swapchain_offset);
+				m_command_queue           = *(ID3D12CommandQueue**)(real_swapchain + m_command_queue_offset);
+			}
+			else
+			{
+				m_command_queue = *(ID3D12CommandQueue**)((uintptr_t)pSwapChain + m_command_queue_offset);
+			}
+		}
+
 		if (!ImGui::GetIO().BackendRendererUserData)
 		{
 			DXGI_SWAP_CHAIN_DESC sdesc;
@@ -990,7 +967,7 @@ namespace big
 			CreateRenderTarget(pSwapChain, sdesc.BufferCount);
 		}
 
-		if (ImGui::GetCurrentContext() && gPd3DCommandQueue && gMainRenderTargetResource[0])
+		if (ImGui::GetCurrentContext() && m_command_queue && gMainRenderTargetResource[0])
 		{
 			static ImDrawDataSnapshot snapshot;
 			auto draw_data_to_render = ImGui::GetDrawData();
@@ -1039,7 +1016,7 @@ namespace big
 			gPd3DCommandList->ResourceBarrier(1, &barrier);
 			gPd3DCommandList->Close();
 
-			gPd3DCommandQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&gPd3DCommandList));
+			m_command_queue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&gPd3DCommandList));
 
 			if (locked_mutex)
 			{
