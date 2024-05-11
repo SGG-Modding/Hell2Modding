@@ -8,6 +8,7 @@
 
 namespace lua::hades::data
 {
+	static std::recursive_mutex g_FileStream_to_filename_mutex;
 	static std::unordered_map<void*, std::filesystem::path> g_FileStream_to_filename;
 
 	static void* original_GetFileSize = nullptr;
@@ -15,6 +16,8 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamGetFileSize(uintptr_t pFile)
 	{
+		std::scoped_lock l(g_FileStream_to_filename_mutex);
+
 		auto size = *(size_t*)(pFile + 0x20);
 
 		// Used for allocating the output buffer and the Read call.
@@ -36,6 +39,8 @@ namespace lua::hades::data
 			std::filesystem::path output_ = output;
 			if (output_.is_absolute() && std::filesystem::exists(output_))
 			{
+				std::scoped_lock l(g_FileStream_to_filename_mutex);
+
 				g_FileStream_to_filename[current_file_stream] = output_;
 			}
 		}
@@ -84,6 +89,8 @@ namespace lua::hades::data
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
+			std::scoped_lock l(g_FileStream_to_filename_mutex);
+
 			it = g_FileStream_to_filename.find(file_stream);
 			if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
 			{
