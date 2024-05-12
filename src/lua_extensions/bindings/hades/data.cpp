@@ -1,5 +1,7 @@
 #include "data.hpp"
 
+#include "hades_ida.hpp"
+
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
@@ -129,6 +131,8 @@ namespace lua::hades::data
 							{
 								new_string = res.get<std::string>();
 
+								//LOG(INFO) << (char*)it->second.u8string().c_str() << " | " << new_string.size() << " | orig: " << bufferSizeInBytes << " | " << new_string;
+
 								if (bufferSizeInBytes * 2 < new_string.size())
 								{
 									std::stringstream ss;
@@ -200,6 +204,19 @@ namespace lua::hades::data
 		}
 	}
 
+	// Lua API: Function
+	// Table: data
+	// Name: get_string_from_hash_guid
+	// Param: hash_guid: integer: Hash value.
+	// Returns: string: Returns the string corresponding to the provided hash value.
+	static const char* get_string_from_hash_guid(unsigned int hash_guid)
+	{
+		static auto gStringBuffer =
+		    *gmAddress::scan("4C 03 0D ? ? ? ? 48 8B DA 0F B6 54 24", "gStringBuffer").offset(3).rip().as<const char**>();
+
+		return &gStringBuffer[hash_guid];
+	}
+
 	void bind(sol::table& state)
 	{
 		{
@@ -222,5 +239,6 @@ namespace lua::hades::data
 		auto ns = state.create_named("data");
 		ns.set_function("on_sjson_read_as_string", sol::overload(on_sjson_read_as_string_no_path_filter, on_sjson_read_as_string_with_path_filter));
 		ns.set_function("reload_game_data", reload_game_data);
+		ns.set_function("get_string_from_hash_guid", get_string_from_hash_guid);
 	}
 } // namespace lua::hades::data

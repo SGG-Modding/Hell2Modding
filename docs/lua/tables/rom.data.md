@@ -1,6 +1,6 @@
 # Table: rom.data
 
-## Functions (2)
+## Functions (3)
 
 ### `on_sjson_read_as_string(function, file_path_being_read)`
 
@@ -18,6 +18,19 @@ rom.data.on_sjson_read_as_string(function, file_path_being_read)
 **Example Usage:**
 ```lua
 rom.data.reload_game_data()
+```
+
+### `get_string_from_hash_guid(hash_guid)`
+
+- **Parameters:**
+  - `hash_guid` (integer): Hash value.
+
+- **Returns:**
+  - `string`: Returns the string corresponding to the provided hash value.
+
+**Example Usage:**
+```lua
+string = rom.data.get_string_from_hash_guid(hash_guid)
 ```
 
 
