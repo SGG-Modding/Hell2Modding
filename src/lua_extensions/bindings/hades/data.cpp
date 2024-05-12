@@ -84,12 +84,13 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
-		std::scoped_lock l(g_FileStream_to_filename_mutex);
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
+			std::scoped_lock l(g_FileStream_to_filename_mutex);
+
 			it = g_FileStream_to_filename.find(file_stream);
 			if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
 			{
@@ -133,9 +134,10 @@ namespace lua::hades::data
 									std::stringstream ss;
 									ss << "Your patches won't work correctly because of my bad coding, please make an "
 									      "issue on the Hell2Modding repo, make sure to pass this info: Original file "
-									      "size"
+									      "size "
 									   << bufferSizeInBytes << " | Doubled size: " << bufferSizeInBytes * 2
-									   << " | Needed size for patch: " << new_string.size();
+									   << " | Needed size for patch: " << new_string.size()
+									   << " | filename: " << (char*)it->second.u8string().c_str();
 									MessageBoxA(0, ss.str().c_str(), "Hell2Modding", 0);
 								}
 
