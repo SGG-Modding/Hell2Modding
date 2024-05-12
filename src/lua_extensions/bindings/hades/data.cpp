@@ -84,13 +84,12 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
+		std::scoped_lock l(g_FileStream_to_filename_mutex);
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
-			std::scoped_lock l(g_FileStream_to_filename_mutex);
-
 			it = g_FileStream_to_filename.find(file_stream);
 			if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
 			{
