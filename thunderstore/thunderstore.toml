@@ -19,7 +19,7 @@ outdir = "./build"
 
 [[build.copy]]
 source = "../d3d12.dll"
-target = "./Hell2ModdingPack/d3d12.dll"
+target = "./ReturnOfModdingPack/d3d12.dll"
 
 [publish]
 repository = "https://thunderstore.io"
