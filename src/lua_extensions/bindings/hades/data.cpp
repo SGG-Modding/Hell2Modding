@@ -150,6 +150,7 @@ namespace lua::hades::data
 			if (any_modif_happened)
 			{
 				memcpy(outputBuffer, new_string.data(), new_string.size());
+				size_read = new_string.size();
 			}
 
 			if (original_GetFileSize != nullptr)
