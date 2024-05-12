@@ -38,19 +38,20 @@ namespace big::lua_manager_extension
 
 	void init_lua_manager(sol::state_view& state, sol::table& lua_ext)
 	{
-		init_lua_state(state);
+		init_lua_state(state, lua_ext);
 		init_lua_api(lua_ext);
 	}
 
-	void init_lua_state(sol::state_view& state)
+	void init_lua_state(sol::state_view& state, sol::table& lua_ext)
 	{
 		// Register our cleanup functions when the state get destroyed.
 		{
-			const auto my_inscrutable_key =
-			    std::format("..{}\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4", rom::g_project_name);
 			sol::table my_takedown_metatable                           = state.create_table_with();
 			my_takedown_metatable[sol::meta_function::garbage_collect] = the_state_is_going_down;
-			sol::table my_takedown_table = state.create_named_table(my_inscrutable_key, sol::metatable_key, my_takedown_metatable);
+			sol::table my_takedown_table                               = lua_ext.create_named(
+                std::format("..{}\xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4 \xF0\x9F\x8F\xB4", rom::g_project_name),
+                sol::metatable_key,
+                my_takedown_metatable);
 		}
 
 		// clang-format off
