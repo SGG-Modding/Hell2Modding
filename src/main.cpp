@@ -211,6 +211,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 	if (reason == DLL_PROCESS_ATTACH)
 	{
+		dll_proxy::init();
+
 		if (!rom::is_rom_enabled())
 		{
 			return true;
@@ -324,8 +326,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
 		    "void __fastcall sgg::SGD_Deserialize(sgg::SGD_Context *ctx, int loc, sgg::ThingDataDef *val)",
 		    gmAddress::scan("44 88 74 24 21", "SGD_Deserialize ThingData").offset(-0x59));*/
-
-		dll_proxy::init();
 
 		DisableThreadLibraryCalls(hmod);
 		g_hmodule     = hmod;
