@@ -132,7 +132,7 @@ namespace big
 			return;
 		}
 
-		g_lua_manager->update_file_watch_reload_modules();
+		g_lua_manager->process_file_watcher_queue();
 
 		push_theme_colors();
 
