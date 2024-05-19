@@ -29,7 +29,7 @@ All config entries of the config file.
 Create a new config file at the specified config path.
 
 - **Parameters:**
-  - `config_path` (string): Full path to a file that contains settings. The file will be created as needed.
+  - `config_path` (string): Full path to a file that contains settings. The file will be created as needed. It's recommended to use `.cfg` as the file extension. The mod manager will pick it up and make it show nicely inside the mod manager UI.
   - `save_on_init` (bool): If the config file/directory doesn't exist, create it immediately.
 
 **Example Usage:**
