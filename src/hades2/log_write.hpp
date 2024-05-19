@@ -3,6 +3,8 @@
 
 namespace big
 {
+	inline toml_v2::config_file::config_entry<bool>* g_hook_log_write_enabled = nullptr;
+
 	inline void hook_log_write(char level, const char* filename, int line_number, const char* message, ...)
 	{
 		va_list args;
@@ -20,6 +22,11 @@ namespace big
 		va_end(args);
 
 		big::g_hooking->get_original<hook_log_write>()(level, filename, line_number, result.c_str());
+
+		if (!g_hook_log_write_enabled->get_value())
+		{
+			return;
+		}
 
 		result.pop_back();
 

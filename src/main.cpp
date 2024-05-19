@@ -1,3 +1,4 @@
+#include "config.hpp"
 #include "dll_proxy/dll_proxy.hpp"
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
@@ -356,6 +357,61 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
+
+			    big::config::init_general();
+
+			    // config test
+			    if (0)
+			    {
+				    auto cfg_file = toml_v2::config_file(
+				        (char *)g_file_manager.get_project_file("./Hell2Modding-Hell2Modding_TEST.cfg")
+				            .get_path()
+				            .u8string()
+				            .c_str(),
+				        true,
+				        "Hell2Modding-Hell2Modding");
+
+				    {
+					    auto my_configurable_value = cfg_file.bind("My Section Name 1", "My Configurable Value 1", false, "This is my configurable value.\nLet's test some stuff\n Shall we");
+
+					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
+
+					    my_configurable_value->set_value(true);
+
+					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
+				    }
+
+				    {
+					    auto my_configurable_value = cfg_file.bind("My Section Name 1", "My Configurable Value 2", "this is another str", "This is my configurable value.\nLet's test some stuff\n Shall we");
+
+					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
+
+					    my_configurable_value->set_value("the another str got a new value");
+
+					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
+				    }
+
+				    {
+					    auto my_configurable_value = cfg_file.bind("AAAAAMy Section Name 1", "My Configurable Value 1", 149, "This is my configurable value.\nLet's test some stuff\n Shall we");
+
+					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
+
+					    my_configurable_value->set_value(169);
+
+					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
+				    }
+
+				    {
+					    auto my_configurable_value = cfg_file.bind("ZZZZZZZZZZZZZZZZZZ", "MyConfigurableValue1", "My default value.......", "This is my configurable value.\nLet's test some stuff\n Shall we");
+
+					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
+
+					    my_configurable_value->set_value("yyep");
+
+					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
+				    }
+			    }
+
 
 #ifdef FINAL
 			    LOG(INFO) << "This is a final build";

@@ -223,11 +223,14 @@ namespace lua::hades::data
 			static auto hook_open = big::hooking::detour_hook_helper::add<hook_FileStreamOpen>(
 			    "hook_FileStreamOpen",
 			    gmAddress::scan("44 8B C9 33 D2", "FileStreamOpen").offset(-0x97));
-
+		}
+		{
 			static auto hook_read = big::hooking::detour_hook_helper::add<hook_FileStreamRead>(
 			    "hook_FileStreamRead",
 			    gmAddress::scan("48 3B C3 74 42", "FileStreamRead").offset(-0x2D));
+		}
 
+		{
 			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
 			if (fsAppendPathComponent_ptr)
 			{
