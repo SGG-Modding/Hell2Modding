@@ -2,6 +2,14 @@
 
 A helper class to handle persistent data.
 
+## Fields (1)
+
+### `entries`
+
+All config entries of the config file.
+
+- Type: `table<config_definition, config_entry>`
+
 ## Constructors (1)
 
 ### `new(config_path, save_on_init)`
@@ -17,7 +25,7 @@ Create a new config file at the specified config path.
 myInstance = config.config_file:new(config_path, save_on_init)
 ```
 
-## Functions (5)
+## Functions (3)
 
 ### `bind(section, key, default_value, description)`
 
@@ -55,26 +63,6 @@ Reloads the config from disk. Unsaved changes are lost.
 **Example Usage:**
 ```lua
 rom.config.config_file:reload()
-```
-
-### `get()`
-
-- **Returns:**
-  - `val`: bool or double or string. Value of this setting
-
-**Example Usage:**
-```lua
-val = rom.config.config_file:get()
-```
-
-### `set(new_value)`
-
-- **Parameters:**
-  - `new_value` (bool or double or string): New value of this setting.
-
-**Example Usage:**
-```lua
-rom.config.config_file:set(new_value)
 ```
 
 
