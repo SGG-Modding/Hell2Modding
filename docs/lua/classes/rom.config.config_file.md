@@ -2,7 +2,19 @@
 
 A helper class to handle persistent data.
 
-## Fields (1)
+## Fields (3)
+
+### `owner_guid`
+
+The owner GUID of this config file.
+
+- Type: `string`
+
+### `config_file_path`
+
+The file path of this config file.
+
+- Type: `string`
 
 ### `entries`
 
