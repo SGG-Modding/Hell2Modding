@@ -23,9 +23,12 @@ namespace big
 
 		big::g_hooking->get_original<hook_log_write>()(level, filename, line_number, result.c_str());
 
-		if (!g_hook_log_write_enabled->get_value())
+		if (!result.starts_with("Script er"))
 		{
-			return;
+			if (!g_hook_log_write_enabled->get_value())
+			{
+				return;
+			}
 		}
 
 		result.pop_back();
