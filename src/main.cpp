@@ -1,4 +1,4 @@
-#include "config.hpp"
+#include "config/config.hpp"
 #include "dll_proxy/dll_proxy.hpp"
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
@@ -344,6 +344,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    g_file_manager.init(root_folder);
 			    paths::init_dump_file_path();
 
+			    big::config::init_general();
+
 			    constexpr auto is_console_enabled = true;
 			    auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"), is_console_enabled);
 			    static struct logger_cleanup
@@ -357,8 +359,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
-
-			    big::config::init_general();
 
 			    // config test
 			    if (0)

@@ -6,14 +6,14 @@
 #include "hades2/sgg_exception_handler/disable_sgg_handler.hpp"
 #include "memory/gm_address.hpp"
 
-#include <config.hpp>
+#include <config/config.hpp>
 
 namespace big::hades
 {
 
 	inline void init_hooks()
 	{
-		g_hook_log_write_enabled = big::config::general().bind("Logging", "Output Vanilla Game Log", false, "Output to the Hell2Modding log the vanilla game log Hades2.log");
+		g_hook_log_write_enabled = big::config::general().bind("Logging", "Output Vanilla Game Log", true, "Output to the Hell2Modding log the vanilla game log Hades2.log");
 		hooking::detour_hook_helper::add<hook_log_write>("game logger",
 		                                                 gmAddress::scan("8B D1 83 E2 08", "game logger").offset(-0x2C).as<void*>());
 
