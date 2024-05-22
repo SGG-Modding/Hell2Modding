@@ -340,6 +340,75 @@ namespace big
 		}
 	}
 
+	// TODO: Cleanup all this
+	using ClipCursor_t           = BOOL (*)(const RECT* lpRect);
+	ClipCursor_t orig_ClipCursor = nullptr;
+
+	static BOOL hook_ClipCursor(int x, int y)
+	{
+		if (!g_gui || !g_gui->is_open())
+		{
+			return orig_SetCursorPos(x, y);
+		}
+
+		return 1;
+	}
+
+	// TODO: Cleanup all this
+	template<class F>
+	bool EachImportFunction(HMODULE module, const char* dllname, const F& f)
+	{
+		if (module == 0)
+		{
+			return false;
+		}
+
+		size_t ImageBase             = (size_t)module;
+		PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)ImageBase;
+		if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+		{
+			return false;
+		}
+		PIMAGE_NT_HEADERS pNTHeader = (PIMAGE_NT_HEADERS)(ImageBase + pDosHeader->e_lfanew);
+
+		size_t RVAImports = pNTHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+		if (RVAImports == 0)
+		{
+			return false;
+		}
+
+		IMAGE_IMPORT_DESCRIPTOR* pImportDesc = (IMAGE_IMPORT_DESCRIPTOR*)(ImageBase + RVAImports);
+		while (pImportDesc->Name != 0)
+		{
+			if (!dllname || stricmp((const char*)(ImageBase + pImportDesc->Name), dllname) == 0)
+			{
+				IMAGE_IMPORT_BY_NAME** func_names = (IMAGE_IMPORT_BY_NAME**)(ImageBase + pImportDesc->Characteristics);
+				void** import_table               = (void**)(ImageBase + pImportDesc->FirstThunk);
+				for (size_t i = 0;; ++i)
+				{
+					if ((size_t)func_names[i] == 0)
+					{
+						break;
+					}
+					const char* funcname = (const char*)(ImageBase + (size_t)func_names[i]->Name);
+					f(funcname, import_table[i]);
+				}
+			}
+			++pImportDesc;
+		}
+		return true;
+	}
+
+	// TODO: Cleanup all this
+	template<class T>
+	static void ForceWrite(T& dst, const T& src)
+	{
+		DWORD old_flag;
+		::VirtualProtect(&dst, sizeof(T), PAGE_EXECUTE_READWRITE, &old_flag);
+		dst = src;
+		::VirtualProtect(&dst, sizeof(T), old_flag, &old_flag);
+	}
+
 	void gui::toggle_mouse()
 	{
 		auto& io = ImGui::GetIO();
@@ -349,6 +418,39 @@ namespace big
 			io.MouseDrawCursor  = true;
 			io.ConfigFlags     &= ~ImGuiConfigFlags_NoMouse;
 			io.ConfigFlags     &= ~ImGuiConfigFlags_NoMouseCursorChange;
+
+			// TODO: Cleanup all this
+			static bool first_time = true;
+			if (first_time)
+			{
+				first_time = false;
+
+				if (GetModuleHandleA("user32.dll"))
+				{
+					orig_SetCursorPos = &SetCursorPos;
+					orig_ClipCursor   = &ClipCursor;
+
+					LOG(INFO) << HEX_TO_UPPER(orig_SetCursorPos);
+					LOG(INFO) << HEX_TO_UPPER(orig_ClipCursor);
+
+					EachImportFunction(::GetModuleHandleA(0),
+					                   "user32.dll",
+					                   [](const char* funcname, void*& func)
+					                   {
+						                   //if (strcmp(funcname, "SetCursorPos") == 0)
+						                   if (strcmp(funcname, "ClipCursor") == 0)
+						                   {
+							                   LOG(INFO) << "This is set";
+							                   //ForceWrite<void*>(func, hook_SetCursorPos);
+							                   ForceWrite<void*>(func, hook_ClipCursor);
+						                   }
+					                   });
+				}
+				else
+				{
+					LOG(FATAL) << "no user32 hook setcus";
+				}
+			}
 		}
 		else
 		{
