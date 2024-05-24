@@ -169,11 +169,10 @@ namespace big
 					editing_gui_keybind = true;
 				}
 
-				ImGui::Text("This window is here so that you can change the keyboard shortcut\n"
-				            "to open the mod's graphical interface.");
-				ImGui::Text("Once you are done please press the Close button\n"
-				            "so that you can move or interact with the\n"
-				            "game window again.");
+				ImGui::TextWrapped("This window is here so that you can change the keyboard shortcut to open the mod's "
+				                   "graphical interface.");
+				ImGui::TextWrapped("Once you are done please press the Close button so that you can move or interact "
+				                   "with the game window again.");
 
 				if (ImGui::Button("Close"))
 				{
