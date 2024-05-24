@@ -441,8 +441,6 @@ namespace big
 						                   //if (strcmp(funcname, "SetCursorPos") == 0)
 						                   if (strcmp(funcname, "ClipCursor") == 0)
 						                   {
-							                   LOG(INFO) << "This is set";
-							                   //ForceWrite<void*>(func, hook_SetCursorPos);
 							                   ForceWrite<void*>(func, hook_ClipCursor);
 						                   }
 					                   });
