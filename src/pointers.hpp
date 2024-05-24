@@ -65,7 +65,7 @@ namespace big
 				}
 				else
 				{
-					LOG(FATAL) << "Just tried to save to cache a pointer supposedly within the " << batch_name.str << " module range but isn't! Offset from start of pointers instance: " << (field_ptr - reinterpret_cast<uintptr_t>(this));
+					LOG(ERROR) << "Just tried to save to cache a pointer supposedly within the " << batch_name.str << " module range but isn't! Offset from start of pointers instance: " << (field_ptr - reinterpret_cast<uintptr_t>(this));
 				}
 
 				i++;
@@ -101,7 +101,7 @@ namespace big
 		{
 			if (!memory::batch_runner::run(batch, mem_region))
 			{
-				LOG(FATAL) << "Failed to find some patterns for " << batch_name.str;
+				LOG(ERROR) << "Failed to find some patterns for " << batch_name.str;
 			}
 		}
 

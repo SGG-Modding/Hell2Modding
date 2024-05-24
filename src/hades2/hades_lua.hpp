@@ -86,7 +86,7 @@ namespace big::hades::lua
 	{
 		if (scriptFile)
 		{
-			LOG(VERBOSE) << "Game loading lua script: " << scriptFile;
+			LOG(DEBUG) << "Game loading lua script: " << scriptFile;
 
 			if (!strcmp(scriptFile, "Main.lua"))
 			{

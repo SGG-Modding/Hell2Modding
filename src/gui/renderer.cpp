@@ -40,7 +40,7 @@ static int get_correct_dxgi_format(int current_format)
 	return current_format;
 }
 
-static void CreateRenderTarget(IDXGISwapChain* pSwapChain, int buffer_count)
+static void create_render_target(IDXGISwapChain* pSwapChain, int buffer_count)
 {
 	gCommandAllocators.resize(buffer_count);
 	gMainRenderTargetResource.resize(buffer_count);
@@ -65,12 +65,12 @@ static void CreateRenderTarget(IDXGISwapChain* pSwapChain, int buffer_count)
 		}
 		else
 		{
-			LOG(FATAL) << "Failed getting buffer " << i;
+			LOG(ERROR) << "Failed getting buffer " << i;
 		}
 	}
 }
 
-static void ReleaseRenderTargetResources()
+static void release_render_target_resources()
 {
 	for (auto& resource : gMainRenderTargetResource)
 	{
@@ -84,7 +84,7 @@ static void ReleaseRenderTargetResources()
 
 static void CleanupDeviceD3D12()
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	if (gPSwapChain)
 	{
@@ -192,13 +192,6 @@ static void BuildRendererUserData(IDXGISwapChain3* pSwapChain, int buffer_count)
 	}
 }
 
-static HRESULT WINAPI hook_ResizeBuffers(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
-{
-	ReleaseRenderTargetResources();
-
-	return big::g_hooking->get_original<hook_ResizeBuffers>()(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
-}
-
 static HRESULT WINAPI hook_Present(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags)
 {
 	if (((Flags & (UINT)DXGI_PRESENT_TEST) != (UINT)DXGI_PRESENT_TEST))
@@ -223,37 +216,44 @@ static HRESULT WINAPI hook_Present1(IDXGISwapChain3* pSwapChain, UINT SyncInterv
 	return res;
 }
 
+static HRESULT WINAPI hook_ResizeBuffers(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
+{
+	release_render_target_resources();
+
+	return big::g_hooking->get_original<hook_ResizeBuffers>()(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
+}
+
 static HRESULT WINAPI hook_ResizeBuffers1(IDXGISwapChain3* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	return big::g_hooking->get_original<hook_ResizeBuffers1>()(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
 }
 
 static HRESULT WINAPI hook_CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc, IDXGISwapChain** ppSwapChain)
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	return big::g_hooking->get_original<hook_CreateSwapChain>()(pFactory, pDevice, pDesc, ppSwapChain);
 }
 
 static HRESULT WINAPI hook_CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevice, HWND hWnd, const DXGI_SWAP_CHAIN_DESC1* pDesc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* pFullscreenDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	return big::g_hooking->get_original<hook_CreateSwapChainForHwnd>()(pFactory, pDevice, hWnd, pDesc, pFullscreenDesc, pRestrictToOutput, ppSwapChain);
 }
 
 static HRESULT WINAPI hook_CreateSwapChainForCoreWindow(IDXGIFactory* pFactory, IUnknown* pDevice, IUnknown* pWindow, const DXGI_SWAP_CHAIN_DESC1* pDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	return big::g_hooking->get_original<hook_CreateSwapChainForCoreWindow>()(pFactory, pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
 }
 
 static HRESULT WINAPI hook_CreateSwapChainForComposition(IDXGIFactory* pFactory, IUnknown* pDevice, const DXGI_SWAP_CHAIN_DESC1* pDesc, IDXGIOutput* pRestrictToOutput, IDXGISwapChain1** ppSwapChain)
 {
-	ReleaseRenderTargetResources();
+	release_render_target_resources();
 
 	return big::g_hooking->get_original<hook_CreateSwapChainForComposition>()(pFactory, pDevice, pDesc, pRestrictToOutput, ppSwapChain);
 }
@@ -282,7 +282,7 @@ namespace big
 		ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
 	}
 
-	void CreateImGuiForWindow(HWND window_handle)
+	void init_imgui_context(HWND window_handle)
 	{
 		if (ImGui::GetCurrentContext())
 		{
@@ -351,14 +351,14 @@ namespace big
 		const auto d3d12_module = LoadLibraryA("d3d12.dll");
 		if (d3d12_module == nullptr)
 		{
-			LOG(FATAL) << "Failed to load d3d12.dll";
+			LOG(ERROR) << "Failed to load d3d12.dll";
 			return false;
 		}
 
 		auto d3d12_create_device = (decltype(D3D12CreateDevice)*)GetProcAddress(d3d12_module, "D3D12CreateDevice");
 		if (d3d12_create_device == nullptr)
 		{
-			LOG(FATAL) << "Failed to get D3D12CreateDevice export";
+			LOG(ERROR) << "Failed to get D3D12CreateDevice export";
 			return false;
 		}
 
@@ -366,7 +366,7 @@ namespace big
 
 		if (FAILED(d3d12_create_device(nullptr, feature_level, IID_PPV_ARGS(&device))))
 		{
-			LOG(FATAL) << "Failed to create D3D12 Dummy device";
+			LOG(ERROR) << "Failed to create D3D12 Dummy device";
 			return false;
 		}
 
@@ -376,7 +376,7 @@ namespace big
 		const auto dxgi_module = LoadLibraryA("dxgi.dll");
 		if (dxgi_module == nullptr)
 		{
-			LOG(FATAL) << "Failed to load dxgi.dll";
+			LOG(ERROR) << "Failed to load dxgi.dll";
 			return false;
 		}
 
@@ -384,7 +384,7 @@ namespace big
 
 		if (create_dxgi_factory == nullptr)
 		{
-			LOG(FATAL) << "Failed to get CreateDXGIFactory export";
+			LOG(ERROR) << "Failed to get CreateDXGIFactory export";
 			return false;
 		}
 
@@ -393,7 +393,7 @@ namespace big
 		IDXGIFactory4* factory{nullptr};
 		if (FAILED(create_dxgi_factory(IID_PPV_ARGS(&factory))))
 		{
-			LOG(FATAL) << "Failed to create D3D12 Dummy DXGI Factory";
+			LOG(ERROR) << "Failed to create D3D12 Dummy DXGI Factory";
 			return false;
 		}
 
@@ -408,7 +408,7 @@ namespace big
 		ID3D12CommandQueue* command_queue{nullptr};
 		if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&command_queue))))
 		{
-			LOG(FATAL) << "Failed to create D3D12 Dummy Command Queue";
+			LOG(ERROR) << "Failed to create D3D12 Dummy Command Queue";
 			return false;
 		}
 
@@ -492,19 +492,19 @@ namespace big
 			}
 			catch (std::exception& e)
 			{
-				LOG(FATAL) << "Failed to create dummy swapchain on attempt " << i << " " << e.what();
+				LOG(ERROR) << "Failed to create dummy swapchain on attempt " << i << " " << e.what();
 			}
 			catch (...)
 			{
-				LOG(FATAL) << "Failed to create dummy swapchain on attempt " << i;
+				LOG(ERROR) << "Failed to create dummy swapchain on attempt " << i;
 			}
 
-			LOG(FATAL) << "Attempt failed " << i;
+			LOG(ERROR) << "Attempt failed " << i;
 		}
 
 		if (!any_succeed)
 		{
-			LOG(FATAL) << "Failed to create D3D12 Dummy Swap Chain";
+			LOG(ERROR) << "Failed to create D3D12 Dummy Swap Chain";
 
 			if (hwnd)
 			{
@@ -523,7 +523,7 @@ namespace big
 
 		if (FAILED(swap_chain1->QueryInterface(IID_PPV_ARGS(&swap_chain))))
 		{
-			LOG(FATAL) << "Failed to retrieve D3D12 DXGI SwapChain";
+			LOG(ERROR) << "Failed to retrieve D3D12 DXGI SwapChain";
 			return false;
 		}
 
@@ -537,11 +537,11 @@ namespace big
 		}
 		catch (const std::exception& e)
 		{
-			LOG(FATAL) << "Failed to get type info: " << e.what();
+			LOG(ERROR) << "Failed to get type info: " << e.what();
 		}
 		catch (...)
 		{
-			LOG(FATAL) << "Failed to get type info: unknown exception";
+			LOG(ERROR) << "Failed to get type info: unknown exception";
 		}
 
 		LOG(INFO) << "Finding command queue offset";
@@ -636,7 +636,7 @@ namespace big
 
 		if (m_command_queue_offset == 0)
 		{
-			LOG(FATAL) << "Failed to find command queue offset";
+			LOG(ERROR) << "Failed to find command queue offset";
 			return false;
 		}
 
@@ -918,7 +918,7 @@ namespace big
 			init = false;
 
 			pSwapChain->GetHwnd(&g_renderer->m_window_handle);
-			CreateImGuiForWindow(g_renderer->m_window_handle);
+			init_imgui_context(g_renderer->m_window_handle);
 
 			auto file_path                             = g_file_manager.get_project_file("./imgui.ini").get_path();
 			static std::string path                    = file_path.make_preferred().string();
@@ -964,7 +964,7 @@ namespace big
 		{
 			DXGI_SWAP_CHAIN_DESC sdesc;
 			pSwapChain->GetDesc(&sdesc);
-			CreateRenderTarget(pSwapChain, sdesc.BufferCount);
+			create_render_target(pSwapChain, sdesc.BufferCount);
 		}
 
 		if (ImGui::GetCurrentContext() && m_command_queue && gMainRenderTargetResource[0])

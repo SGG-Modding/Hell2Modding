@@ -128,7 +128,7 @@ namespace lua::tolk
 			const auto text_buffer_wide = utf8_to_wstring(text_buffer.str());
 			if (!Tolk_Output(text_buffer_wide.c_str()))
 			{
-				LOG(FATAL) << "Failed to output to tolk";
+				LOG(ERROR) << "Failed to output to tolk";
 			}
 		}
 	}

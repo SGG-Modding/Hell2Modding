@@ -41,14 +41,14 @@ namespace lua::hades::lz4
 
 			if (!file.is_open())
 			{
-				LOG(FATAL) << "Failed to open file " << (char *)dump_file_path.u8string().c_str();
+				LOG(ERROR) << "Failed to open file " << (char *)dump_file_path.u8string().c_str();
 			}
 
 			file.write((char *)decompressed_buffer.data(), decompressed_size);
 
 			if (!file)
 			{
-				LOG(FATAL) << "Failed to write to file";
+				LOG(ERROR) << "Failed to write to file";
 			}
 
 			file.close();

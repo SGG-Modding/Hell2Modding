@@ -446,7 +446,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    if (g_abort)
 			    {
-				    LOG(FATAL) << rom::g_project_name << "failed to init properly, exiting.";
+				    LOG(ERROR) << rom::g_project_name << "failed to init properly, exiting.";
 				    g_running = false;
 			    }
 

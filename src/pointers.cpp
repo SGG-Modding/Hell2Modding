@@ -53,7 +53,7 @@ namespace big
 			}
 			else
 			{
-				LOG(FATAL) << "Just tried to load from cache a pointer supposedly within the hades2 module range but "
+				LOG(ERROR) << "Just tried to load from cache a pointer supposedly within the hades2 module range but "
 				              "isn't! Offset from start of pointers instance: "
 				           << (reinterpret_cast<uintptr_t>(field_ptr) - reinterpret_cast<uintptr_t>(this));
 			}

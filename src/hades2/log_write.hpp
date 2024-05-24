@@ -47,11 +47,11 @@ namespace big
 			break;
 		case 2:
 			levelStr  = "DBG";
-			log_level = VERBOSE;
+			log_level = DEBUG;
 			break;
 		case 16:
 			levelStr  = "ERR";
-			log_level = FATAL;
+			log_level = ERROR;
 			break;
 		default:
 			levelStr  = "UNK";

@@ -341,7 +341,7 @@ namespace big
 				editing_gui_keybind = false;
 			}
 
-			LOG(VERBOSE) << "Toggled Modding GUI to: " << (m_is_open ? "visible" : "hidden");
+			LOG(DEBUG) << "Toggled Modding GUI to: " << (m_is_open ? "visible" : "hidden");
 		}
 	}
 
@@ -349,11 +349,11 @@ namespace big
 	using ClipCursor_t           = BOOL (*)(const RECT* lpRect);
 	ClipCursor_t orig_ClipCursor = nullptr;
 
-	static BOOL hook_ClipCursor(int x, int y)
+	static BOOL hook_ClipCursor(const RECT* lpRect)
 	{
 		if (!g_gui || !g_gui->is_open())
 		{
-			return orig_SetCursorPos(x, y);
+			return orig_ClipCursor(lpRect);
 		}
 
 		return 1;
@@ -432,11 +432,7 @@ namespace big
 
 				if (GetModuleHandleA("user32.dll"))
 				{
-					orig_SetCursorPos = &SetCursorPos;
-					orig_ClipCursor   = &ClipCursor;
-
-					LOG(INFO) << HEX_TO_UPPER(orig_SetCursorPos);
-					LOG(INFO) << HEX_TO_UPPER(orig_ClipCursor);
+					orig_ClipCursor = &ClipCursor;
 
 					EachImportFunction(::GetModuleHandleA(0),
 					                   "user32.dll",
@@ -453,7 +449,7 @@ namespace big
 				}
 				else
 				{
-					LOG(FATAL) << "no user32 hook setcus";
+					LOG(ERROR) << "no user32 hook setcus";
 				}
 			}
 		}
@@ -487,7 +483,7 @@ namespace big
 				node = table.get(node_name);
 				if (node == nullptr)
 				{
-					LOG(FATAL) << "what";
+					LOG(ERROR) << "what";
 				}
 
 				if (node == nullptr || node->type() != toml::node_type::boolean)
@@ -498,7 +494,7 @@ namespace big
 					node = table.get(node_name);
 					if (node == nullptr)
 					{
-						LOG(FATAL) << "what2";
+						LOG(ERROR) << "what2";
 					}
 				}
 			};
