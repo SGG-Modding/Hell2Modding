@@ -5,7 +5,6 @@
 #include "hades2/hooks.hpp"
 #include "hooks/hooking.hpp"
 #include "logger/exception_handler.hpp"
-#include "ltable.h"
 #include "lua/lua_manager.hpp"
 #include "memory/byte_patch_manager.hpp"
 #include "paths/paths.hpp"
@@ -37,6 +36,7 @@ static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 
 	LOG(INFO) << "initRenderer finished";
 }
+struct Table;
 
 static void hook_luaH_free(lua_State *L, Table *t)
 {
@@ -55,6 +55,8 @@ static Table *hook_luaH_new(lua_State *L)
 	static auto hades_func = gmAddress::scan("44 8D 43 40 E8", "hades_luaH_new").offset(-0x12).as_func<Table *(lua_State *)>();
 	return hades_func(L);
 }
+
+struct TValue;
 
 static TValue *hook_luaH_newkey(lua_State *L, Table *t, const TValue *key)
 {
@@ -206,6 +208,16 @@ static void hook_PlatformAnalytics_Start()
 	LOG(INFO) << "PlatformAnalytics_Start denied";
 }
 
+extern "C"
+{
+	extern void luaH_free(lua_State *L, Table *t);
+	extern int luaH_getn(Table *t);
+	extern TValue *luaH_newkey(lua_State *L, Table *t, const TValue *key);
+	extern void luaH_resize(lua_State *L, Table *t, int nasize, int nhsize);
+	extern void luaH_resizearray(lua_State *L, Table *t, int nasize);
+	extern Table *luaH_new(lua_State *L);
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -242,18 +254,19 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		    "backtrace::initializeCrashpad",
 		    gmAddress::scan("74 13 48 8B C8", "backtrace::initializeCrashpad").offset(-0x4C).as_func<bool()>());
 
+
 		// If that block fails lua will crash.
 		// This is because lua dummynode_ is a static variable and its address is used in various lua table checks.
 		// Since the target game statically link against lua, we have to do it too,
 		// a duplicate dummynode_ is made, and will eventually get out of sync.
 		{
 			// clang-format off
-			big::hooking::detour_hook_helper::add_now<hook_luaH_free>("luaH_free", gmAddress::scan_me("48 39 41 20 74 3A", "our luaH_free").offset(-0x1B));
-			big::hooking::detour_hook_helper::add_now<hook_luaH_getn>("luaH_getn", gmAddress::scan_me("83 F8 01 76 49", "our luaH_getn").offset(-0x51));
-			big::hooking::detour_hook_helper::add_now<hook_luaH_newkey>("luaH_newkey", gmAddress::scan_me("75 12 48 8D 05", "our luaH_newkey").offset(-0x95));
-			big::hooking::detour_hook_helper::add_now<hook_luaH_resize>("luaH_resize", gmAddress::scan_me("0F 8D E5 00 00 00", "our luaH_resize").offset(-0x86));
-			big::hooking::detour_hook_helper::add_now<hook_luaH_resizearray>("luaH_resizearray", gmAddress::scan_me("48 39 41 20 75 0A", "our luaH_resizearray").offset(-0x20));
-			big::hooking::detour_hook_helper::add_now<hook_setnodevector>("setnodevector", gmAddress::scan_me("39 44 24 24 7D 3E", "our setnodevector").offset(-0xE6));
+			big::hooking::detour_hook_helper::add_now<hook_luaH_free>("luaH_free", &luaH_free);
+			big::hooking::detour_hook_helper::add_now<hook_luaH_getn>("luaH_getn", &luaH_getn);
+			big::hooking::detour_hook_helper::add_now<hook_luaH_newkey>("luaH_newkey", &luaH_newkey);
+			big::hooking::detour_hook_helper::add_now<hook_luaH_resize>("luaH_resize", &luaH_resize);
+			big::hooking::detour_hook_helper::add_now<hook_luaH_resizearray>("luaH_resizearray", &luaH_resizearray);
+			big::hooking::detour_hook_helper::add_now<hook_luaH_new>("luaH_new", &luaH_new);
 			// clang-format on
 		}
 
