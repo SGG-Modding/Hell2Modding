@@ -1,1 +1,1 @@
-clear && msvc-x64-cmake --build ./build --config Debug --target Hell2Modding -- && cp ~/code/Hell2Modding/build/d3d12_.dll ~/.local/share/Steam/steamapps/common/Hades\ II/Ship/d3d12.dll
+clear && msvc-x64-cmake --build ./build --config Debug --target Hell2Modding -- && cp ~/code/Hell2Modding/build/d3d12_.dll ~/.local/share/Steam/steamapps/common/Hades\ II/Ship/d3d12.dll && steam steam://rungameid/1145350
