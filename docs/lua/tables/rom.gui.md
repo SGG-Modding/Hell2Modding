@@ -1,6 +1,6 @@
 # Table: rom.gui
 
-## Functions (4)
+## Functions (5)
 
 ### `add_to_menu_bar(imgui_rendering)`
 
@@ -81,6 +81,15 @@ rom.gui.add_imgui(imgui_rendering)
 **Example Usage:**
 ```lua
 bool = rom.gui.is_open()
+```
+
+### `toggle()`
+
+Opens or closes the GUI.
+
+**Example Usage:**
+```lua
+rom.gui.toggle()
 ```
 
 

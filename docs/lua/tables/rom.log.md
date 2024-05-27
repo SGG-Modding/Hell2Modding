@@ -40,16 +40,17 @@ Logs a debug message.
 rom.log.debug(args)
 ```
 
-### `error(args)`
+### `error(arg, level)`
 
-Logs an error message.
+Logs an error message. This is a mirror of lua classic `error` function.
 
 - **Parameters:**
-  - `args` (any)
+  - `arg` (any)
+  - `level` (integer)
 
 **Example Usage:**
 ```lua
-rom.log.error(args)
+rom.log.error(arg, level)
 ```
 
 ### `refresh_filters()`

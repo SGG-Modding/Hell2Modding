@@ -2,21 +2,23 @@
 
 #include "gui/gui.hpp"
 
+#include <lua/bindings/gui.hpp>
+
 namespace lua::gui_ext
 {
-	// Lua API: Function
-	// Table: gui
-	// Name: is_open
-	// Returns: bool: Returns true if the GUI is open.
 	static bool is_open()
 	{
 		return big::g_gui->is_open();
 	}
 
+	static void toggle()
+	{
+		big::g_gui->toggle(!big::g_gui->is_open());
+	}
+
 	void bind(sol::table& state)
 	{
-		auto ns = state["gui"].get_or_create<sol::table>();
-
-		ns["is_open"] = is_open;
+		lua::gui::g_on_is_open = is_open;
+		lua::gui::g_on_toggle  = toggle;
 	}
 } // namespace lua::gui_ext
