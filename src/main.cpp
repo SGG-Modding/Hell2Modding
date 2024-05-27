@@ -208,6 +208,13 @@ static void hook_PlatformAnalytics_Start()
 	LOG(INFO) << "PlatformAnalytics_Start denied";
 }
 
+static void hook_disable_f10_launch(void *bugInfo)
+{
+	LOG(ERROR) << "sgg::LaunchBugReporter denied";
+
+	MessageBoxA(0, "The game has encountered a fatal error, the error is in the log file and in the console.", "Hell2Modding", MB_ICONERROR | MB_OK);
+}
+
 extern "C"
 {
 	extern void luaH_free(lua_State *L, Table *t);
@@ -335,6 +342,18 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			static auto hook_analy_start = hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>(
 			    "PlatformAnalytics Start",
 			    gmAddress::scan("75 65 48 8D 05", "Analy Start").offset(-0xE));
+		}
+
+		{
+			static auto ptr = gmAddress::scan("E8 ? ? ? ? B8 ? ? ? ? EB 05", "sgg::LaunchBugReporter");
+			if (ptr)
+			{
+				static auto ptr_func = ptr.get_call();
+
+				static auto hook_ = hooking::detour_hook_helper::add<hook_disable_f10_launch>(
+				    "sgg::LaunchBugReporter F10 Disabler Hook",
+				    ptr_func);
+			}
 		}
 
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
