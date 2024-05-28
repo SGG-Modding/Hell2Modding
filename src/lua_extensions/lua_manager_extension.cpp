@@ -17,7 +17,7 @@ namespace big::lua_manager_extension
 	{
 		std::scoped_lock l(g_manager_mutex);
 
-		lua::hades::inputs::key_callbacks.clear();
+		lua::hades::inputs::vanilla_key_callbacks.clear();
 
 		g_is_lua_state_valid = false;
 

@@ -5,6 +5,7 @@
 #include "string/string.hpp"
 
 #include <hooks/hooking.hpp>
+#include <lua/lua_manager.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 #include <memory/gm_address.hpp>
 
@@ -305,41 +306,50 @@ namespace lua::hades::inputs
 	bool enable_vanilla_debug_keybinds       = false;
 	bool let_game_input_go_through_gui_layer = true;
 
-	std::unordered_map<std::string, sol::coroutine> key_callbacks;
+	std::map<std::string, std::vector<sol::coroutine>> vanilla_key_callbacks;
 	static gmAddress RegisterDebugKey{};
 
-	static void invoke_key_callback(uintptr_t mCallback)
+	static void invoke_debug_key_callback(uintptr_t mCallback)
 	{
 		// offset to get mName from DebugAction
 		eastl_basic_string_view_char *mName = (eastl_basic_string_view_char *)(mCallback - 0x18);
-		const auto it_callback              = key_callbacks.find(mName->get_text());
-		if (it_callback != key_callbacks.end())
+
+		if (enable_vanilla_debug_keybinds)
 		{
-			LOG(DEBUG) << it_callback->first;
-			it_callback->second();
+			const auto it_callback = vanilla_key_callbacks.find(mName->get_text());
+			if (it_callback != vanilla_key_callbacks.end())
+			{
+				LOG(DEBUG) << it_callback->first << " (Vanilla)";
+
+				for (auto &cb : it_callback->second)
+				{
+					cb();
+				}
+			}
+		}
+
+		std::scoped_lock guard(big::g_lua_manager->m_module_lock);
+		for (const auto &mod_ : big::g_lua_manager->m_modules)
+		{
+			auto mod               = (big::lua_module_ext *)mod_.get();
+			const auto it_callback = mod->m_data_ext.m_keybinds.find(mName->get_text());
+			if (it_callback != mod->m_data_ext.m_keybinds.end())
+			{
+				LOG(DEBUG) << it_callback->first << " (" << mod->guid() << ")";
+
+				for (auto &cb : it_callback->second)
+				{
+					cb();
+				}
+			}
 		}
 	}
 
-	static void invoke_vanilla_debug_key_callback(uintptr_t mCallback)
-	{
-		if (!enable_vanilla_debug_keybinds)
-		{
-			return;
-		}
-
-		invoke_key_callback(mCallback);
-	}
-
-	static void invoke_plugin_debug_key_callback(uintptr_t mCallback)
-	{
-		invoke_key_callback(mCallback);
-	}
-
-	static void parse_and_register_keybind(const std::string &keybind, const sol::coroutine &callback, auto &RegisterDebugKey, void *invoke_callback)
+	static void parse_and_register_keybind(std::string &keybind, const sol::coroutine &callback, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
 	{
 		eastl::function<void(uintptr_t)> funcy;
 		funcy.mMgrFuncPtr    = nullptr;
-		funcy.mInvokeFuncPtr = (decltype(funcy.mInvokeFuncPtr))invoke_callback;
+		funcy.mInvokeFuncPtr = invoke_debug_key_callback;
 		eastl_basic_string_view_char callback_name{};
 		callback_name.mRemainingSizeField = (char)129;
 		// TODO: this is leaking
@@ -355,8 +365,6 @@ namespace lua::hades::inputs
 		int32_t key          = 0;
 		if (keybind.size())
 		{
-			LOG(INFO) << "keybind: " << keybind;
-
 			if (keybind.contains("Control"))
 			{
 				key_modifier |= sgg::KeyModifier::Ctrl;
@@ -370,12 +378,27 @@ namespace lua::hades::inputs
 				key_modifier |= sgg::KeyModifier::Alt;
 			}
 
+			if (!keybind.contains(' '))
+			{
+				keybind = std::format(" {}", keybind);
+			}
+
 			std::string key_str = big::string::split(keybind, ' ')[1];
 			auto it_key         = sgg::key_map.find(key_str);
 			if (it_key != sgg::key_map.end())
 			{
-				key                    = it_key->second;
-				key_callbacks[keybind] = callback;
+				key = it_key->second;
+
+				if (is_vanilla)
+				{
+					LOG(DEBUG) << "Vanilla Keybind Registered: " << keybind;
+					vanilla_key_callbacks[keybind].push_back(callback);
+				}
+				else if (mod)
+				{
+					LOG(INFO) << mod->guid() << " Keybind Registered: " << keybind;
+					mod->m_data_ext.m_keybinds[keybind].push_back(callback);
+				}
 			}
 		}
 
@@ -387,19 +410,15 @@ namespace lua::hades::inputs
 	// Name: on_key_pressed
 	// Param: keybind: string: The key binding string representing the key that, when pressed, will trigger the callback function. The format used is the one used by the vanilla game, please check the vanilla scripts using "OnKeyPressed".
 	// Param: callback: function: The function to be called when the specified keybind is pressed.
-	static void on_key_pressed(const std::string &keybind, sol::coroutine cb, sol::this_environment env)
+	static void on_key_pressed(std::string keybind, sol::coroutine cb, sol::this_environment env)
 	{
 		auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
 		if (mod)
 		{
-			mod->m_data_ext.m_keybinds.emplace(keybind, cb);
-
-			key_callbacks[keybind] = cb;
-
 			if (RegisterDebugKey)
 			{
 				auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
-				parse_and_register_keybind(keybind, cb, RegisterDebugKey_good_type, invoke_plugin_debug_key_callback);
+				parse_and_register_keybind(keybind, cb, RegisterDebugKey_good_type, false, mod);
 			}
 		}
 	}
@@ -424,7 +443,7 @@ namespace lua::hades::inputs
 				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
 				{
 					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
-					parse_and_register_keybind(*keybind_opt, *callback_opt, RegisterDebugKey_good_type, invoke_vanilla_debug_key_callback);
+					parse_and_register_keybind(*keybind_opt, *callback_opt, RegisterDebugKey_good_type, true, nullptr);
 				}
 			}
 		};

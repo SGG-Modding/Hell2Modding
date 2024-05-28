@@ -4,6 +4,7 @@
 #include "hooks/hooking.hpp"
 #include "lua/bindings/imgui_window.hpp"
 #include "lua_extensions/lua_manager_extension.hpp"
+#include "lua_extensions/lua_module_ext.hpp"
 
 #include <codecvt>
 #include <gui/widgets/imgui_hotkey.hpp>
@@ -215,6 +216,45 @@ namespace big
 					ImGui::EndMenu();
 				}
 
+				if (ImGui::BeginMenu("Keybinds"))
+				{
+					ImGui::Checkbox("Enable Vanilla Debug Keybinds", &lua::hades::inputs::enable_vanilla_debug_keybinds);
+					if (ImGui::TreeNode(lua::hades::inputs::enable_vanilla_debug_keybinds ? "Vanilla" : "Vanilla (Disabled)"))
+					{
+						for (const auto& [keybind, cbs] : lua::hades::inputs::vanilla_key_callbacks)
+						{
+							if (cbs.size())
+							{
+								ImGui::Text("%s (%llu)", keybind.c_str(), cbs.size());
+							}
+						}
+
+						ImGui::TreePop();
+					}
+
+					std::scoped_lock guard(g_lua_manager->m_module_lock);
+					for (const auto& mod_ : g_lua_manager->m_modules)
+					{
+						auto mod = (big::lua_module_ext*)mod_.get();
+
+						if (mod->m_data_ext.m_keybinds.size())
+						{
+							if (ImGui::TreeNode(mod->guid().c_str()))
+							{
+								for (const auto& [keybind, cbs] : mod->m_data_ext.m_keybinds)
+								{
+									if (cbs.size())
+									{
+										ImGui::Text("%s (%llu)", keybind.c_str(), cbs.size());
+									}
+								}
+							}
+						}
+					}
+
+					ImGui::EndMenu();
+				}
+
 				if (ImGui::BeginMenu("Windows"))
 				{
 					for (auto& [mod_guid, windows] : lua::window::is_open)
@@ -255,13 +295,6 @@ namespace big
 							ImGui::EndMenu();
 						}
 					}
-
-					ImGui::EndMenu();
-				}
-
-				if (ImGui::BeginMenu("Debug"))
-				{
-					ImGui::Checkbox("Enable Vanilla Debug Keybinds", &lua::hades::inputs::enable_vanilla_debug_keybinds);
 
 					ImGui::EndMenu();
 				}
