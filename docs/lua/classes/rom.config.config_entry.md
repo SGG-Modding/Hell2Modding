@@ -2,6 +2,14 @@
 
 Provides access to a single setting inside of a config_file.
 
+## Fields (1)
+
+### `description`
+
+Simple description of the setting shown to the user.
+
+- Type: `string`
+
 ## Functions (2)
 
 ### `get()`

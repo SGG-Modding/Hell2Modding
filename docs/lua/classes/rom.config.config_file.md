@@ -37,7 +37,7 @@ Create a new config file at the specified config path.
 myInstance = config.config_file:new(config_path, save_on_init)
 ```
 
-## Functions (3)
+## Functions (4)
 
 ### `bind(section, key, default_value, description)`
 
@@ -57,6 +57,19 @@ trying to add a second setting will throw an exception.
 **Example Usage:**
 ```lua
 config_entry = rom.config.config_file:bind(section, key, default_value, description)
+```
+
+### `remove(section, key)`
+
+Removes a setting from the config file.
+
+- **Parameters:**
+  - `section` (string): Section/category/group of the setting. Settings are grouped by this.
+  - `key` (string): Name of the setting.
+
+**Example Usage:**
+```lua
+rom.config.config_file:remove(section, key)
 ```
 
 ### `save()`
