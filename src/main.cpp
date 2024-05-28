@@ -266,7 +266,12 @@ static void hook_disable_f10_launch(void *bugInfo)
 {
 	LOG(WARNING) << "sgg::LaunchBugReporter denied";
 
-	MessageBoxA(0, "The game has encountered a fatal error, the error is in the log file and in the console.", "Hell2Modding", MB_ICONERROR | MB_OK);
+	static bool once = true;
+	if (once)
+	{
+		MessageBoxA(0, "The game has encountered a fatal error, the error is in the log file and in the console.", "Hell2Modding", MB_ICONERROR | MB_OK);
+		once = false;
+	}
 }
 
 extern "C"
