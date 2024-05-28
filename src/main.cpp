@@ -169,19 +169,26 @@ static void hook_HandleInput(void *this_, float elapsedSeconds)
 	{
 		big::g_hooking->get_original<hook_HandleInput>()(this_, elapsedSeconds);
 	}
-}
 
-static std::mutex sgg_config_values_mutex;
-static std::vector<bool *> sgg_config_values;
+struct sgg_config_values_fixed
+{
+	bool *addr     = nullptr;
+	bool new_value = false;
+};
+
+static bool sgg_config_values_thread_can_loop = false;
+static std::vector<sgg_config_values_fixed> sgg_config_values;
 
 static void set_sgg_config_values_thread_loop()
 {
 	while (true)
 	{
-		std::scoped_lock l(sgg_config_values_mutex);
+		if (sgg_config_values_thread_can_loop)
+		{
 		for (auto &cfg_value : sgg_config_values)
 		{
-			*cfg_value = false;
+				*cfg_value.addr = cfg_value.new_value;
+			}
 		}
 
 		using namespace std::chrono_literals;
@@ -225,24 +232,22 @@ static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigne
 	{
 		LOG(INFO) << "Making sure UseAnalytics is false.";
 		res = false;
-		std::scoped_lock l(sgg_config_values_mutex);
-		sgg_config_values.push_back(addr);
+		sgg_config_values.emplace_back(addr, false);
 	}
 
 	if (is_DebugKeysEnabled)
 	{
 		LOG(INFO) << "Making sure DebugKeysEnabled is true.";
 		res = true;
-		std::scoped_lock l(sgg_config_values_mutex);
-		sgg_config_values.push_back(addr);
+		sgg_config_values.emplace_back(addr, true);
 	}
 
 	if (is_UnsafeDebugKeysEnabled)
 	{
 		LOG(INFO) << "Making sure UnsafeDebugKeysEnabled is true.";
 		res = true;
-		std::scoped_lock l(sgg_config_values_mutex);
-		sgg_config_values.push_back(addr);
+		sgg_config_values.emplace_back(addr, true);
+		sgg_config_values_thread_can_loop = true;
 	}
 
 	return res;
