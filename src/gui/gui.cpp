@@ -11,6 +11,7 @@
 #include <input/is_key_pressed.hpp>
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
+#include <lua_extensions/bindings/hades/inputs.hpp>
 #include <memory/gm_address.hpp>
 #include <pointers.hpp>
 
@@ -202,6 +203,8 @@ namespace big
 						editing_gui_keybind = true;
 					}
 
+					ImGui::Checkbox("Let Game Input Go Through Gui Layer", &lua::hades::inputs::let_game_input_go_through_gui_layer);
+
 					ImGui::EndMenu();
 				}
 
@@ -252,6 +255,13 @@ namespace big
 							ImGui::EndMenu();
 						}
 					}
+
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Debug"))
+				{
+					ImGui::Checkbox("Enable Vanilla Debug Keybinds", &lua::hades::inputs::enable_vanilla_debug_keybinds);
 
 					ImGui::EndMenu();
 				}

@@ -14,6 +14,7 @@
 #include "version.hpp"
 
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
+#include <lua_extensions/bindings/hades/inputs.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
 
@@ -163,12 +164,15 @@ static void hook_ReadAllAnimationData()
 	}
 }
 
-static void hook_HandleInput(void *this_, float elapsedSeconds)
+static void hook_PlayerHandleInput(void *this_, float elapsedSeconds, void *input)
 {
-	if (!big::g_gui || !big::g_gui->is_open())
+	if (big::g_gui && big::g_gui->is_open() && !lua::hades::inputs::let_game_input_go_through_gui_layer)
 	{
-		big::g_hooking->get_original<hook_HandleInput>()(this_, elapsedSeconds);
+		return;
 	}
+
+	big::g_hooking->get_original<hook_PlayerHandleInput>()(this_, elapsedSeconds, input);
+}
 
 struct sgg_config_values_fixed
 {
@@ -185,8 +189,8 @@ static void set_sgg_config_values_thread_loop()
 	{
 		if (sgg_config_values_thread_can_loop)
 		{
-		for (auto &cfg_value : sgg_config_values)
-		{
+			for (auto &cfg_value : sgg_config_values)
+			{
 				*cfg_value.addr = cfg_value.new_value;
 			}
 		}
@@ -379,7 +383,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			static auto hook_ = hooking::detour_hook_helper::add<hook_HandleInput>("HandleInput Hook", gmAddress::scan("40 53 41 56 41 57 48 83 EC 30", "HandleInput"));
+			//static auto hook_ = hooking::detour_hook_helper::add<hook_HandleInput>("Global HandleInput Hook", gmAddress::scan("40 53 41 56 41 57 48 83 EC 30", "HandleInput"));
+			static auto hook_ = hooking::detour_hook_helper::add<hook_PlayerHandleInput>("Player HandleInput Hook", gmAddress::scan("E8 ? ? ? ? 8B 05 ? ? ? ? 90", "Player HandleInput"));
 		}
 
 		{

@@ -3,24 +3,21 @@
 #include "bindings/gui_ext.hpp"
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/data.hpp"
+#include "bindings/hades/inputs.hpp"
 #include "bindings/hades/lz4.hpp"
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
 #include "bindings/tolk/tolk.hpp"
-#include "file_manager/file_manager.hpp"
 #include "lua_module_ext.hpp"
-#include "string/string.hpp"
-
-#include <hooks/hooking.hpp>
-#include <memory/gm_address.hpp>
-#include <unordered_set>
 
 namespace big::lua_manager_extension
 {
 	static void delete_everything()
 	{
 		std::scoped_lock l(g_manager_mutex);
+
+		lua::hades::inputs::key_callbacks.clear();
 
 		g_is_lua_state_valid = false;
 
@@ -39,7 +36,7 @@ namespace big::lua_manager_extension
 	void init_lua_manager(sol::state_view& state, sol::table& lua_ext)
 	{
 		init_lua_state(state, lua_ext);
-		init_lua_api(lua_ext);
+		init_lua_api(state, lua_ext);
 	}
 
 	void init_lua_state(sol::state_view& state, sol::table& lua_ext)
@@ -63,7 +60,7 @@ namespace big::lua_manager_extension
 		// clang-format on
 	}
 
-	void init_lua_api(sol::table& lua_ext)
+	void init_lua_api(sol::state_view& state, sol::table& lua_ext)
 	{
 		auto on_import_table = lua_ext.create_named("on_import");
 
@@ -101,6 +98,7 @@ namespace big::lua_manager_extension
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
 		lua::hades::data::bind(lua_ext);
+		lua::hades::inputs::bind(state, lua_ext);
 		lua::hades::lz4::bind(lua_ext);
 		lua::luasocket::bind(lua_ext);
 		lua::tolk::bind(lua_ext);
