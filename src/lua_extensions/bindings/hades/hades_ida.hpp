@@ -92,14 +92,18 @@ namespace eastl
 		struct function_detail : eastl::internal::function_base_detail<size>
 		{
 			void *(__fastcall *mMgrFuncPtr)(void *, void *, ManagerOperations);
-			void(__fastcall *mInvokeFuncPtr)(T *, const eastl::internal::functor_storage<size> *);
+			T(*mInvokeFuncPtr);
 		};
+
 	} // namespace internal
 
 	template<typename T>
-	struct function : eastl::internal::function_detail<T, 16>
+	struct function : eastl::internal::function_detail<T, 8>
 	{
 	};
+
+	static_assert(offsetof(function<void *>, mMgrFuncPtr) == 0x10);
+	static_assert(offsetof(function<void *>, mInvokeFuncPtr) == 0x18);
 
 	/*template<typename T, typename allocator_type>
 	union basic_string_layout_union
