@@ -171,6 +171,24 @@ static void hook_HandleInput(void *this_, float elapsedSeconds)
 	}
 }
 
+static std::mutex sgg_config_values_mutex;
+static std::vector<bool *> sgg_config_values;
+
+static void set_sgg_config_values_thread_loop()
+{
+	while (true)
+	{
+		std::scoped_lock l(sgg_config_values_mutex);
+		for (auto &cfg_value : sgg_config_values)
+		{
+			*cfg_value = false;
+		}
+
+		using namespace std::chrono_literals;
+		std::this_thread::sleep_for(1s);
+	}
+}
+
 static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigned int flags, bool defaultValue)
 {
 	bool is_UseAnalytics = false;
@@ -180,24 +198,51 @@ static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigne
 		is_UseAnalytics = true;
 	}
 
+	bool is_DebugKeysEnabled = false;
+	if (name && strstr(name, "DebugKeysEnabled"))
+	{
+		defaultValue        = true;
+		is_DebugKeysEnabled = true;
+	}
+
+	bool is_UnsafeDebugKeysEnabled = false;
+	if (name && strstr(name, "UnsafeDebugKeysEnabled"))
+	{
+		defaultValue              = true;
+		is_UnsafeDebugKeysEnabled = true;
+	}
+
 	auto res = big::g_hooking->get_original<hook_ConfigOption_registerField_bool>()(name, addr, flags, defaultValue);
+
+	static std::thread set_sgg_config_values_thread = []()
+	{
+		auto t = std::thread(set_sgg_config_values_thread_loop);
+		t.detach();
+		return t;
+	}();
 
 	if (is_UseAnalytics)
 	{
 		LOG(INFO) << "Making sure UseAnalytics is false.";
 		res = false;
-		std::thread(
-		    [=]
-		    {
-			    while (true)
-			    {
-				    *addr = false;
+		std::scoped_lock l(sgg_config_values_mutex);
+		sgg_config_values.push_back(addr);
+	}
 
-				    using namespace std::chrono_literals;
-				    std::this_thread::sleep_for(1s);
-			    }
-		    })
-		    .detach();
+	if (is_DebugKeysEnabled)
+	{
+		LOG(INFO) << "Making sure DebugKeysEnabled is true.";
+		res = true;
+		std::scoped_lock l(sgg_config_values_mutex);
+		sgg_config_values.push_back(addr);
+	}
+
+	if (is_UnsafeDebugKeysEnabled)
+	{
+		LOG(INFO) << "Making sure UnsafeDebugKeysEnabled is true.";
+		res = true;
+		std::scoped_lock l(sgg_config_values_mutex);
+		sgg_config_values.push_back(addr);
 	}
 
 	return res;
@@ -210,7 +255,7 @@ static void hook_PlatformAnalytics_Start()
 
 static void hook_disable_f10_launch(void *bugInfo)
 {
-	LOG(ERROR) << "sgg::LaunchBugReporter denied";
+	LOG(WARNING) << "sgg::LaunchBugReporter denied";
 
 	MessageBoxA(0, "The game has encountered a fatal error, the error is in the log file and in the console.", "Hell2Modding", MB_ICONERROR | MB_OK);
 }
