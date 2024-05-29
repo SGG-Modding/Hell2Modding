@@ -306,7 +306,7 @@ namespace lua::hades::inputs
 	bool enable_vanilla_debug_keybinds       = false;
 	bool let_game_input_go_through_gui_layer = true;
 
-	std::map<std::string, std::vector<sol::coroutine>> vanilla_key_callbacks;
+	std::map<std::string, std::vector<keybind_callback>> vanilla_key_callbacks;
 	static gmAddress RegisterDebugKey{};
 
 	static void invoke_debug_key_callback(uintptr_t mCallback)
@@ -323,7 +323,8 @@ namespace lua::hades::inputs
 
 				for (auto &cb : it_callback->second)
 				{
-					cb();
+					LOG(DEBUG) << cb.name << " (Vanilla)";
+					cb.cb();
 				}
 			}
 		}
@@ -339,13 +340,14 @@ namespace lua::hades::inputs
 
 				for (auto &cb : it_callback->second)
 				{
-					cb();
+					LOG(DEBUG) << cb.name;
+					cb.cb();
 				}
 			}
 		}
 	}
 
-	static void parse_and_register_keybind(std::string &keybind, const sol::coroutine &callback, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
+	static void parse_and_register_keybind(std::string &keybind, const sol::coroutine &callback, const std::string &name, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
 	{
 		eastl::function<void(uintptr_t)> funcy;
 		funcy.mMgrFuncPtr    = nullptr;
@@ -365,7 +367,7 @@ namespace lua::hades::inputs
 		int32_t key          = 0;
 		if (keybind.size())
 		{
-			if (keybind.contains("Control"))
+			if (keybind.contains("Control") || keybind.contains("Ctrl"))
 			{
 				key_modifier |= sgg::KeyModifier::Ctrl;
 			}
@@ -378,9 +380,9 @@ namespace lua::hades::inputs
 				key_modifier |= sgg::KeyModifier::Alt;
 			}
 
-			if (!keybind.contains(' '))
+			if (!keybind.contains(" "))
 			{
-				keybind = std::format(" {}", keybind);
+				keybind = std::string("None ").append(keybind);
 			}
 
 			std::string key_str = big::string::split(keybind, ' ')[1];
@@ -391,13 +393,13 @@ namespace lua::hades::inputs
 
 				if (is_vanilla)
 				{
-					LOG(DEBUG) << "Vanilla Keybind Registered: " << keybind;
-					vanilla_key_callbacks[keybind].push_back(callback);
+					LOG(DEBUG) << "Vanilla Keybind Registered: " << keybind << " - " << name;
+					vanilla_key_callbacks[keybind].emplace_back(name, callback);
 				}
 				else if (mod)
 				{
-					LOG(INFO) << mod->guid() << " Keybind Registered: " << keybind;
-					mod->m_data_ext.m_keybinds[keybind].push_back(callback);
+					LOG(INFO) << mod->guid() << " Keybind Registered: " << keybind << " - " << name;
+					mod->m_data_ext.m_keybinds[keybind].emplace_back(name, callback);
 				}
 			}
 		}
@@ -408,17 +410,31 @@ namespace lua::hades::inputs
 	// Lua API: Function
 	// Table: inputs
 	// Name: on_key_pressed
-	// Param: keybind: string: The key binding string representing the key that, when pressed, will trigger the callback function. The format used is the one used by the vanilla game, please check the vanilla scripts using "OnKeyPressed".
-	// Param: callback: function: The function to be called when the specified keybind is pressed.
-	static void on_key_pressed(std::string keybind, sol::coroutine cb, sol::this_environment env)
+	// Param: [1]: string: The key binding string representing the keys that, when pressed, will trigger the callback function. The format used is the one used by the vanilla game, please check the vanilla scripts using "OnKeyPressed".
+	// Param: [2]: function: The function to be called when the specified keybind is pressed.
+	// Param: Name: string: Optional. The name linked to this keybind, used in the GUI to help the user know what it corresponds to.
+	// The parameters must be inside a table. Check how the vanilla game does it through `OnKeyPressed`.
+	// For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+	// **Example Usage:**
+	// inputs.on_key_pressed{"Ctrl X", Name = "Testing key 2", function()
+	//     print("hello there")
+	// end}
+	static void on_key_pressed(sol::table args, sol::this_environment env)
 	{
 		auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
 		if (mod)
 		{
 			if (RegisterDebugKey)
 			{
-				auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
-				parse_and_register_keybind(keybind, cb, RegisterDebugKey_good_type, false, mod);
+				auto keybind_opt       = args[1].get<std::optional<std::string>>();
+				auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
+				auto callback_name_opt = args["Name"].get<std::optional<std::string>>();
+
+				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
+				{
+					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
+					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, false, mod);
+				}
 			}
 		}
 	}
@@ -433,17 +449,17 @@ namespace lua::hades::inputs
 
 		state["OnKeyPressed"] = [](sol::table args)
 		{
-			auto keybind_opt       = args[1].get<std::optional<std::string>>();
-			auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
-			auto callback_name_opt = args["Name"].get<std::optional<std::string>>();
-			auto is_safe_opt       = args["Safe"].get<std::optional<bool>>();
-
 			if (RegisterDebugKey)
 			{
+				auto keybind_opt       = args[1].get<std::optional<std::string>>();
+				auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
+				auto callback_name_opt = args["Name"].get<std::optional<std::string>>();
+				auto is_safe_opt       = args["Safe"].get<std::optional<bool>>();
+
 				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
 				{
 					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
-					parse_and_register_keybind(*keybind_opt, *callback_opt, RegisterDebugKey_good_type, true, nullptr);
+					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, true, nullptr);
 				}
 			}
 		};

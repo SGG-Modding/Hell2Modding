@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bindings/hades/inputs.hpp"
 #include "lua/lua_module.hpp"
 
 namespace big
@@ -20,7 +21,7 @@ namespace big
 
 		std::vector<on_sjson_game_data_read_t> m_on_sjson_game_data_read;
 
-		std::map<std::string, std::vector<sol::coroutine>> m_keybinds;
+		std::map<std::string, std::vector<lua::hades::inputs::keybind_callback>> m_keybinds;
 	};
 
 	class lua_module_ext : public lua_module

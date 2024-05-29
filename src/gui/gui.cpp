@@ -14,6 +14,7 @@
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/bindings/hades/inputs.hpp>
 #include <memory/gm_address.hpp>
+#include <misc/cpp/imgui_stdlib.h>
 #include <pointers.hpp>
 
 namespace big
@@ -125,6 +126,38 @@ namespace big
 
 	static bool editing_gui_keybind = false;
 
+	static void print_keybind_callbacks(const std::vector<lua::hades::inputs::keybind_callback>& cbs, const std::string& filter_keybind_text, const std::string& keybind)
+	{
+		if (cbs.size())
+		{
+			bool printed_header = false;
+			for (const auto& cb : cbs)
+			{
+				if (filter_keybind_text.size() && !cb.name.contains(filter_keybind_text) && !keybind.contains(filter_keybind_text))
+				{
+					continue;
+				}
+				ImGui::Text("%s (%llu)", keybind.c_str(), cbs.size());
+				printed_header = true;
+				break;
+			}
+
+			for (const auto& cb : cbs)
+			{
+				if (filter_keybind_text.size() && !cb.name.contains(filter_keybind_text) && !keybind.contains(filter_keybind_text))
+				{
+					continue;
+				}
+				ImGui::Text("%s", cb.name.c_str());
+			}
+
+			if (printed_header)
+			{
+				ImGui::Separator();
+			}
+		}
+	}
+
 	void gui::dx_on_tick()
 	{
 		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
@@ -219,14 +252,15 @@ namespace big
 				if (ImGui::BeginMenu("Keybinds"))
 				{
 					ImGui::Checkbox("Enable Vanilla Debug Keybinds", &lua::hades::inputs::enable_vanilla_debug_keybinds);
+
+					static std::string filter_keybind_text;
+					ImGui::InputText("Filter", &filter_keybind_text);
+
 					if (ImGui::TreeNode(lua::hades::inputs::enable_vanilla_debug_keybinds ? "Vanilla" : "Vanilla (Disabled)"))
 					{
 						for (const auto& [keybind, cbs] : lua::hades::inputs::vanilla_key_callbacks)
 						{
-							if (cbs.size())
-							{
-								ImGui::Text("%s (%llu)", keybind.c_str(), cbs.size());
-							}
+							print_keybind_callbacks(cbs, filter_keybind_text, keybind);
 						}
 
 						ImGui::TreePop();
@@ -243,10 +277,7 @@ namespace big
 							{
 								for (const auto& [keybind, cbs] : mod->m_data_ext.m_keybinds)
 								{
-									if (cbs.size())
-									{
-										ImGui::Text("%s (%llu)", keybind.c_str(), cbs.size());
-									}
+									print_keybind_callbacks(cbs, filter_keybind_text, keybind);
 								}
 							}
 						}
