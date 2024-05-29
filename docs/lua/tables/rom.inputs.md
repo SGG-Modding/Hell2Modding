@@ -6,10 +6,13 @@
 
 The parameters must be inside a table. Check how the vanilla game does it through `OnKeyPressed`.
 For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+
 **Example Usage:**
+```lua
 rom.inputs.on_key_pressed{"Ctrl X", Name = "Testing key 2", function()
      print("hello there")
 end}
+```
 
 - **Parameters:**
   - `[1]` (string): The key binding string representing the keys that, when pressed, will trigger the callback function. The format used is the one used by the vanilla game, please check the vanilla scripts using "OnKeyPressed".

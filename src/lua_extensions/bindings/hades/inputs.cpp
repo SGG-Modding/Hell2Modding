@@ -415,10 +415,13 @@ namespace lua::hades::inputs
 	// Param: Name: string: Optional. The name linked to this keybind, used in the GUI to help the user know what it corresponds to.
 	// The parameters must be inside a table. Check how the vanilla game does it through `OnKeyPressed`.
 	// For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+	//
 	// **Example Usage:**
+	// ```lua
 	// inputs.on_key_pressed{"Ctrl X", Name = "Testing key 2", function()
 	//     print("hello there")
 	// end}
+	// ```
 	static void on_key_pressed(sol::table args, sol::this_environment env)
 	{
 		auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
