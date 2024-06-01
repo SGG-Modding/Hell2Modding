@@ -304,7 +304,7 @@ std::unordered_map<std::string, sgg::KeyboardButtonId> key_map = {
 namespace lua::hades::inputs
 {
 	bool enable_vanilla_debug_keybinds       = false;
-	bool let_game_input_go_through_gui_layer = true;
+	bool let_game_input_go_through_gui_layer = false;
 
 	std::map<std::string, std::vector<keybind_callback>> vanilla_key_callbacks;
 	static gmAddress RegisterDebugKey{};

@@ -164,14 +164,41 @@ static void hook_ReadAllAnimationData()
 	}
 }
 
+// TODO: Cleanup all this
+template<class T>
+static void ForceWrite(T &dst, const T &src)
+{
+	DWORD old_flag;
+	::VirtualProtect(&dst, sizeof(T), PAGE_EXECUTE_READWRITE, &old_flag);
+	dst = src;
+	::VirtualProtect(&dst, sizeof(T), old_flag, &old_flag);
+}
+
 static void hook_PlayerHandleInput(void *this_, float elapsedSeconds, void *input)
 {
+	static auto jump_stuff = gmAddress::scan("74 7C 38 05").as<uint8_t *>();
+
 	if (big::g_gui && big::g_gui->is_open() && !lua::hades::inputs::let_game_input_go_through_gui_layer)
 	{
+		if (jump_stuff && *jump_stuff != 0x75)
+		{
+			ForceWrite<uint8_t>(*jump_stuff, 0x75);
+		}
+
 		return;
 	}
 
+	if (jump_stuff && *jump_stuff != 0x74)
+	{
+		ForceWrite<uint8_t>(*jump_stuff, 0x74);
+	}
+
 	big::g_hooking->get_original<hook_PlayerHandleInput>()(this_, elapsedSeconds, input);
+}
+
+extern "C"
+{
+	uintptr_t lpRemain = 0;
 }
 
 struct sgg_config_values_fixed
@@ -450,6 +477,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
+
+			    //static auto ptr_for_cave_test =
+			    //  gmAddress::scan("E8 ? ? ? ? EB 11 41 80 7D ? ?", "ptr_for_cave_test").get_call().offset(0x37);
 
 			    // config test
 			    if (0)
