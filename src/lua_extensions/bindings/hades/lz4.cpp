@@ -15,7 +15,7 @@ namespace lua::hades::lz4
 	{
 		static auto lz4_decompress_safe = gmAddress::scan("E9 B0 05 00 00", "lz4_decompress_safe").offset(-0x77).as_func<__int64(const char *, char *, int, int)>();
 
-		for (const auto &entry : std::filesystem::recursive_directory_iterator(folder_path_with_lz4_compressed_files, std::filesystem::directory_options::skip_permission_denied))
+		for (const auto &entry : std::filesystem::recursive_directory_iterator(folder_path_with_lz4_compressed_files, std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
 		{
 			if (!entry.exists())
 			{
