@@ -410,7 +410,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		big::hooking::detour_hook_helper::add_now<hook_initRenderer>(
 		    "initRenderer",
-		    gmAddress::scan("C1 E0 07 33 C1", "initRenderer").offset(-0x81).as<void *>());
+		    gmAddress::scan("E8 ? ? ? ? 90 48 8B 05 ? ? ? ? 48 85 C0", "initRenderer").get_call());
 
 		big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>(
 		    "backtrace::initializeCrashpad",
@@ -495,9 +495,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			//
 
-			static auto hook_analy_start = hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>(
-			    "PlatformAnalytics Start",
-			    gmAddress::scan("75 65 48 8D 05", "Analy Start").offset(-0xE));
+			static auto hook_analy_start =
+			    hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", gmAddress::scan("4C 8B DC 48 83 EC 48 80 3D", "Analy Start"));
 		}
 
 		{
