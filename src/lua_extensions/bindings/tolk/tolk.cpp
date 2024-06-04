@@ -111,12 +111,11 @@ namespace lua::tolk
 			{
 				for (auto i = gui_comp->mLines.mpBegin; i < gui_comp->mLines.mpEnd; i++)
 				{
-					const auto text = i->mText.get_text();
-					if (text.size() && !already_printed.contains(text))
+					if (i->mText.size() && !already_printed.contains(i->mText.c_str()))
 					{
-						already_printed.insert(text);
+						already_printed.insert(i->mText.c_str());
 						//LOG(INFO) << text << " (" << gui_comp_loc.mX << ", " << gui_comp_loc.mY << ")";
-						text_buffer << text << "\n";
+						text_buffer << i->mText.c_str() << "\n";
 					}
 				}
 			}
@@ -144,7 +143,7 @@ namespace lua::tolk
 		{
 			char m_pad[0x30];
 
-			eastl::vector<GUIComponentTextBox*, eastl::allocator_forge> mTextBoxes;
+			eastl::vector<GUIComponentTextBox*> mTextBoxes;
 		};
 
 		static_assert(offsetof(TextComponent, mTextBoxes) == 0x30);
@@ -172,11 +171,11 @@ namespace lua::tolk
 		sgg::Thing* active_thing = get_active_thing(sgg_world_ptr, thing_id);
 		if (active_thing && active_thing->pText)
 		{
-			for (auto i = active_thing->pText->mTextBoxes.mpBegin; i < active_thing->pText->mTextBoxes.mpEnd; i++)
+			for (auto i = active_thing->pText->mTextBoxes.begin(); i != active_thing->pText->mTextBoxes.end(); i++)
 			{
 				for (auto j = (*i)->mLines.mpBegin; j < (*i)->mLines.mpEnd; j++)
 				{
-					res.push_back(j->mText.get_text());
+					res.push_back(j->mText.c_str());
 				}
 			}
 		}

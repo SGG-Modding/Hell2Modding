@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EASTL/vector.h>
+
 namespace Vectormath
 {
 	struct Point2
@@ -23,33 +25,9 @@ namespace Vectormath
 	} // namespace SSE
 } // namespace Vectormath
 
-namespace eastl
+namespace eastl_custom
 {
 	struct allocator_forge
-	{
-	};
-
-	template<typename T, typename allocator_type, size_t pair_size>
-	struct compressed_pair_imp : allocator_type
-	{
-		T *mFirst;
-	};
-
-	template<typename T, typename allocator_type>
-	struct compressed_pair : compressed_pair_imp<T, allocator_type, 2>
-	{
-	};
-
-	template<typename T, typename allocator_type>
-	struct VectorBase
-	{
-		T *mpBegin;
-		T *mpEnd;
-		eastl::compressed_pair<T, allocator_type> mCapacityAllocator;
-	};
-
-	template<typename T, typename allocator_type>
-	struct vector : VectorBase<T, allocator_type>
 	{
 	};
 
@@ -62,14 +40,14 @@ namespace eastl
 		union functor_storage_alignment
 		{
 			void(__fastcall *unused_func_ptr)();
-			void(__fastcall *unused_func_mem_ptr)(eastl::internal::unused_class *this_);
+			void(__fastcall *unused_func_mem_ptr)(eastl_custom::internal::unused_class *this_);
 			void *unused_ptr;
 		};
 
 		template<size_t size>
 		struct functor_storage
 		{
-			functor_storage_alignment align;
+			//functor_storage_alignment align;
 			char storage[size];
 		};
 
@@ -89,7 +67,7 @@ namespace eastl
 		};
 
 		template<typename T, size_t size>
-		struct function_detail : eastl::internal::function_base_detail<size>
+		struct function_detail : eastl_custom::internal::function_base_detail<size>
 		{
 			void *(__fastcall *mMgrFuncPtr)(void *, void *, ManagerOperations);
 			T(*mInvokeFuncPtr);
@@ -98,34 +76,15 @@ namespace eastl
 	} // namespace internal
 
 	template<typename T>
-	struct function : eastl::internal::function_detail<T, 8>
+	struct function : eastl_custom::internal::function_detail<T, 16>
 	{
 	};
 
-	static_assert(offsetof(function<void *>, mMgrFuncPtr) == 0x10);
-	static_assert(offsetof(function<void *>, mInvokeFuncPtr) == 0x18);
+	constexpr size_t testaaaa = offsetof(eastl_custom::function<void *>, mMgrFuncPtr);
 
-	/*template<typename T, typename allocator_type>
-	union basic_string_layout_union
-	{
-		eastl::basic_string<T, allocator_type>::HeapLayout heap;
-		eastl::basic_string<T, allocator_type>::SSOLayout sso;
-		eastl::basic_string<T, allocator_type>::RawLayout raw;
-	};
-
-	template<typename T, typename allocator_type>
-	struct basic_string__Layout
-	{
-		basic_string_layout_union<T, allocator_type> ___u0;
-	};
-
-	// TODO: this is wrong and unfinished.
-	template<typename T, typename allocator_type>
-	struct basic_string
-	{
-		eastl::compressed_pair<eastl::basic_string<T, allocator_type>::Layout, allocator_type> mPair;
-	};*/
-} // namespace eastl
+	static_assert(offsetof(eastl_custom::function<void *>, mMgrFuncPtr) == 0x10);
+	static_assert(offsetof(eastl_custom::function<void *>, mInvokeFuncPtr) == 0x18);
+} // namespace eastl_custom
 
 namespace FMOD
 {
@@ -186,7 +145,7 @@ namespace sgg
 
 	struct SoundAction
 	{
-		eastl::vector<eastl::function<sgg::SoundCue>, eastl::allocator_forge> mCallBacks;
+		eastl::vector<eastl::function<sgg::SoundCue>> mCallBacks;
 	};
 
 	struct /*VFT*/ AudioChannel_vtbl
@@ -256,8 +215,8 @@ namespace sgg
 
 	struct __declspec(align(8)) ThingDataDef
 	{
-		eastl::vector<Vectormath::Point2, eastl::allocator_forge> mPoints;
-		eastl::vector<UsingInfo, eastl::allocator_forge> mUsing;
+		eastl::vector<Vectormath::Point2> mPoints;
+		eastl::vector<UsingInfo> mUsing;
 		InteractData *mInteract;
 		Vectormath::Point2 mOffset;
 		Vectormath::Point2 mSize;

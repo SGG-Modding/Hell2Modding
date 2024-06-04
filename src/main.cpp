@@ -17,8 +17,42 @@
 #include <lua_extensions/bindings/hades/inputs.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
+#include <new>
 
 //#include "debug/debug.hpp"
+
+void *operator new[](size_t size)
+{
+	void *ptr = _aligned_malloc(size, 16);
+	assert(ptr);
+	return ptr;
+}
+
+// Used by EASTL.
+void *operator new[](size_t size, const char * /* name */, int /* flags */, unsigned /* debug_flags */, const char * /* file */, int /* line */
+)
+{
+	void *ptr = _aligned_malloc(size, 16);
+	assert(ptr);
+	return ptr;
+}
+
+// Used by EASTL.
+void *operator new[](size_t size, size_t alignment, size_t alignment_offset, const char * /* name */, int /* flags */, unsigned /* debug_flags */, const char * /* file */, int /* line */
+)
+{
+	void *ptr = _aligned_offset_malloc(size, alignment, alignment_offset);
+	assert(ptr);
+	return ptr;
+}
+
+void operator delete[](void *ptr)
+{
+	if (ptr)
+	{
+		_aligned_free(ptr);
+	}
+}
 
 static bool hook_skipcrashpadinit()
 {
@@ -134,10 +168,9 @@ static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUICo
 	std::vector<std::string> lines;
 	for (auto i = gui_text->mLines.mpBegin; i < gui_text->mLines.mpEnd; i++)
 	{
-		const auto text = i->mText.get_text();
-		if (text.size())
+		if (i->mText.size())
 		{
-			lines.push_back(text);
+			lines.push_back(i->mText.c_str());
 		}
 	}
 
@@ -301,6 +334,42 @@ static void hook_disable_f10_launch(void *bugInfo)
 	}
 }
 
+// The api should return a path that has a matching directory file separator with our recursive .pkg file path iterator
+// The user should also be forced somehow to use that returned path, and not the one they pass in.
+static std::vector<std::string> additional_package_files;
+
+static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
+{
+	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
+
+	for (const auto &additional_package_file : additional_package_files)
+	{
+		if (strstr(pathComponent, additional_package_file.c_str()))
+		{
+			strcpy(output, additional_package_file.c_str());
+			break;
+		}
+	}
+}
+
+static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
+{
+	big::g_hooking->get_original<hook_fsGetFilesWithExtension_packages>()(resourceDir, subDirectory, extension, out);
+
+	for (const auto &xd : *out)
+	{
+		if (strstr(xd.c_str(), ".pkg"))
+		{
+			for (const auto &file : additional_package_files)
+			{
+				out->push_back(file.c_str());
+			}
+
+			break;
+		}
+	}
+}
+
 extern "C"
 {
 	extern void luaH_free(lua_State *L, Table *t);
@@ -443,6 +512,30 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			}
 		}
 
+		{
+			static auto ptr = gmAddress::scan("E8 ? ? ? ? 48 8B 7D CF", "fsGetFilesWithExtension");
+			if (ptr)
+			{
+				static auto ptr_func = ptr.get_call();
+
+				static auto hook_ = hooking::detour_hook_helper::add<hook_fsGetFilesWithExtension_packages>(
+				    "fsGetFilesWithExtension for packages",
+				    ptr_func);
+			}
+		}
+
+		{
+			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
+			if (fsAppendPathComponent_ptr)
+			{
+				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.offset(-0x97).as_func<void(const char *, const char *, char *)>();
+
+				static auto hook_once = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent_packages>(
+				    "hook_fsAppendPathComponent for packages",
+				    fsAppendPathComponent);
+			}
+		}
+
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
 		    "void __fastcall sgg::SGD_Deserialize(sgg::SGD_Context *ctx, int loc, sgg::ThingDataDef *val)",
 		    gmAddress::scan("44 88 74 24 21", "SGD_Deserialize ThingData").offset(-0x59));*/
@@ -477,6 +570,18 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
+
+			    // TODO: move this to own file, make sure it's called early enough so that it happens before the initial GameReadData call.
+			    for (const auto &entry :
+			         std::filesystem::recursive_directory_iterator(g_file_manager.get_project_folder("plugins_data").get_path(), std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
+			    {
+				    if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
+				    {
+					    additional_package_files.push_back((char *)entry.path().u8string().c_str());
+
+					    LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
+				    }
+			    }
 
 			    //static auto ptr_for_cave_test =
 			    //  gmAddress::scan("E8 ? ? ? ? EB 11 41 80 7D ? ?", "ptr_for_cave_test").get_call().offset(0x37);

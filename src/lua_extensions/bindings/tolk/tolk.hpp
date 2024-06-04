@@ -1,6 +1,8 @@
 #pragma once
 
-struct eastl_basic_string_view_char
+#include <EASTL/string.h>
+
+/*struct eastl_basic_string_view_char
 {
 	const char* mpBegin;
 	size_t mnCount;
@@ -25,7 +27,7 @@ struct eastl_basic_string_view_char
 	}
 };
 
-static_assert(offsetof(eastl_basic_string_view_char, mRemainingSizeField) == 0x17);
+static_assert(offsetof(eastl_basic_string_view_char, mRemainingSizeField) == 0x17);*/
 
 struct GUIComponentTextBox;
 
@@ -37,7 +39,7 @@ struct GUIComponentTextBox_Line
 	float mActualWidth;
 	float mFixedLineSpacing;
 	float mImageWidth;
-	eastl_basic_string_view_char mText;
+	eastl::string mText;
 	GUIComponentTextBox* mFormatter;
 	GUIComponentTextBox* mGraftFormatter;
 };
@@ -60,7 +62,7 @@ struct GUIComponentTextBox
 {
 	GUIComponentTextBox_vtbl* vtbl;
 	char m_pad[0x6'90];
-	eastl_basic_string_view_char mStringBuilder;
+	eastl::string mStringBuilder;
 	char m_pad2[70];
 	eastl_vector<GUIComponentTextBox_Line> mLines;
 };

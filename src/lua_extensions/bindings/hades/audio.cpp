@@ -38,7 +38,7 @@ namespace lua::hades::audio
 		static auto LoadBank_ptr = gmAddress::scan("90 84 C0 75 2B", "sgg::AudioManager::LoadBank");
 		if (LoadBank_ptr)
 		{
-			static auto LoadBank = LoadBank_ptr.offset(-0x2B).as_func<void(eastl_basic_string_view_char*, sgg__PackageGroup)>();
+			static auto LoadBank = LoadBank_ptr.offset(-0x2B).as_func<void(eastl::string_view*, sgg__PackageGroup)>();
 
 			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
 			if (fsAppendPathComponent_ptr)
@@ -48,10 +48,8 @@ namespace lua::hades::audio
 				static auto hook_once =
 				    big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent>("hook_fsAppendPathComponent", fsAppendPathComponent);
 
-				eastl_basic_string_view_char fp;
 				std::string bank_name = (char*)std::filesystem::path(file_path).stem().u8string().c_str();
-				fp.mpBegin            = bank_name.c_str();
-				fp.mnCount            = bank_name.size();
+				eastl::string_view fp(bank_name.c_str(), bank_name.size());
 
 				need_path_fix_fsAppendPathComponent = true;
 				fixed_path_fsAppendPathComponent    = file_path;

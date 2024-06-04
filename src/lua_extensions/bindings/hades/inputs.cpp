@@ -312,11 +312,13 @@ namespace lua::hades::inputs
 	static void invoke_debug_key_callback(uintptr_t mCallback)
 	{
 		// offset to get mName from DebugAction
-		eastl_basic_string_view_char *mName = (eastl_basic_string_view_char *)(mCallback - 0x18);
+		auto *mName_ = (eastl::string *)(mCallback - 0x18);
+
+		std::string mName = mName_->c_str();
 
 		if (enable_vanilla_debug_keybinds)
 		{
-			const auto it_callback = vanilla_key_callbacks.find(mName->get_text());
+			const auto it_callback = vanilla_key_callbacks.find(mName);
 			if (it_callback != vanilla_key_callbacks.end())
 			{
 				LOG(DEBUG) << it_callback->first << " (Vanilla)";
@@ -333,7 +335,7 @@ namespace lua::hades::inputs
 		for (const auto &mod_ : big::g_lua_manager->m_modules)
 		{
 			auto mod               = (big::lua_module_ext *)mod_.get();
-			const auto it_callback = mod->m_data_ext.m_keybinds.find(mName->get_text());
+			const auto it_callback = mod->m_data_ext.m_keybinds.find(mName);
 			if (it_callback != mod->m_data_ext.m_keybinds.end())
 			{
 				LOG(DEBUG) << it_callback->first << " (" << mod->guid() << ")";
@@ -349,19 +351,12 @@ namespace lua::hades::inputs
 
 	static void parse_and_register_keybind(std::string &keybind, const sol::coroutine &callback, const std::string &name, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
 	{
-		eastl::function<void(uintptr_t)> funcy;
+		eastl_custom::function<void(uintptr_t)> funcy;
 		funcy.mMgrFuncPtr    = nullptr;
 		funcy.mInvokeFuncPtr = invoke_debug_key_callback;
-		eastl_basic_string_view_char callback_name{};
-		callback_name.mRemainingSizeField = (char)129;
-		// TODO: this is leaking
-		callback_name.mpBegin = (char *)malloc(keybind.size());
-		memcpy((char *)callback_name.mpBegin, keybind.data(), keybind.size());
-		callback_name.mnCount = keybind.size();
-		eastl_basic_string_view_char nothing{};
-		nothing.mRemainingSizeField = (char)23;
-		eastl_basic_string_view_char nothing2{};
-		nothing2.mRemainingSizeField = (char)23;
+		eastl::string callback_name{keybind.data(), keybind.size()};
+		eastl::string nothing{};
+		eastl::string nothing2{};
 
 		int32_t key_modifier = 0;
 		int32_t key          = 0;
@@ -435,7 +430,7 @@ namespace lua::hades::inputs
 
 				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
 				{
-					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
+					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl_custom::function<void(uintptr_t)> *, eastl::string *, void *, void *, bool, eastl::string *, eastl::string *, bool)>();
 					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, false, mod);
 				}
 			}
@@ -461,7 +456,7 @@ namespace lua::hades::inputs
 
 				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
 				{
-					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl::function<void(uintptr_t)> *, eastl_basic_string_view_char *, void *, void *, bool, eastl_basic_string_view_char *, eastl_basic_string_view_char *, bool)>();
+					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl_custom::function<void(uintptr_t)> *, eastl::string *, void *, void *, bool, eastl::string *, eastl::string *, bool)>();
 					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, true, nullptr);
 				}
 			}
