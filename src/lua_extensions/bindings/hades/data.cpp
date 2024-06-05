@@ -217,7 +217,7 @@ namespace lua::hades::data
 		return &gStringBuffer[hash_guid];
 	}
 
-	void bind(sol::table& state)
+	void bind(sol::state_view& state, sol::table& lua_ext)
 	{
 		{
 			static auto hook_open = big::hooking::detour_hook_helper::add<hook_FileStreamOpen>(
@@ -239,9 +239,78 @@ namespace lua::hades::data
 			}
 		}
 
-		auto ns = state.create_named("data");
+		auto ns = lua_ext.create_named("data");
 		ns.set_function("on_sjson_read_as_string", sol::overload(on_sjson_read_as_string_no_path_filter, on_sjson_read_as_string_with_path_filter));
 		ns.set_function("reload_game_data", reload_game_data);
 		ns.set_function("get_string_from_hash_guid", get_string_from_hash_guid);
+
+		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
+		state["LoadPackages"]             = [](sol::table args, sol::this_environment env_, sol::this_state state_)
+		{
+			for (const auto& [k, v] : args)
+			{
+				if (k.is<std::string>() && v.is<std::string>())
+				{
+					const auto key   = k.as<std::string>();
+					const auto value = v.as<std::string>();
+					if (key == "Name" && value.contains("plugins_data"))
+					{
+						auto full_path         = std::filesystem::path(value);
+						const std::string stem = (char*)full_path.stem().u8string().c_str();
+
+						// This weirdly implemented check is because for some reason env_ is returning the fallback module for some mods and I don't even wanna know why.
+						{
+							bool is_bad_pkg = true;
+							while (true)
+							{
+								if (full_path == full_path.parent_path())
+								{
+									break;
+								}
+
+								if (full_path.has_parent_path())
+								{
+									full_path = full_path.parent_path();
+								}
+								else
+								{
+									break;
+								}
+
+								const std::string full_path_stem = (char*)full_path.stem().u8string().c_str();
+								if (stem.contains(full_path_stem) && stem.contains('-'))
+								{
+									for (const auto& mod_ : big::g_lua_manager->m_modules)
+									{
+										if (stem.contains(mod_->guid()))
+										{
+											is_bad_pkg = false;
+											break;
+										}
+									}
+									if (!is_bad_pkg)
+									{
+										break;
+									}
+								}
+							}
+
+							if (is_bad_pkg)
+							{
+								const auto error_msg = std::format(
+								    "Hell2Modding requires the .pkg file in the plugins_data folder to contain "
+								    "the owner mod guid in its filename.\nIt is used to guarantee the "
+								    "uniqueness of the name and for internal purposes.\nPackage File Path: {}",
+								    value);
+								MessageBoxA(0, error_msg.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
+								TerminateProcess(GetCurrentProcess(), 1);
+							}
+						}
+					}
+				}
+			}
+
+			return sol::state_view(state_)["sol.__h2m_LoadPackages__"](args);
+		};
 	}
 } // namespace lua::hades::data

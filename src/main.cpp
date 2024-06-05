@@ -334,38 +334,82 @@ static void hook_disable_f10_launch(void *bugInfo)
 	}
 }
 
-// The api should return a path that has a matching directory file separator with our recursive .pkg file path iterator
-// The user should also be forced somehow to use that returned path, and not the one they pass in.
-static std::vector<std::string> additional_package_files;
+// Lua: Enforce AuthorName-ModName to be part of the std::filesystem::path.filename() of the file.
+// See the binding data.cpp file for the implementation.
+std::unordered_map<std::string, std::string> additional_package_files;
 
 static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
 	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
 
-	for (const auto &additional_package_file : additional_package_files)
+	if (strlen(pathComponent) > 0)
 	{
-		if (strstr(pathComponent, additional_package_file.c_str()))
+		for (const auto &[filename, full_file_path] : additional_package_files)
 		{
-			strcpy(output, additional_package_file.c_str());
-			break;
+			if (strstr(pathComponent, filename.c_str()))
+			{
+				strcpy(output, full_file_path.c_str());
+				break;
+			}
+			else if (strstr(filename.c_str(), pathComponent))
+			{
+				strcpy(output, full_file_path.c_str());
+				break;
+			}
 		}
 	}
+}
+
+static int ends_with(const char *str, const char *suffix)
+{
+	if (!str || !suffix)
+	{
+		return 0;
+	}
+	size_t lenstr    = strlen(str);
+	size_t lensuffix = strlen(suffix);
+	if (lensuffix > lenstr)
+	{
+		return 0;
+	}
+	return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
 }
 
 static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
 {
 	big::g_hooking->get_original<hook_fsGetFilesWithExtension_packages>()(resourceDir, subDirectory, extension, out);
 
+	bool has_pkg_manifest = false;
+	bool has_pkg          = false;
 	for (const auto &xd : *out)
 	{
-		if (strstr(xd.c_str(), ".pkg"))
+		if (ends_with(xd.c_str(), ".pkg_manifest"))
 		{
-			for (const auto &file : additional_package_files)
-			{
-				out->push_back(file.c_str());
-			}
+			has_pkg_manifest = true;
+		}
 
-			break;
+		if (ends_with(xd.c_str(), ".pkg"))
+		{
+			has_pkg = true;
+		}
+	}
+
+	bool is_pkg_manifest_only = has_pkg_manifest && !has_pkg;
+	if (is_pkg_manifest_only)
+	{
+		for (const auto &[filename, full_file_path] : additional_package_files)
+		{
+			if (ends_with(filename.c_str(), ".pkg_manifest"))
+			{
+				out->push_back(filename.c_str());
+			}
+		}
+	}
+	else if (has_pkg && has_pkg_manifest)
+	{
+		for (const auto &[filename, full_file_path] : additional_package_files)
+		{
+			out->push_back(filename.c_str());
 		}
 	}
 }
@@ -576,7 +620,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    {
 				    if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
 				    {
-					    additional_package_files.push_back((char *)entry.path().u8string().c_str());
+					    additional_package_files.emplace((char *)entry.path().filename().u8string().c_str(),
+					                                     (char *)entry.path().u8string().c_str());
 
 					    LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
 				    }

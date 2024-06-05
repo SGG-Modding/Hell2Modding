@@ -97,7 +97,7 @@ namespace big::lua_manager_extension
 
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
-		lua::hades::data::bind(lua_ext);
+		lua::hades::data::bind(state, lua_ext);
 		lua::hades::inputs::bind(state, lua_ext);
 		lua::hades::lz4::bind(lua_ext);
 		lua::luasocket::bind(lua_ext);
