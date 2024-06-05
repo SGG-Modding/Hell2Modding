@@ -245,7 +245,17 @@ namespace lua::hades::data
 		ns.set_function("get_string_from_hash_guid", get_string_from_hash_guid);
 
 		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
-		state["LoadPackages"]             = [](sol::table args, sol::this_environment env_, sol::this_state state_)
+		// Lua API: Function
+		// Table: game
+		// Name: LoadPackages
+		// Param: args: table<string, string>: Table contains string key `Name` and its associated `string` value. Associated value should be a full path to the package to load, without the extension. The filename of the .pkg and the .pkg_manifest files should contains the guid of the owning mod. Example `AuthorName-ModName-MyMainPackage`
+		// **Example Usage:**
+		// ```lua
+		// local package_path = rom.path.combine(_PLUGIN.plugins_data_mod_folder_path, _PLUGIN.guid)
+		// -- Example package_path: "C:/Program Files (x86)/Steam/steamapps/common/Hades II/Ship/ReturnOfModding/plugins_data/AuthorName-ModName/AuthorName-ModName"
+		// rom.game.LoadPackages{Name = package_path}
+		// ```
+		state["LoadPackages"] = [](sol::table args, sol::this_environment env_, sol::this_state state_)
 		{
 			for (const auto& [k, v] : args)
 			{
