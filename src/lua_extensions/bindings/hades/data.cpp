@@ -253,7 +253,7 @@ namespace lua::hades::data
 		// ```lua
 		// local package_path = rom.path.combine(_PLUGIN.plugins_data_mod_folder_path, _PLUGIN.guid)
 		// -- Example package_path: "C:/Program Files (x86)/Steam/steamapps/common/Hades II/Ship/ReturnOfModding/plugins_data/AuthorName-ModName/AuthorName-ModName"
-		// rom.game.LoadPackages{Name = package_path}
+		// game.LoadPackages{Name = package_path}
 		// ```
 		state["LoadPackages"] = [](sol::table args, sol::this_environment env_, sol::this_state state_)
 		{

@@ -8,7 +8,7 @@
 ```lua
 local package_path = rom.path.combine(_PLUGIN.plugins_data_mod_folder_path, _PLUGIN.guid)
 -- Example package_path: "C:/Program Files (x86)/Steam/steamapps/common/Hades II/Ship/ReturnOfModding/plugins_data/AuthorName-ModName/AuthorName-ModName"
-rom.rom.game.LoadPackages{Name = package_path}
+rom.game.LoadPackages{Name = package_path}
 ```
 
 - **Parameters:**
