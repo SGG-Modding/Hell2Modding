@@ -386,6 +386,8 @@ static bool extension_matches(const char *first, const char *second)
 // See the binding data.cpp file for the implementation.
 std::unordered_map<std::string, std::string> additional_package_files;
 
+std::unordered_map<std::string, std::string> additional_granny_files;
+
 static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
 	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
@@ -409,22 +411,18 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 				break;
 			}
 		}
-	}
-}
 
-static int ends_with(const char *str, const char *suffix)
-{
-	if (!str || !suffix)
-	{
-		return 0;
+		for (const auto &[filename, full_file_path] : additional_granny_files)
+		{
+			if (strstr(pathComponent, filename.c_str()))
+			{
+				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+
+				strcpy(output, full_file_path.c_str());
+				break;
+			}
+		}
 	}
-	size_t lenstr    = strlen(str);
-	size_t lensuffix = strlen(suffix);
-	if (lensuffix > lenstr)
-	{
-		return 0;
-	}
-	return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
 }
 
 static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
@@ -433,6 +431,7 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 
 	bool has_pkg_manifest = false;
 	bool has_pkg          = false;
+	bool has_gr2_lz4      = false;
 	for (const auto &xd : *out)
 	{
 		if (ends_with(xd.c_str(), ".pkg_manifest"))
@@ -443,6 +442,11 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 		if (ends_with(xd.c_str(), ".pkg"))
 		{
 			has_pkg = true;
+		}
+
+		if (ends_with(xd.c_str(), ".gr2.lz4"))
+		{
+			has_gr2_lz4 = true;
 		}
 	}
 
@@ -460,6 +464,13 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 	else if (has_pkg && has_pkg_manifest)
 	{
 		for (const auto &[filename, full_file_path] : additional_package_files)
+		{
+			out->push_back(filename.c_str());
+		}
+	}
+	else if (has_gr2_lz4)
+	{
+		for (const auto &[filename, full_file_path] : additional_granny_files)
 		{
 			out->push_back(filename.c_str());
 		}
@@ -614,7 +625,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				static auto ptr_func = ptr.get_call();
 
 				static auto hook_ = hooking::detour_hook_helper::add<hook_fsGetFilesWithExtension_packages>(
-				    "fsGetFilesWithExtension for packages",
+				    "fsGetFilesWithExtension for packages and models",
 				    ptr_func);
 			}
 		}
@@ -626,7 +637,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.offset(-0x97).as_func<void(const char *, const char *, char *)>();
 
 				static auto hook_once = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent_packages>(
-				    "hook_fsAppendPathComponent for packages",
+				    "hook_fsAppendPathComponent for packages and models",
 				    fsAppendPathComponent);
 			}
 		}
@@ -676,6 +687,13 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 					                                     (char *)entry.path().u8string().c_str());
 
 					    LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
+				    }
+				    else if (ends_with((char *)entry.path().u8string().c_str(), ".gr2.lz4"))
+				    {
+					    additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
+					                                    (char *)entry.path().u8string().c_str());
+
+					    LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
 				    }
 			    }
 
