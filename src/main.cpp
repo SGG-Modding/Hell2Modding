@@ -334,6 +334,54 @@ static void hook_disable_f10_launch(void *bugInfo)
 	}
 }
 
+static int ends_with(const char *str, const char *suffix)
+{
+	if (!str || !suffix)
+	{
+		return 0;
+	}
+	size_t lenstr    = strlen(str);
+	size_t lensuffix = strlen(suffix);
+	if (lensuffix > lenstr)
+	{
+		return 0;
+	}
+	return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
+}
+
+static bool extension_matches(const char *first, const char *second)
+{
+	auto get_extension = [](const char *str) -> std::string_view
+	{
+		size_t len = strlen(str);
+		std::string_view ext;
+		for (size_t i = 0; i < len; i++)
+		{
+			if (str[i] == '.')
+			{
+				ext = std::string_view(&str[i], &str[len - 1]);
+			}
+		}
+
+		return ext;
+	};
+
+	std::string_view first_ext  = get_extension(first);
+	std::string_view second_ext = get_extension(second);
+
+	if (first_ext.empty() && second_ext.empty())
+	{
+		return true;
+	}
+
+	if (first_ext.empty() || second_ext.empty())
+	{
+		return false;
+	}
+
+	return !strcmp(first_ext.data(), second_ext.data());
+}
+
 // Lua: Enforce AuthorName-ModName to be part of the std::filesystem::path.filename() of the file.
 // See the binding data.cpp file for the implementation.
 std::unordered_map<std::string, std::string> additional_package_files;
@@ -346,13 +394,17 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 	{
 		for (const auto &[filename, full_file_path] : additional_package_files)
 		{
-			if (strstr(pathComponent, filename.c_str()))
+			if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 			{
+				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+
 				strcpy(output, full_file_path.c_str());
 				break;
 			}
-			else if (strstr(filename.c_str(), pathComponent))
+			else if (strstr(filename.c_str(), pathComponent) && extension_matches(pathComponent, filename.c_str()))
 			{
+				LOG(DEBUG) << filename << " | " << pathComponent << " | " << full_file_path;
+
 				strcpy(output, full_file_path.c_str());
 				break;
 			}
