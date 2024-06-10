@@ -504,14 +504,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		// Name: rom
 		rom::init("Hell2Modding", "Hades2.exe", "rom");
 
-		// This will inevitably break when the game release on game pass or some other platforms.
-		/*const auto steam_env_env_var     = _wgetenv(L"SteamEnv");
-		const std::wstring good_steam_env_var = L"1";
-		if (!steam_env_env_var || steam_env_env_var != good_steam_env_var)
-		{
-			return true;
-		}*/
-
 		// Purposely leak it, we are not unloading this module in any case.
 		auto exception_handling = new exception_handler();
 
