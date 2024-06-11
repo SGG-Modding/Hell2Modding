@@ -316,6 +316,37 @@ namespace lua::hades::data
 								TerminateProcess(GetCurrentProcess(), 1);
 							}
 						}
+
+						full_path = std::filesystem::path(value);
+
+						// Check if pkg manifest contains the guid anywhere inside it.
+						// Not a good or clean check. Ideally use something like ReadCSString and parse the file properly.
+						bool is_bad_pkg              = true;
+						auto pkg_manifest_file_path  = full_path;
+						pkg_manifest_file_path      += ".pkg_manifest";
+						std::ifstream file(pkg_manifest_file_path);
+						if (file.is_open())
+						{
+							std::string line;
+							while (std::getline(file, line))
+							{
+								if (line.find(stem) != std::string::npos)
+								{
+									is_bad_pkg = false;
+									break;
+								}
+							}
+							if (is_bad_pkg)
+							{
+								const auto error_msg = std::format(
+								    "Hell2Modding requires the .pkg_manifest file in the plugins_data folder to "
+								    "contain "
+								    "the owner mod guid in its assets paths.\nPackage File Path: {}",
+								    value);
+								MessageBoxA(0, error_msg.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
+								TerminateProcess(GetCurrentProcess(), 1);
+							}
+						}
 					}
 				}
 			}

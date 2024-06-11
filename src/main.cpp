@@ -388,8 +388,12 @@ std::unordered_map<std::string, std::string> additional_package_files;
 
 std::unordered_map<std::string, std::string> additional_granny_files;
 
+//static std::string g_current_custom_package_stem;
+
 static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
+	//g_current_custom_package_stem = "";
+
 	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
 
 	if (strlen(pathComponent) > 0)
@@ -399,14 +403,14 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 			if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 			{
 				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-
+				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
 				strcpy(output, full_file_path.c_str());
 				break;
 			}
 			else if (strstr(filename.c_str(), pathComponent) && extension_matches(pathComponent, filename.c_str()))
 			{
 				LOG(DEBUG) << filename << " | " << pathComponent << " | " << full_file_path;
-
+				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
 				strcpy(output, full_file_path.c_str());
 				break;
 			}
@@ -475,6 +479,22 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			out->push_back(filename.c_str());
 		}
 	}
+}
+
+static eastl::string *hook_ReadCSString(eastl::string *result, void *file_stream_input)
+{
+	const auto res = big::g_hooking->get_original<hook_ReadCSString>()(result, file_stream_input);
+
+	if (result)
+	{
+		//LOG(WARNING) << result->c_str();
+	}
+	//if (result && g_current_custom_package_stem.size())
+	{
+		//LOG(ERROR) << result->c_str() << " does not contain " << g_current_custom_package_stem;
+	}
+
+	return res;
 }
 
 extern "C"
@@ -622,6 +642,17 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			}
 		}
 
+		/*{
+			static auto ptr = gmAddress::scan("E8 ? ? ? ? 90 49 8B CF", "ReadCSString");
+			if (ptr)
+			{
+				static auto ptr_func = ptr.get_call();
+
+				static auto hook_ =
+				    hooking::detour_hook_helper::add<hook_ReadCSString>("ReadCSString for packages guid check", ptr_func);
+			}
+		}*/
+
 		{
 			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
 			if (fsAppendPathComponent_ptr)
@@ -664,7 +695,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 					    Logger::Destroy();
 				    }
 			    } g_logger_cleanup;
-
 
 			    LOG(INFO) << rom::g_project_name;
 			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
