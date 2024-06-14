@@ -86,8 +86,6 @@ namespace big::hades::lua
 	{
 		if (scriptFile)
 		{
-			LOG(DEBUG) << "Game loading lua script: " << scriptFile;
-
 			if (!strcmp(scriptFile, "Main.lua"))
 			{
 				hook_in(*g_pointers->m_hades2.m_lua_state);
@@ -109,6 +107,10 @@ namespace big::hades::lua
 			}
 		}
 
+		if (scriptFile)
+		{
+			LOG(DEBUG) << "Game loading lua script: " << scriptFile;
+		}
 		const auto res = big::g_hooking->get_original<hook_sgg_ScriptManager_Load>()(scriptFile);
 
 		env_to_add = {};
