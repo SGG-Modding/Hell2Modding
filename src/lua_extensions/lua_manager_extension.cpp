@@ -39,6 +39,14 @@ namespace big::lua_manager_extension
 		init_lua_api(state, lua_ext);
 	}
 
+	static int open_debug_lib(lua_State* L)
+	{
+		luaL_requiref(L, "_rom_debug", luaopen_debug, 1 /*Leaves a copy of the module on the stack.*/);
+
+		// Number of elements on the stack.
+		return 1;
+	}
+
 	void init_lua_state(sol::state_view& state, sol::table& lua_ext)
 	{
 		// Register our cleanup functions when the state get destroyed.
@@ -58,6 +66,9 @@ namespace big::lua_manager_extension
 			sol::lib::debug,
 			sol::lib::io);
 		// clang-format on
+
+		lua_pushcfunction(state.lua_state(), open_debug_lib);
+		lua_setglobal(state.lua_state(), "_rom_open_debug");
 	}
 
 	void init_lua_api(sol::state_view& state, sol::table& lua_ext)
