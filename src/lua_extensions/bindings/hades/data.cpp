@@ -327,22 +327,24 @@ namespace lua::hades::data
 						std::ifstream file(pkg_manifest_file_path);
 						if (file.is_open())
 						{
-							std::string line;
-							while (std::getline(file, line))
+							file.seekg(0, std::ios::end);
+							size_t size = file.tellg();
+							std::string buffer(size, ' ');
+							file.seekg(0);
+							file.read(&buffer[0], size);
+							if (buffer.contains(stem))
 							{
-								if (line.find(stem) != std::string::npos)
-								{
-									is_bad_pkg = false;
-									break;
-								}
+								is_bad_pkg = false;
 							}
 							if (is_bad_pkg)
 							{
 								const auto error_msg = std::format(
 								    "Hell2Modding requires the .pkg_manifest file in the plugins_data folder to "
 								    "contain "
-								    "the owner mod guid in its assets paths.\nPackage File Path: {}",
-								    value);
+								    "the owner mod guid in its assets paths.\nPackage File Path: {}\nowner mod guid "
+								    "needed: {}",
+								    value,
+								    stem);
 								MessageBoxA(0, error_msg.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
 								TerminateProcess(GetCurrentProcess(), 1);
 							}
