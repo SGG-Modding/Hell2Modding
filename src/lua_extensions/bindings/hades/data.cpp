@@ -217,6 +217,38 @@ namespace lua::hades::data
 		return &gStringBuffer[hash_guid];
 	}
 
+	static bool contains_byte_sequence(std::ifstream& file, std::span<const char> sequence)
+	{
+		if (!file.is_open())
+		{
+			return false;
+		}
+
+		// should be at std::ios:ate at this point.
+		const auto file_size = file.tellg();
+		file.seekg(0, std::ios::beg);
+		std::vector<uint8_t> buffer(file_size);
+		file.read((char*)buffer.data(), file_size);
+
+		if (sequence.size() == 0)
+		{
+			// Empty sequence should not be found
+			return false;
+		}
+
+		// Search for the sequence in the buffer
+		const auto it = std::search(buffer.begin(), buffer.end(), sequence.begin(), sequence.end());
+		if (it != buffer.end())
+		{
+			// Calculate the position in the file
+			const auto position = std::distance(buffer.begin(), it);
+			LOG(DEBUG) << "Sequence found at position: " << position;
+			return true;
+		}
+
+		return false;
+	}
+
 	void bind(sol::state_view& state, sol::table& lua_ext)
 	{
 		{
@@ -324,16 +356,12 @@ namespace lua::hades::data
 						bool is_bad_pkg              = true;
 						auto pkg_manifest_file_path  = full_path;
 						pkg_manifest_file_path      += ".pkg_manifest";
-						std::ifstream file(pkg_manifest_file_path);
+						std::ifstream file(pkg_manifest_file_path, std::ios::binary | std::ios::ate);
 						if (file.is_open())
 						{
-							file.seekg(0, std::ios::end);
-							size_t size = file.tellg();
-							std::string buffer(size, ' ');
-							file.seekg(0);
-							file.read(&buffer[0], size);
-							if (buffer.contains(stem))
+							if (contains_byte_sequence(file, std::span(stem.data(), stem.size())))
 							{
+								LOG(DEBUG) << "For file " << (const char*)pkg_manifest_file_path.u8string().c_str() << " | " << stem;
 								is_bad_pkg = false;
 							}
 							if (is_bad_pkg)
@@ -343,7 +371,7 @@ namespace lua::hades::data
 								    "contain "
 								    "the owner mod guid in its assets paths.\nPackage File Path: {}\nowner mod guid "
 								    "needed: {}",
-								    value,
+								    (const char*)pkg_manifest_file_path.u8string().c_str(),
 								    stem);
 								MessageBoxA(0, error_msg.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
 								TerminateProcess(GetCurrentProcess(), 1);
