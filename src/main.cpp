@@ -507,6 +507,11 @@ extern "C"
 	extern Table *luaH_new(lua_State *L);
 }
 
+static void message(const char *txt)
+{
+	MessageBoxA(0, txt, "rom", 0);
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -525,15 +530,21 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		rom::init("Hell2Modding", "Hades2.exe", "rom");
 
 		// Purposely leak it, we are not unloading this module in any case.
-		auto exception_handling = new exception_handler();
+		const auto exception_handling = new exception_handler();
 
-		big::hooking::detour_hook_helper::add_now<hook_initRenderer>(
-		    "initRenderer",
-		    gmAddress::scan("E8 ? ? ? ? 90 48 8B 05 ? ? ? ? 48 85 C0", "initRenderer").get_call());
+		const auto initRenderer_ptr = gmAddress::scan("E8 ? ? ? ? 90 4C 8B 05", "initRenderer");
+		if (initRenderer_ptr)
+		{
+			big::hooking::detour_hook_helper::add_now<hook_initRenderer>("initRenderer", initRenderer_ptr.get_call());
+		}
 
-		big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>(
-		    "backtrace::initializeCrashpad",
-		    gmAddress::scan("74 13 48 8B C8", "backtrace::initializeCrashpad").offset(-0x4C).as_func<bool()>());
+		const auto backtrace_initializeCrashpad_ptr = gmAddress::scan("74 13 48 8B C8", "backtrace::initializeCrashpad");
+		if (backtrace_initializeCrashpad_ptr)
+		{
+			big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>(
+			    "backtrace::initializeCrashpad",
+			    backtrace_initializeCrashpad_ptr.offset(-0x4C).as_func<bool()>());
+		}
 
 
 		// If that block fails lua will crash.
