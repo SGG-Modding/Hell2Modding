@@ -4,6 +4,10 @@
 
 ---
 
+## About
+
+If you're enjoying this project, and want to support me, you can [buy me a coffee here](https://ko-fi.com/xiaoxiao921).
+
 Hell 2 Modding is a modding plugin / framework for Hades II.
 
 It's using [ReturnOfModding](https://github.com/xiaoxiao921/ReturnOfModdingBase) as a base. You can check its README for more information on how it works.
