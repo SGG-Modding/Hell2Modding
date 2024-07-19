@@ -1505,6 +1505,11 @@ selected, activated = ImGui.MenuItem("Label", "ALT+F4", selected, true)
   -- Returns: bool
   bool = ImGui.IsKeyReleased(key)
 
+  -- ImGui.Hotkey(...)
+  -- Parameters: label (string), current_hotkey (integer number), size (ImVec2 OPTIONAL)
+  -- Returns: bool and integer number
+  value_changed, vk_key_number = ImGui.Hotkey(label, VK_KEY)
+
   -- ImGui.GetKeyPressedAmount(...)
   -- Parameters: ImGuiKey/ImGuiKeyMod key, float repeat_delay, float repeat_rate
   -- Returns: int
