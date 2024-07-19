@@ -449,7 +449,7 @@ namespace lua::hades::inputs
 	// Table: inputs
 	// Name: remove_on_key_pressed
 	// Param: handle: table: The handle that was returned to you from the on_key_pressed call.
-	// For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+	// Remove a keybind previously added through `on_key_pressed`.
 	static void remove_on_key_pressed(sol::table handle, sol::this_environment env)
 	{
 		const auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);

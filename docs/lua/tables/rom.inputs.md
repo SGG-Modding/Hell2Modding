@@ -29,7 +29,7 @@ table = rom.inputs.on_key_pressed([1], [2], Name)
 
 ### `remove_on_key_pressed(handle)`
 
-For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+Remove a keybind previously added through `on_key_pressed`.
 
 - **Parameters:**
   - `handle` (table): The handle that was returned to you from the on_key_pressed call.
