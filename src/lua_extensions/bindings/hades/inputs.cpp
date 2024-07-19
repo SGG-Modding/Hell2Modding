@@ -408,17 +408,20 @@ namespace lua::hades::inputs
 	// Param: [1]: string: The key binding string representing the keys that, when pressed, will trigger the callback function. The format used is the one used by the vanilla game, please check the vanilla scripts using "OnKeyPressed".
 	// Param: [2]: function: The function to be called when the specified keybind is pressed.
 	// Param: Name: string: Optional. The name linked to this keybind, used in the GUI to help the user know what it corresponds to.
+	// Returns: table: Returns a handle to use, in case you want to remove this specific keybind.
 	// The parameters must be inside a table. Check how the vanilla game does it through `OnKeyPressed`.
 	// For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
 	//
 	// **Example Usage:**
 	// ```lua
-	// inputs.on_key_pressed{"Ctrl X", Name = "Testing key 2", function()
+	// local handle = inputs.on_key_pressed{"Ctrl X", Name = "Testing key 2", function()
 	//     print("hello there")
 	// end}
 	// ```
-	static void on_key_pressed(sol::table args, sol::this_environment env)
+	static sol::table on_key_pressed(sol::table args, sol::this_environment env)
 	{
+		sol::table res(env.env.value().lua_state(), sol::create);
+
 		auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
 		if (mod)
 		{
@@ -432,6 +435,35 @@ namespace lua::hades::inputs
 				{
 					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl_custom::function<void(uintptr_t)> *, eastl::string *, void *, void *, bool, eastl::string *, eastl::string *, bool)>();
 					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, false, mod);
+
+					res[1] = *keybind_opt;
+					res[2] = mod->m_data_ext.m_keybinds[*keybind_opt].size() - 1;
+				}
+			}
+		}
+
+		return res;
+	}
+
+	// Lua API: Function
+	// Table: inputs
+	// Name: remove_on_key_pressed
+	// Param: handle: table: The handle that was returned to you from the on_key_pressed call.
+	// For every possible keys, please refer to [this map](https://github.com/SGG-Modding/Hell2Modding/blob/6d1cb8ed8870a401ac1cefd599bf2ae3a270d949/src/lua_extensions/bindings/hades/inputs.cpp#L204-L298)
+	static void remove_on_key_pressed(sol::table handle, sol::this_environment env)
+	{
+		const auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
+		if (mod)
+		{
+			const auto keybind_opt = handle[1].get<std::optional<std::string>>();
+			const auto index_opt   = handle[2].get<std::optional<size_t>>();
+			if (keybind_opt.has_value() && index_opt.has_value())
+			{
+				auto &vec        = mod->m_data_ext.m_keybinds[keybind_opt.value()];
+				const auto index = index_opt.value();
+				if (index >= 0 && index < vec.size())
+				{
+					vec.erase(vec.begin() + index);
 				}
 			}
 		}
@@ -465,6 +497,7 @@ namespace lua::hades::inputs
 		auto ns = lua_ext.create_named("inputs");
 
 		ns.set_function("on_key_pressed", on_key_pressed);
+		ns.set_function("remove_on_key_pressed", remove_on_key_pressed);
 
 		// Lua API: Function
 		// Table: inputs
