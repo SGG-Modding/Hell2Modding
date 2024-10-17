@@ -61,14 +61,14 @@ struct /*VFT*/ GUIComponentTextBox_vtbl
 struct GUIComponentTextBox
 {
 	GUIComponentTextBox_vtbl* vtbl;
-	char m_pad[0x6'90];
+	char m_pad[0x6'A0];
 	eastl::string mStringBuilder;
 	char m_pad2[70];
 	eastl_vector<GUIComponentTextBox_Line> mLines;
 };
 
-static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x6'98);
-static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'F8);
+static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x6'A8);
+static_assert(offsetof(GUIComponentTextBox, mLines) == 0x7'08);
 
 inline std::mutex g_GUIComponentTextBoxes_mutex;
 inline std::unordered_set<GUIComponentTextBox*> g_GUIComponentTextBoxes;

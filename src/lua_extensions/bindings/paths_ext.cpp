@@ -5,7 +5,7 @@
 
 namespace lua::paths_ext
 {
-	static std::filesystem::path get_game_executable_folder()
+	std::filesystem::path get_game_executable_folder()
 	{
 		char module_file_path[MAX_PATH];
 		const auto path_size              = GetModuleFileNameA(nullptr, module_file_path, MAX_PATH);

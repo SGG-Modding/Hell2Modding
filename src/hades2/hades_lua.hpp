@@ -2,10 +2,8 @@
 
 #include "hooks/hooking.hpp"
 #include "lua_extensions/lua_manager_extension.hpp"
-#include "memory/gm_address.hpp"
-#include "pointers.hpp"
 
-#include <lua_extensions/lua_manager_extension.hpp>
+#include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 
 namespace big::hades::lua
@@ -88,7 +86,7 @@ namespace big::hades::lua
 		{
 			if (!strcmp(scriptFile, "Main.lua"))
 			{
-				hook_in(*g_pointers->m_hades2.m_lua_state);
+				hook_in(*big::hades2_symbol_to_address["sgg::ScriptManager::LuaInterface"].as<lua_State**>());
 			}
 
 			for (const auto& mod_ : g_lua_manager->m_modules)
@@ -136,11 +134,9 @@ namespace big::hades::lua
 
 	inline void init_hooks()
 	{
-		hooking::detour_hook_helper::add<hook_lua_pcallk>("lua_pcallk", gmAddress::scan("75 05 44 8B D6", "lua_pcallk").offset(-0x1D));
+		hooking::detour_hook_helper::add<hook_lua_pcallk>("lua_pcallk", big::hades2_symbol_to_address["lua_pcallk"]);
 
-		hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>(
-		    "ScriptManager_Load",
-		    gmAddress::scan("49 3B DF 76 29", "ScriptManager_Load").offset(-0x6E));
+		hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>("ScriptManager_Load", big::hades2_symbol_to_address["sgg::ScriptManager::Load"]);
 
 		hooking::detour_hook_helper::add<hook_luaL_checkversion_>("Multiple Lua VM detected patch", luaL_checkversion_);
 	}

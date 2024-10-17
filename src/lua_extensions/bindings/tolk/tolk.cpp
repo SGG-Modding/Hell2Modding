@@ -2,6 +2,7 @@
 
 #include "Tolk.h"
 
+#include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
@@ -81,7 +82,7 @@ namespace lua::tolk
 	{
 		std::vector<std::pair<GUIComponentTextBox*, Vectormath::Vector2>> sorted_components;
 
-		static auto gui_comp_get_location = gmAddress::scan("F3 0F 59 4A 48").offset(-0xBE).as_func<Vectormath::Vector2*(GUIComponentTextBox*, Vectormath::Vector2*)>();
+		static auto gui_comp_get_location = big::hades2_symbol_to_address["sgg::GUIComponent::GetLocation"].as_func<Vectormath::Vector2*(GUIComponentTextBox*, Vectormath::Vector2*)>();
 		for (auto* gui_comp : g_GUIComponentTextBoxes)
 		{
 			Vectormath::Vector2 loc;
@@ -167,7 +168,7 @@ namespace lua::tolk
 	{
 		std::vector<std::string> res;
 
-		static auto get_active_thing = gmAddress::scan("C3 48 8B 40 08", "GetActiveThing").offset(-0x5C).as_func<sgg::Thing*(void* this_, int id)>();
+		static auto get_active_thing = big::hades2_symbol_to_address["sgg::World::GetActiveThing"].as_func<sgg::Thing*(void* this_, int id)>();
 		sgg::Thing* active_thing = get_active_thing(sgg_world_ptr, thing_id);
 		if (active_thing && active_thing->pText)
 		{
@@ -240,9 +241,8 @@ namespace lua::tolk
 		ns.set_function("output", output);
 		ns.set_function("on_button_hover", on_button_hover);
 
-		static auto GetActiveThing_hook_obj = big::hooking::detour_hook_helper::add_now<hook_GetActiveThing>(
-		    "hook_GetActiveThing",
-		    gmAddress::scan("C3 48 8B 40 08", "GetActiveThing").offset(-0x5C));
+		static auto GetActiveThing_hook_obj =
+		    big::hooking::detour_hook_helper::add_now<hook_GetActiveThing>("hook_GetActiveThing", big::hades2_symbol_to_address["GetActiveThing"]);
 
 		ns.set_function("get_lines_from_thing", get_lines_from_thing);
 	}

@@ -14,19 +14,17 @@ namespace big::hades
 	inline void init_hooks()
 	{
 		g_hook_log_write_enabled = big::config::general().bind("Logging", "Output Vanilla Game Log", true, "Output to the Hell2Modding log the vanilla game log Hades2.log");
-		hooking::detour_hook_helper::add<hook_log_write>("game logger",
-		                                                 gmAddress::scan("8B D1 83 E2 08", "game logger").offset(-0x2C).as<void*>());
+		hooking::detour_hook_helper::add<hook_log_write>("game logger", big::hades2_symbol_to_address["Log::Write"].as<void*>());
 
-		const auto backtraceHandleException = gmAddress::scan("B8 B0 FC 00 00", "BacktraceHandleException");
+		const auto backtraceHandleException = big::hades2_symbol_to_address["sgg::BacktraceHandleException"];
 		if (backtraceHandleException)
 		{
-			hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>("Suppress SGG BacktraceHandleException",
-			                                                                    backtraceHandleException.offset(-0x20));
+			hooking::detour_hook_helper::add<hook_sgg_BacktraceHandleException>("Suppress SGG BacktraceHandleException", backtraceHandleException);
 		}
 
 		hooking::detour_hook_helper::add<hook_sgg_ForgeRenderer_PrintErrorMessageAndAssert>(
 		    "sgg_ForgeRenderer_PrintErrorMessageAndAssert",
-		    gmAddress::scan("48 63 44 24 34", "sgg_ForgeRenderer_PrintErrorMessageAndAssert").offset(-0x97));
+		    big::hades2_symbol_to_address["sgg::ForgeRenderer::PrintErrorMessageAndAssert"]);
 
 		big::hades::lua::init_hooks();
 	}

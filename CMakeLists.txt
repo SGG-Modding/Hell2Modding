@@ -12,6 +12,7 @@ include(cmake_scripts/eastl.cmake)
 include(cmake_scripts/git.cmake)
 include(cmake_scripts/lpeg.cmake)
 include(cmake_scripts/luasocket.cmake)
+include(cmake_scripts/raw_pdb.cmake)
 include(cmake_scripts/rom.cmake)
 include(cmake_scripts/tolk.cmake)
 
@@ -48,11 +49,12 @@ target_include_directories(Hell2Modding PRIVATE
     "${tolk_SOURCE_DIR}/include"
     "${lpeg_SOURCE_DIR}"
     "${luasocket_SOURCE_DIR}/src"
+    "${raw_pdb_SOURCE_DIR}/src"
 )
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)

@@ -1,5 +1,6 @@
 #include "audio.hpp"
 
+#include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
@@ -13,7 +14,7 @@ namespace lua::hades::lz4
 	// Param: output_folder_path: string: Path to the folder where decompressed files will be placed.
 	static void decompress_folder(const std::string &folder_path_with_lz4_compressed_files, const std::string &output_folder_path)
 	{
-		static auto lz4_decompress_safe = gmAddress::scan("E9 B0 05 00 00", "lz4_decompress_safe").offset(-0x77).as_func<__int64(const char *, char *, int, int)>();
+		static auto lz4_decompress_safe = big::hades2_symbol_to_address["lz4_decompress_safe"].as_func<__int64(const char *, char *, int, int)>();
 
 		for (const auto &entry : std::filesystem::recursive_directory_iterator(folder_path_with_lz4_compressed_files, std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
 		{

@@ -15,7 +15,6 @@
 #include <lua_extensions/bindings/hades/inputs.hpp>
 #include <memory/gm_address.hpp>
 #include <misc/cpp/imgui_stdlib.h>
-#include <pointers.hpp>
 
 namespace big
 {

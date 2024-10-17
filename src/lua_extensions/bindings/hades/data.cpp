@@ -2,6 +2,7 @@
 
 #include "hades_ida.hpp"
 
+#include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
@@ -48,11 +49,11 @@ namespace lua::hades::data
 		}
 	}
 
-	static bool hook_FileStreamOpen(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
+	static bool hook_PlatformOpenFile(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
 	{
 		current_file_stream = file_stream;
 
-		const auto res = big::g_hooking->get_original<hook_FileStreamOpen>()(resourceDir, fileName, mode, file_stream);
+		const auto res = big::g_hooking->get_original<hook_PlatformOpenFile>()(resourceDir, fileName, mode, file_stream);
 		if (res)
 		{
 			// We need to hook GetFileSize too because the buffer is preallocated through malloc before the Read call happens.
@@ -196,10 +197,10 @@ namespace lua::hades::data
 	// Name: reload_game_data
 	static void reload_game_data()
 	{
-		static auto read_game_data_ptr = gmAddress::scan("7D 70 4C 8D 05", "ReadGameData");
+		static auto read_game_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadGameData"];
 		if (read_game_data_ptr)
 		{
-			static auto f = read_game_data_ptr.offset(-0x7B).as_func<void()>();
+			static auto f = read_game_data_ptr.as_func<void()>();
 			f();
 		}
 	}
@@ -211,8 +212,7 @@ namespace lua::hades::data
 	// Returns: string: Returns the string corresponding to the provided hash value.
 	static const char* get_string_from_hash_guid(unsigned int hash_guid)
 	{
-		static auto gStringBuffer =
-		    *gmAddress::scan("4C 03 0D ? ? ? ? 48 8B DA 0F B6 54 24", "gStringBuffer").offset(3).rip().as<const char**>();
+		static auto gStringBuffer = *big::hades2_symbol_to_address["sgg::HashGuid::gStringBuffer"].as<const char**>();
 
 		return &gStringBuffer[hash_guid];
 	}
@@ -252,21 +252,18 @@ namespace lua::hades::data
 	void bind(sol::state_view& state, sol::table& lua_ext)
 	{
 		{
-			static auto hook_open = big::hooking::detour_hook_helper::add<hook_FileStreamOpen>(
-			    "hook_FileStreamOpen",
-			    gmAddress::scan("44 8B C9 33 D2", "FileStreamOpen").offset(-0x97));
+			static auto hook_open =
+			    big::hooking::detour_hook_helper::add<hook_PlatformOpenFile>("hook_PlatformOpenFile", big::hades2_symbol_to_address["PlatformOpenFile"]);
 		}
 		{
-			static auto hook_read = big::hooking::detour_hook_helper::add<hook_FileStreamRead>(
-			    "hook_FileStreamRead",
-			    gmAddress::scan("48 3B C3 74 42", "FileStreamRead").offset(-0x2D));
+			static auto hook_read = big::hooking::detour_hook_helper::add<hook_FileStreamRead>("hook_FileStreamRead", big::hades2_symbol_to_address["FileStreamRead"]);
 		}
 
 		{
-			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
+			static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
 			if (fsAppendPathComponent_ptr)
 			{
-				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.offset(-0x97).as_func<void(const char*, const char*, char*)>();
+				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char*, const char*, char*)>();
 				static auto hook_fsAppendPathComponent_ = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent>("hook_fsAppendPathComponent", fsAppendPathComponent);
 			}
 		}

@@ -4,6 +4,7 @@
 #include "lua_extensions/bindings/tolk/tolk.hpp"
 #include "string/string.hpp"
 
+#include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
@@ -471,10 +472,10 @@ namespace lua::hades::inputs
 
 	void bind(sol::state_view &state, sol::table &lua_ext)
 	{
-		static auto RegisterDebugKey_ptr = gmAddress::scan("E8 ? ? ? ? 90 48 8B 45 DF", "RegisterDebugKey");
+		static auto RegisterDebugKey_ptr = big::hades2_symbol_to_address["sgg::Debug::RegisterDebugKey"];
 		if (RegisterDebugKey_ptr)
 		{
-			RegisterDebugKey = RegisterDebugKey_ptr.get_call();
+			RegisterDebugKey = RegisterDebugKey_ptr;
 		}
 
 		state["OnKeyPressed"] = [](sol::table args)

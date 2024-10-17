@@ -4,13 +4,14 @@
 #include "fonts/fonts.hpp"
 #include "gui.hpp"
 #include "hooks/hooking.hpp"
-#include "pointers.hpp"
 
 #include <backends/imgui_impl_dx12.h>
 #include <backends/imgui_impl_win32.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <hades2/pdb_symbol_map.hpp>
 #include <lua/lua_manager.hpp>
+#include <lua_extensions/lua_manager_extension.hpp>
 #include <memory/gm_address.hpp>
 #include <typeinfo>
 #pragma comment(lib, "dxgi.lib")
@@ -673,7 +674,7 @@ namespace big
 
 		hooking::detour_hook_helper::add<hook_sgg_scriptmanager_update_for_imgui_callbacks>(
 		    "SGG Script Manager Update - ImGui Callbacks",
-		    gmAddress::scan("4C 3B D6 74 3A", "SGG Script Manager Update").offset(-0x1'03).as<PVOID>());
+		    big::hades2_symbol_to_address["sgg::ScriptManager::Update"]);
 
 		return true;
 	}

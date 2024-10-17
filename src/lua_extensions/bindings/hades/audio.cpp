@@ -1,5 +1,6 @@
 #include "audio.hpp"
 
+#include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
@@ -35,15 +36,15 @@ namespace lua::hades::audio
 			Base = 2
 		};
 
-		static auto LoadBank_ptr = gmAddress::scan("90 84 C0 75 2B", "sgg::AudioManager::LoadBank");
+		static auto LoadBank_ptr = big::hades2_symbol_to_address["sgg::AudioManager::LoadBank"];
 		if (LoadBank_ptr)
 		{
-			static auto LoadBank = LoadBank_ptr.offset(-0x2B).as_func<void(eastl::string_view*, sgg__PackageGroup)>();
+			static auto LoadBank = LoadBank_ptr.as_func<void(eastl::string_view*, sgg__PackageGroup)>();
 
-			static auto fsAppendPathComponent_ptr = gmAddress::scan("C6 44 24 30 5C", "fsAppendPathComponent");
+			static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
 			if (fsAppendPathComponent_ptr)
 			{
-				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.offset(-0x97).as_func<void(const char*, const char*, char*)>();
+				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char*, const char*, char*)>();
 
 				static auto hook_once =
 				    big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent>("hook_fsAppendPathComponent", fsAppendPathComponent);
