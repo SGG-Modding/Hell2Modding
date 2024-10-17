@@ -14,7 +14,7 @@ It's using [ReturnOfModding](https://github.com/xiaoxiao921/ReturnOfModdingBase)
 
 ## Mod Manager Installation
 
-- Until ReturnOfModding integration is merged into the main r2modman version, [use the fork available here.](https://github.com/xiaoxiao921/r2modmanPlus/releases/)
+- [Follow the instructions here.](https://github.com/ebkr/r2modmanPlus?tab=readme-ov-file#first-time-installing)
 
 ## Manual Installation
 
