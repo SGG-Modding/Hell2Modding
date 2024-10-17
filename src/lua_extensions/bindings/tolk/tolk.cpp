@@ -133,8 +133,6 @@ namespace lua::tolk
 		}
 	}
 
-	static void* sgg_world_ptr = nullptr;
-
 	namespace sgg
 	{
 		// These offsets can easily be found again
@@ -168,16 +166,26 @@ namespace lua::tolk
 	{
 		std::vector<std::string> res;
 
-		static auto get_active_thing = big::hades2_symbol_to_address["sgg::World::GetActiveThing"].as_func<sgg::Thing*(void* this_, int id)>();
-		sgg::Thing* active_thing = get_active_thing(sgg_world_ptr, thing_id);
-		if (active_thing && active_thing->pText)
+		static auto world_ptr = big::hades2_symbol_to_address["sgg::world"].as<void**>();
+		if (!world_ptr)
 		{
-			for (auto i = active_thing->pText->mTextBoxes.begin(); i != active_thing->pText->mTextBoxes.end(); i++)
+			return res;
+		}
+
+		static auto get_active_thing = big::hades2_symbol_to_address["sgg::World::GetActiveThing"].as_func<sgg::Thing*(void* this_, int id)>();
+
+		sgg::Thing* active_thing = get_active_thing(*world_ptr, thing_id);
+
+		if (!active_thing || !active_thing->pText)
+		{
+			return res;
+		}
+
+		for (auto i = active_thing->pText->mTextBoxes.begin(); i != active_thing->pText->mTextBoxes.end(); i++)
+		{
+			for (auto j = (*i)->mLines.mpBegin; j < (*i)->mLines.mpEnd; j++)
 			{
-				for (auto j = (*i)->mLines.mpBegin; j < (*i)->mLines.mpEnd; j++)
-				{
-					res.push_back(j->mText.c_str());
-				}
+				res.push_back(j->mText.c_str());
 			}
 		}
 
@@ -207,15 +215,6 @@ namespace lua::tolk
 		}
 	}
 
-	static void* hook_GetActiveThing(void* this_, int thing_id)
-	{
-		sgg_world_ptr = this_;
-
-		const auto res = big::g_hooking->get_original<hook_GetActiveThing>()(this_, thing_id);
-
-		return res;
-	}
-
 	void bind(sol::table& state)
 	{
 		if (!Tolk_IsLoaded())
@@ -240,9 +239,6 @@ namespace lua::tolk
 		ns.set_function("silence", silence);
 		ns.set_function("output", output);
 		ns.set_function("on_button_hover", on_button_hover);
-
-		static auto GetActiveThing_hook_obj =
-		    big::hooking::detour_hook_helper::add_now<hook_GetActiveThing>("hook_GetActiveThing", big::hades2_symbol_to_address["GetActiveThing"]);
 
 		ns.set_function("get_lines_from_thing", get_lines_from_thing);
 	}
