@@ -125,12 +125,6 @@ static void hook_luaH_resizearray(lua_State *L, Table *t, int a3)
 	return hades_func(L, t, a3);
 }
 
-static __int64 hook_setnodevector(lua_State *L, __int64 a2, int a3)
-{
-	static auto hades_func = big::hades2_symbol_to_address["setnodevector"].as_func<__int64(lua_State *, __int64, int)>();
-	return hades_func(L, a2, a3);
-}
-
 static void hook_SGD_Deserialize_ThingDataDef(void *ctx, int loc, sgg::ThingDataDef *val)
 {
 	big::g_hooking->get_original<hook_SGD_Deserialize_ThingDataDef>()(ctx, loc, val);
@@ -493,6 +487,22 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			out->push_back(filename.c_str());
 		}
 	}
+}
+
+static void lua_print_traceback()
+{
+	const auto lua_manager = big::g_lua_manager;
+	if (lua_manager && lua_manager->get_module_count())
+	{
+		sol::state_view(lua_manager->lua_state()).script("if rom and rom.game and rom.game._activeThread then rom.log.warning(debug.traceback(rom.game._activeThread)) else debug.traceback() end");
+	}
+}
+
+static void hook_ParseLuaErrorMessageAndAssert(lua_State *msg, const char *len, unsigned __int64 state)
+{
+	lua_print_traceback();
+
+	big::g_hooking->get_original<hook_ParseLuaErrorMessageAndAssert>()(msg, len, state);
 }
 
 static eastl::string *hook_ReadCSString(eastl::string *result, void *file_stream_input)
@@ -933,7 +943,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		rom::init("Hell2Modding", "Hades2.exe", "rom");
 
 		// Purposely leak it, we are not unloading this module in any case.
-		const auto exception_handling = new exception_handler();
+		const auto exception_handling = new exception_handler(false, nullptr);
 
 		read_game_pdb();
 
@@ -1055,6 +1065,18 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 				static auto hook_ = hooking::detour_hook_helper::add<hook_fsGetFilesWithExtension_packages>(
 				    "fsGetFilesWithExtension for packages and models",
+				    ptr_func);
+			}
+		}
+
+		{
+			static auto ptr = big::hades2_symbol_to_address["ParseLuaErrorMessageAndAssert"];
+			if (ptr)
+			{
+				static auto ptr_func = ptr;
+
+				static auto hook_ = hooking::detour_hook_helper::add<hook_ParseLuaErrorMessageAndAssert>(
+				    "ParseLuaErrorMessageAndAssert for better lua stack traces",
 				    ptr_func);
 			}
 		}
