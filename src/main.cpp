@@ -390,6 +390,86 @@ static bool extension_matches(const char *first, const char *second)
 	return !strcmp(first_ext.data(), second_ext.data());
 }
 
+template<class F>
+bool EachImportFunction(HMODULE module, const char *dllname, const F &f)
+{
+	if (module == 0)
+	{
+		return false;
+	}
+
+	size_t ImageBase             = (size_t)module;
+	PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)ImageBase;
+	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+	{
+		return false;
+	}
+	PIMAGE_NT_HEADERS pNTHeader = (PIMAGE_NT_HEADERS)(ImageBase + pDosHeader->e_lfanew);
+
+	size_t RVAImports = pNTHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+	if (RVAImports == 0)
+	{
+		return false;
+	}
+
+	IMAGE_IMPORT_DESCRIPTOR *pImportDesc = (IMAGE_IMPORT_DESCRIPTOR *)(ImageBase + RVAImports);
+	while (pImportDesc->Name != 0)
+	{
+		if (!dllname || stricmp((const char *)(ImageBase + pImportDesc->Name), dllname) == 0)
+		{
+			IMAGE_IMPORT_BY_NAME **func_names = (IMAGE_IMPORT_BY_NAME **)(ImageBase + pImportDesc->Characteristics);
+			void **import_table               = (void **)(ImageBase + pImportDesc->FirstThunk);
+			for (size_t i = 0;; ++i)
+			{
+				if ((size_t)func_names[i] == 0)
+				{
+					break;
+				}
+				const char *funcname = (const char *)(ImageBase + (size_t)func_names[i]->Name);
+				f(funcname, import_table[i]);
+			}
+		}
+		++pImportDesc;
+	}
+	return true;
+}
+
+using fmodstudio_getevent_t = __int64 (*)(void *fmodstudio_event_system_this, const char *event_name, void **event_description_result);
+
+fmodstudio_getevent_t fmodstudio_getevent_orig = nullptr;
+
+static __int64 hook_fmodstudio_getevent(void *fmodstudio_event_system_this, const char *event_name, void **event_description_result)
+{
+	if (strstr(event_name, "event:{") && strstr(event_name, "}"))
+	{
+		event_name = &event_name[6];
+	}
+
+	//LOG(INFO) << event_name;
+
+	const auto res = fmodstudio_getevent_orig(fmodstudio_event_system_this, event_name, event_description_result);
+	if (res != 0)
+	{
+		LOG(WARNING) << "Failed playing " << event_name << " - " << res << " - " << event_description_result << " - " << *event_description_result;
+	}
+
+	return res;
+}
+
+static void init_hook_fmodstudio_getevent()
+{
+	EachImportFunction(::GetModuleHandleA(0),
+	                   "fmodstudio.dll",
+	                   [](const char *funcname, void *&func)
+	                   {
+		                   if (strcmp(funcname, "?getEvent@System@Studio@FMOD@@QEBA?AW4FMOD_RESULT@@PEBDPEAPEAVEventDescription@23@@Z") == 0)
+		                   {
+			                   fmodstudio_getevent_orig = (fmodstudio_getevent_t)func;
+			                   ForceWrite<void *>(func, hook_fmodstudio_getevent);
+		                   }
+	                   });
+}
+
 // Lua: Enforce AuthorName-ModName to be part of the std::filesystem::path.filename() of the file.
 // See the binding data.cpp file for the implementation.
 std::unordered_map<std::string, std::string> additional_package_files;
@@ -1043,6 +1123,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			static auto hook_analy_start =
 			    hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
+		}
+
+		{
+			init_hook_fmodstudio_getevent();
 		}
 
 		{

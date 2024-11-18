@@ -21,13 +21,25 @@ for n in pairs(rom.mods[_ENV._PLUGIN.guid]) do
 end
 ```
 
-## Fields (5)
+## Fields (7)
 
 ### `_PLUGIN.guid`
 
 Guid of the mod.
 
 - Type: `string`
+
+### `_PLUGIN.dependencies`
+
+Dependencies of the mod.
+
+- Type: `table<string>`
+
+### `_PLUGIN.dependencies_no_version_number`
+
+Dependencies of the mod without the version numbers.
+
+- Type: `table<string>`
 
 ### `_PLUGIN.config_mod_folder_path`
 
