@@ -78,12 +78,12 @@ end)
 rom.memory.dynamic_hook(hook_name, return_type, param_types, target_func_ptr, pre_callback, post_callback)
 ```
 
-### `dynamic_hook_mid(hook_name, param_captures_targets, param_captures_types, stack_restore_offset, param_restores, target_func_ptr, mid_callback)`
+### `dynamic_hook_mid(hook_name, param_captures_targets, param_captures_types, stack_restore_offset, target_func_ptr, mid_callback)`
 
 **Example Usage:**
 ```lua
 local ptr = memory.scan_pattern("some ida sig")
-gm.dynamic_hook_mid("test_hook", {"rax", "rcx", "[rcx+rdx*4+11]"}, {"int", "RValue*", "int"}, 0, {}, ptr, function(args)
+gm.dynamic_hook_mid("test_hook", {"rax", "rcx", "[rcx+rdx*4+11]"}, {"int", "RValue*", "int"}, 0, ptr, function(args)
      log.info("trigger", args[1]:get(), args[2].value, args[3]:set(1))
 end)
 ```
@@ -93,14 +93,16 @@ But scan_pattern may be affected by the other hooks.
   - `hook_name` (string): The name of the hook.
   - `param_captures_targets` (table<string>): Addresses of the parameters which you want to capture.
   - `param_captures_types` (table<string>): Types of the parameters which you want to capture.
-  - `stack_restore_offset` (int): An offset used to restore stack, only need when you want to interrupt the function.
-  - `param_restores` (table<string, string>): Restore targets and restore sources used to restore function, only need when you want to interrupt the function.
+  - `stack_restore_offset` (int): An offset used to restore stack, only need when you want to customize the jump location.
   - `target_func_ptr` (memory.pointer): The pointer to the function to detour.
-  - `mid_callback` (function): The function that will be called when the program reaches the position. The callback must match the following signature: ( args (can be a value_wrapper, or a lua usertype directly, depending if you used `add_type_info_from_string` through some c++ code and exposed it to the lua vm) ) -> Returns false (boolean) if you want to interrupt the function.
+  - `mid_callback` (function): The function that will be called when the program reaches the position. The callback must match the following signature: ( args (can be a value_wrapper, or a lua usertype directly, depending if you used `add_type_info_from_string` through some c++ code and exposed it to the lua vm) ) -> Returns memory.pointer if you want to customize the jump location. Be careful when customizing the jump location, you need to restore the registers and the stack before the jump.
+
+- **Returns:**
+  - `add(246)`: 
 
 **Example Usage:**
 ```lua
-rom.memory.dynamic_hook_mid(hook_name, param_captures_targets, param_captures_types, stack_restore_offset, param_restores, target_func_ptr, mid_callback)
+add(246) = rom.memory.dynamic_hook_mid(hook_name, param_captures_targets, param_captures_types, stack_restore_offset, target_func_ptr, mid_callback)
 ```
 
 ### `dynamic_call(return_type, param_types, target_func_ptr)`

@@ -2,7 +2,7 @@
 
 Table containing helpers for manipulating file or directory paths
 
-## Functions (7)
+## Functions (8)
 
 ### `combine(path)`
 
@@ -97,6 +97,19 @@ string = rom.path.stem(path)
 **Example Usage:**
 ```lua
 boolean = rom.path.create_directory(path)
+```
+
+### `exists(path)`
+
+- **Parameters:**
+  - `path` (string): The path to check.
+
+- **Returns:**
+  - `boolean`: true if the path exists, false otherwise.
+
+**Example Usage:**
+```lua
+boolean = rom.path.exists(path)
 ```
 
 
