@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(Hell2Modding CXX C ASM_MASM)
+project(Hell2Modding CXX C ASM ASM_MASM)
 
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 

@@ -1,3 +1,4 @@
+#include "asi_loader/asi_loader.hpp"
 #include "config/config.hpp"
 #include "dll_proxy/dll_proxy.hpp"
 #include "gui/gui.hpp"
@@ -1323,6 +1324,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				    g_hooking->enable();
 				    LOG(INFO) << "Hooking enabled.";
 			    }
+
+			    asi_loader::init(g_hmodule);
 
 			    g_running = true;
 
