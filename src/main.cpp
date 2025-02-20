@@ -167,7 +167,7 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 
 struct GUIComponentButton
 {
-	char m_pad[0x6'70];
+	char m_pad[0x6'78];
 	GUIComponentTextBox *mTextBox;
 };
 
