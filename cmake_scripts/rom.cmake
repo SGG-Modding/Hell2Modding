@@ -1,6 +1,8 @@
 include(FetchContent)
 
-#set(LUA_GIT_HASH a2e0125df529894f5e25d7d477b2df4e37690e0f)
+set(LUA_CUSTOM_REPO https://github.com/xiaoxiao921/lua-fork-hades2.git)
+
+set(LUA_GIT_HASH e2f0a33c52c18516c61b6fedfd6b518c5f0fbdb5)
 
 set(LUA_USE_LUAJIT false)
 
@@ -11,6 +13,6 @@ add_compile_definitions(
 FetchContent_Declare(
 	rom
 	GIT_REPOSITORY https://github.com/xiaoxiao921/ReturnOfModdingBase.git
-	GIT_TAG 823d5c21fb093a051e7ed859b352a7e2a881162c
+	GIT_TAG f580ae6ceb795c2e0b6327bd572d25a6666f5fb3
 )
 FetchContent_MakeAvailable(rom)

@@ -21,6 +21,7 @@ namespace lua::hades::data
 	{
 		std::scoped_lock l(g_FileStream_to_filename_mutex);
 
+		// that offset can be asserted inside PlatformOpenFile at the bottom
 		auto size = *(size_t*)(pFile + 0x20);
 
 		// Used for allocating the output buffer and the Read call.
@@ -60,12 +61,13 @@ namespace lua::hades::data
 			// This is dirty as hell but we'll just double the size as I don't think
 			// it's possible to know in advance what our patches to the game files will do to the file size.
 			{
-				void** FileStream_vtable = *(void***)file_stream;
+				constexpr size_t GetFileSize_index = 7;
+				void** FileStream_vtable           = *(void***)file_stream;
 				if (original_GetFileSize == nullptr)
 				{
-					original_GetFileSize = FileStream_vtable[6];
+					original_GetFileSize = FileStream_vtable[GetFileSize_index];
 				}
-				FileStream_vtable[6] = hook_FileStreamGetFileSize;
+				FileStream_vtable[GetFileSize_index] = hook_FileStreamGetFileSize;
 			}
 		}
 

@@ -93,9 +93,9 @@ static void hook_luaH_free(lua_State *L, Table *t)
 	return hades_func(L, t);
 }
 
-static __int64 hook_luaH_getn(Table *t)
+static int hook_luaH_getn(Table *t)
 {
-	static auto hades_func = big::hades2_symbol_to_address["luaH_getn"].as_func<__int64(Table *)>();
+	static auto hades_func = big::hades2_symbol_to_address["luaH_getn"].as_func<int(Table *)>();
 	return hades_func(t);
 }
 
@@ -105,7 +105,13 @@ static Table *hook_luaH_new(lua_State *L)
 	return hades_func(L);
 }
 
-struct TValue;
+static int hook_lua_load(lua_State *L, const char *(__fastcall *reader)(lua_State *, void *, unsigned __int64 *), void *data, const char *chunkname, char *mode)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_load"].as_func<decltype(hook_lua_load)>();
+	return hades_func(L, reader, data, chunkname, mode);
+}
+
+//struct TValue;
 
 static TValue *hook_luaH_newkey(lua_State *L, Table *t, const TValue *key)
 {
@@ -606,7 +612,6 @@ extern "C"
 {
 	extern void luaH_free(lua_State *L, Table *t);
 	extern int luaH_getn(Table *t);
-	extern TValue *luaH_newkey(lua_State *L, Table *t, const TValue *key);
 	extern void luaH_resize(lua_State *L, Table *t, int nasize, int nhsize);
 	extern void luaH_resizearray(lua_State *L, Table *t, int nasize);
 	extern Table *luaH_new(lua_State *L);
@@ -1054,6 +1059,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			big::hooking::detour_hook_helper::add_now<hook_luaH_resize>("luaH_resize", &luaH_resize);
 			big::hooking::detour_hook_helper::add_now<hook_luaH_resizearray>("luaH_resizearray", &luaH_resizearray);
 			big::hooking::detour_hook_helper::add_now<hook_luaH_new>("luaH_new", &luaH_new);
+			//big::hooking::detour_hook_helper::add_now<hook_lua_load>("lua_load", &lua_load);
 			// clang-format on
 		}
 
@@ -1119,8 +1125,6 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		{
 			static auto hook_ =
 			    hooking::detour_hook_helper::add_now<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
-
-			//
 
 			static auto hook_analy_start =
 			    hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);

@@ -6,6 +6,12 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 
+extern "C"
+{
+#include <lobject.h>
+#include <ltable.h>
+}
+
 namespace big::hades::lua
 {
 	inline void hook_in(lua_State* L)
@@ -14,6 +20,15 @@ namespace big::hades::lua
 		{
 			Sleep(1000);
 		}*/
+
+		// must ensure dummynode / luaO_nilobject from the game code and not ours.
+		{
+			static auto game_index2adr = big::hades2_symbol_to_address["index2addr"].as_func<intptr_t(lua_State*, int)>();
+			luaO_nilobject_external_address = game_index2adr(L, 999'999);
+			static auto game_luaH_new = big::hades2_symbol_to_address["luaH_new"].as_func<Table*(lua_State*, int, int)>();
+			auto game_table            = game_luaH_new(L, 0, 0);
+			dummynode_external_address = (intptr_t)game_table->node;
+		}
 
 		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
 
@@ -62,7 +77,7 @@ namespace big::hades::lua
 			    return sol::environment(state, sol::create, plugin_G);
 		    });
 
-		lua_manager_extension::g_lua_manager_instance->init<lua_module_ext>();
+		lua_manager_extension::g_lua_manager_instance->init<lua_module_ext>(true);
 
 		lua_manager_extension::g_is_lua_state_valid = true;
 		LOG(INFO) << "state is valid";
