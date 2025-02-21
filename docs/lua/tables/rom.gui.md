@@ -76,11 +76,11 @@ rom.gui.add_imgui(imgui_rendering)
 ### `is_open()`
 
 - **Returns:**
-  - `bool`: Returns true if the GUI is open.
+  - `boolean`: Returns true if the GUI is open.
 
 **Example Usage:**
 ```lua
-bool = rom.gui.is_open()
+boolean = rom.gui.is_open()
 ```
 
 ### `toggle()`

@@ -15,21 +15,21 @@ Simple description of the setting shown to the user.
 ### `get()`
 
 - **Returns:**
-  - `val`: bool or double or string. Value of this setting
+  - `boolean|number|string`: Value of this setting
 
 **Example Usage:**
 ```lua
-val = rom.config.config_entry:get()
+boolean|number|string = rom.config.config_entry:get()
 ```
 
-### `set(new_value)`
+### `set(boolean|number|string)`
 
 - **Parameters:**
-  - `new_value` (bool or double or string): New value of this setting.
+  - `boolean|number|string` (New value of this setting.)
 
 **Example Usage:**
 ```lua
-rom.config.config_entry:set(new_value)
+rom.config.config_entry:set(boolean|number|string)
 ```
 
 

@@ -20,7 +20,7 @@ The file path of this config file.
 
 All config entries of the config file.
 
-- Type: `table<config_definition, config_entry>`
+- Type: `table<config.config_definition, config.config_entry>`
 
 ## Constructors (1)
 
@@ -30,7 +30,7 @@ Create a new config file at the specified config path.
 
 - **Parameters:**
   - `config_path` (string): Full path to a file that contains settings. The file will be created as needed. It's recommended to use `.cfg` as the file extension. The mod manager will pick it up and make it show nicely inside the mod manager UI.
-  - `save_on_init` (bool): If the config file/directory doesn't exist, create it immediately.
+  - `save_on_init` (boolean): If the config file/directory doesn't exist, create it immediately.
 
 **Example Usage:**
 ```lua
@@ -48,15 +48,15 @@ trying to add a second setting will throw an exception.
 - **Parameters:**
   - `section` (string): Section/category/group of the setting. Settings are grouped by this.
   - `key` (string): Name of the setting.
-  - `default_value` (bool or number or string): Value of the setting if the setting was not created yet.
+  - `default_value` (boolean|number|string): Value of the setting if the setting was not created yet.
   - `description` (string): Simple description of the setting shown to the user.
 
 - **Returns:**
-  - `config_entry`: new config_entry object.
+  - `config.config_entry`: new config_entry object.
 
 **Example Usage:**
 ```lua
-config_entry = rom.config.config_file:bind(section, key, default_value, description)
+config.config_entry = rom.config.config_file:bind(section, key, default_value, description)
 ```
 
 ### `remove(section, key)`

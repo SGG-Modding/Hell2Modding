@@ -179,7 +179,7 @@ rom.pointer:set_dword(value)
 Sets the value at the memory address to the specified value of the given type.
 
 - **Parameters:**
-  - `value` (float): new value.
+  - `value` (number): new value.
 
 **Example Usage:**
 ```lua

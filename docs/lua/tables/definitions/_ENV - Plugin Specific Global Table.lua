@@ -1,0 +1,32 @@
+---@meta _ENV - Plugin Specific Global Table
+
+-- Each mod/plugin have their own global table containing helpers, such as:
+--- Their own guid
+--
+--- Path to their own folder inside `config`: Used for data that must persist between sessions that can be manipulated by the user.
+--
+--- Path to their own folder inside `plugins_data`: Used for data that must persist between sessions but not be manipulated by the user.
+--
+--- Path to their own folder inside `plugins`: Location of .lua, README, manifest.json files.
+--
+--You can access other mods helpers through the `rom.mods[OTHER_MOD_GUID]` table.
+--
+--**Example Usage:**
+--
+--```lua
+--print(_ENV._PLUGIN.guid)
+--
+--for n in pairs(rom.mods[_ENV._PLUGIN.guid]) do
+--     log.info(n)
+--end
+--```
+---@class (exact) _ENV - Plugin Specific Global Table
+---@field _PLUGIN.guid string # Guid of the mod.
+---@field _PLUGIN.version string # Version of the mod.
+---@field _PLUGIN.dependencies table<string> # Dependencies of the mod.
+---@field _PLUGIN.dependencies_no_version_number table<string> # Dependencies of the mod without the version numbers.
+---@field _PLUGIN.config_mod_folder_path string # Path to the mod folder inside `config`
+---@field _PLUGIN.plugins_data_mod_folder_path string # Path to the mod folder inside `plugins_data`
+---@field _PLUGIN.plugins_mod_folder_path string # Path to the mod folder inside `plugins`
+---@field _PLUGIN.this lua_module*
+
