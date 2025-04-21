@@ -8,12 +8,15 @@ namespace lua::gui_ext
 {
 	static bool is_open()
 	{
-		return big::g_gui->is_open();
+		return big::g_gui && big::g_gui->is_open();
 	}
 
 	static void toggle()
 	{
-		big::g_gui->toggle(!big::g_gui->is_open());
+		if (big::g_gui)
+		{
+			big::g_gui->toggle(!big::g_gui->is_open());
+		}
 	}
 
 	void bind(sol::table& state)
