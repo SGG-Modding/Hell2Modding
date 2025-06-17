@@ -1,1 +1,5 @@
+python ".\out\build\x64-Debug\_deps\rom-src\docs\lua_docs_generator\doc_gen.py" ".\out\build\x64-Debug\_deps\rom-src\src" ".\src\" ".\docs\lua"
+
+python ".\out\build\x64-Release-FastCompile\_deps\rom-src\docs\lua_docs_generator\doc_gen.py" ".\out\build\x64-Release-FastCompile\_deps\rom-src\src" ".\src\" ".\docs\lua"
+
 python ".\out\build\x64-Release-FINAL\_deps\rom-src\docs\lua_docs_generator\doc_gen.py" ".\out\build\x64-Release-FINAL\_deps\rom-src\src" ".\src\" ".\docs\lua"

@@ -167,9 +167,11 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 
 struct GUIComponentButton
 {
-	char m_pad[0x6'78];
+	char m_pad[0x5'B0];
 	GUIComponentTextBox *mTextBox;
 };
+
+static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'B0);
 
 static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUIComponentTextBox *prevSelection)
 {

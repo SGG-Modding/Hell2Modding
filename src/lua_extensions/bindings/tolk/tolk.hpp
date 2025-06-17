@@ -58,17 +58,20 @@ struct /*VFT*/ GUIComponentTextBox_vtbl
 	bool(__fastcall* HasText)(void* this_);
 };
 
+// 00000000 struct __cppobj sgg::GUIComponentTextBox : sgg::GUIComponentBox // sizeof=0x6E8
 struct GUIComponentTextBox
 {
 	GUIComponentTextBox_vtbl* vtbl;
-	char m_pad[0x6'A2];
+	char m_pad[0x5'C8];
 	eastl::string mStringBuilder;
 	char m_pad2[70];
 	eastl_vector<GUIComponentTextBox_Line> mLines;
 };
 
-static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x6'B0);
-static_assert(offsetof(GUIComponentTextBox, mLines) == 0x7'10);
+//constexpr size_t verify_offset_manually_hover  = offsetof(GUIComponentTextBox, mStringBuilder);
+//constexpr size_t verify_offset_manually_hover2 = 0x5'd0;
+static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x5'D0);
+static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'30);
 
 inline std::mutex g_GUIComponentTextBoxes_mutex;
 inline std::unordered_set<GUIComponentTextBox*> g_GUIComponentTextBoxes;

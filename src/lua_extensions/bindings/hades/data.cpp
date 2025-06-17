@@ -57,10 +57,13 @@ namespace lua::hades::data
 		const auto res = big::g_hooking->get_original<hook_PlatformOpenFile>()(resourceDir, fileName, mode, file_stream);
 		if (res)
 		{
-			// We need to hook GetFileSize too because the buffer is preallocated through malloc before the Read call happens.
+			// We need to hook IFileSystem::GetFileSize too because the buffer is preallocated through malloc before the Read call happens.
 			// This is dirty as hell but we'll just double the size as I don't think
 			// it's possible to know in advance what our patches to the game files will do to the file size.
 			{
+				// Index can be found in Local Types
+				// struct IFileSystem
+				// XREF: .data:gSystemFileIO
 				constexpr size_t GetFileSize_index = 7;
 				void** FileStream_vtable           = *(void***)file_stream;
 				if (original_GetFileSize == nullptr)
