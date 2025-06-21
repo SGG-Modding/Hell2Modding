@@ -5,6 +5,8 @@ if(TARGET Zydis AND NOT TARGET Zydis::Zydis)
     message("added zydis target")
 endif()
 
+set(SAFETYHOOK_FETCH_ZYDIS OFF)
+
 FetchContent_Declare(
     safetyhook
     GIT_REPOSITORY https://github.com/cursey/safetyhook.git
