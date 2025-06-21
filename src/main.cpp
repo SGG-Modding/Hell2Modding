@@ -119,7 +119,17 @@ bool extend_sgg_sBufferLen_max_size()
 
 		memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size, extended_sgg_sBuffer_size)->apply();
 
-		return true;
+		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 =
+		    gmAddress::scan("41 8D 0C 3F 81 F9 00 00 80 00");
+		if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2)
+		{
+			const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2 =
+			    sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2.offset(6).as<uint32_t *>();
+
+			memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2, extended_sgg_sBuffer_size)->apply();
+
+			return true;
+		}
 	}
 
 	return false;
@@ -1201,7 +1211,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		rom::init("Hell2Modding", "Hades2.exe", "rom");
 
 		// Purposely leak it, we are not unloading this module in any case.
-		const auto exception_handling = new exception_handler(false, nullptr);
+		const auto exception_handling = new exception_handler(true, nullptr);
 
 		read_game_pdb();
 
