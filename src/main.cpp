@@ -381,6 +381,20 @@ static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUICo
 	}
 }
 
+// void sgg::Granny3D::LoadAllModelAndAnimationData(void)
+static void hook_LoadAllModelAndAnimationData()
+{
+	// Not calling it ever again because it crashes inside the func when hotreloading game data.
+	// Make sure it's atleast called once though on game start.
+
+	static bool call_it_once = true;
+	if (call_it_once)
+	{
+		call_it_once = false;
+		big::g_hooking->get_original<hook_LoadAllModelAndAnimationData>()();
+	}
+}
+
 static void hook_ReadAllAnimationData()
 {
 	// Not calling it ever again because it crashes inside the func when hotreloading game data.
@@ -1301,6 +1315,19 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 				static auto hook_ =
 				    hooking::detour_hook_helper::add<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
+			}
+		}
+
+		{
+			static auto read_anim_data_ptr =
+			    big::hades2_symbol_to_address["sgg::Granny3D::LoadAllModelAndAnimationData"];
+			if (read_anim_data_ptr)
+			{
+				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
+
+				static auto hook_ = hooking::detour_hook_helper::add<hook_LoadAllModelAndAnimationData>(
+				    "LoadAllModelAndAnimationData Hook",
+				    read_anim_data);
 			}
 		}
 
