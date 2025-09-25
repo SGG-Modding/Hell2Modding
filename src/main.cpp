@@ -141,7 +141,7 @@ void extend_sgg_Sbuffer()
 
 	if (!extend_sgg_sBufferLen_max_size())
 	{
-		LOG(ERROR) << "sgg::sBufferLen <= max_size not found, not extending its size.";
+		LOG(WARNING) << "sgg::sBufferLen <= max_size not found, not extending its size.";
 		return;
 	}
 
@@ -345,21 +345,13 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 	g_GUIComponentTextBoxes.erase(this_);
 }
 
-struct GUIComponentButton
-{
-	char m_pad[0x5'B0];
-	GUIComponentTextBox *mTextBox;
-};
-
-static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'B0);
-
-static void hook_GUIComponentButton_OnSelected(GUIComponentTextBox *this_, GUIComponentTextBox *prevSelection)
+static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUIComponentTextBox *prevSelection)
 {
 	big::g_hooking->get_original<hook_GUIComponentButton_OnSelected>()(this_, prevSelection);
 
 	g_currently_selected_gui_comp = this_;
 
-	auto gui_button = (GUIComponentButton *)g_currently_selected_gui_comp;
+	auto gui_button = g_currently_selected_gui_comp;
 	auto gui_text   = gui_button->mTextBox;
 
 	std::vector<std::string> lines;

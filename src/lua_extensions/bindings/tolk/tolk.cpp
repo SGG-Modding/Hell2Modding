@@ -140,13 +140,14 @@ namespace lua::tolk
 		// sgg::GUIComponentTextBox::Draw(sgg::GUIComponentTextBox *this)
 		struct TextComponent
 		{
-			char m_pad[0x30];
+			char m_pad[0x28];
 
 			eastl::vector<GUIComponentTextBox*> mTextBoxes;
 		};
 
-		static_assert(offsetof(TextComponent, mTextBoxes) == 0x30);
+		static_assert(offsetof(TextComponent, mTextBoxes) == 0x28);
 
+		// 00000000 struct __cppobj __declspec(align(8)) sgg::Thing : sgg::IRenderComponent // sizeof=0x650
 		struct Thing
 		{
 			char m_pad[0xF8];

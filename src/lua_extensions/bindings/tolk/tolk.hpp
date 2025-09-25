@@ -62,7 +62,7 @@ struct /*VFT*/ GUIComponentTextBox_vtbl
 struct GUIComponentTextBox
 {
 	GUIComponentTextBox_vtbl* vtbl;
-	char m_pad[0x5'C8];
+	char m_pad[0x5'B0];
 	eastl::string mStringBuilder;
 	char m_pad2[70];
 	eastl_vector<GUIComponentTextBox_Line> mLines;
@@ -70,13 +70,23 @@ struct GUIComponentTextBox
 
 //constexpr size_t verify_offset_manually_hover  = offsetof(GUIComponentTextBox, mStringBuilder);
 //constexpr size_t verify_offset_manually_hover2 = 0x5'd0;
-static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x5'D0);
-static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'30);
+#ifndef _DEBUG
+static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x5'B8);
+static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'18);
+#endif
 
 inline std::mutex g_GUIComponentTextBoxes_mutex;
 inline std::unordered_set<GUIComponentTextBox*> g_GUIComponentTextBoxes;
 
-inline GUIComponentTextBox* g_currently_selected_gui_comp = nullptr;
+struct GUIComponentButton
+{
+	char m_pad[0x5'90];
+	GUIComponentTextBox* mTextBox;
+};
+
+static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'90);
+
+inline GUIComponentButton* g_currently_selected_gui_comp = nullptr;
 
 namespace lua::tolk
 {
