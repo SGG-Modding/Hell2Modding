@@ -55,6 +55,14 @@ void hook_mid_sgg_sBuffer_rbx(SafetyHookContext &ctx)
 	ctx.rip += 7;
 }
 
+void hook_mid_sgg_sBuffer_rdi(SafetyHookContext &ctx)
+{
+	ctx.rdi = (uintptr_t)extended_sgg_sBuffer;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
 bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
 {
 	// Only support lea for now.
@@ -95,6 +103,15 @@ bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uint
 					LOG(DEBUG) << "lea rax patch for " << HEX_TO_UPPER(instruction_address);
 					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rax));
 				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "lea rdi patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rdi));
+				}
+				else 
+				{
+					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER(instruction_address);
+				}
 
 				return true;
 			}
@@ -110,8 +127,8 @@ bool extend_sgg_sBufferLen_max_size()
 	// .text:000000014019ECF9 8B 3D 69 C5 9C 03		mov     edi, cs:sgg__sBufferLen
 	// .text:000000014019ECFF 8D 47 01				lea     eax, [rdi+1]
 	// .text:000000014019ED02 41 03 C7				add     eax, r15d
-	// .text:000000014019ED05 3D 00 00 80 00		cmp     eax, 800000h <---- max_size
-	static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr = gmAddress::scan("41 03 C7 3D 00 00 80 00");
+	// .text:000000014019ED05 3D 00 00 80 00		cmp     eax, 0C00000h <---- max_size
+	static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr = gmAddress::scan("41 03 C7 3D 00 00 C0 00");
 	if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr)
 	{
 		const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size =
@@ -120,16 +137,24 @@ bool extend_sgg_sBufferLen_max_size()
 		memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size, extended_sgg_sBuffer_size)->apply();
 
 		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 =
-		    gmAddress::scan("41 8D 0C 3F 81 F9 00 00 80 00");
+		    gmAddress::scan("81 FB 00 00 C0 00");
 		if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2)
 		{
 			const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2 =
-			    sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2.offset(6).as<uint32_t *>();
+			    sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2.offset(2).as<uint32_t *>();
 
 			memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2, extended_sgg_sBuffer_size)->apply();
 
 			return true;
 		}
+		else
+		{
+			LOG(ERROR) << "sgg::HashGuid::StringIntern max_size 2 not found.";
+		}
+	}
+	else
+	{
+		LOG(ERROR) << "sgg::HashGuid::StringIntern max_size not found.";
 	}
 
 	return false;
