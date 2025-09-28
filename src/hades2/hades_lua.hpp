@@ -14,6 +14,19 @@ extern "C"
 
 namespace big::hades::lua
 {
+	inline void lua_panic_handler_with_dump(sol::optional<std::string> maybe_msg)
+	{
+		LOG(ERROR) << "Lua is in a panic state and will now abort() the application";
+		if (maybe_msg)
+		{
+			const std::string& msg = maybe_msg.value();
+			LOG(ERROR) << "error message: " << msg;
+		}
+		Logger::FlushQueue();
+
+		*(int*)0xDE'AD = 0;
+	}
+
 	inline void hook_in(lua_State* L)
 	{
 		/*while (!IsDebuggerPresent())
@@ -78,6 +91,8 @@ namespace big::hades::lua
 		    });
 
 		lua_manager_extension::g_lua_manager_instance->init<lua_module_ext>(true);
+
+		sol::state_view(lua_manager_extension::g_lua_manager_instance->lua_state()).set_panic(sol::c_call<decltype(&lua_panic_handler_with_dump), &lua_panic_handler_with_dump>);
 
 		lua_manager_extension::g_is_lua_state_valid = true;
 		LOG(INFO) << "state is valid";
