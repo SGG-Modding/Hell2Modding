@@ -279,6 +279,131 @@ static bool hook_skipcrashpadinit()
 	return false;
 }
 
+static bool hook_CrashpadClient_WaitForHandlerStart(uintptr_t this_, DWORD timeout_ms)
+{
+	return false;
+}
+
+static void hook_CrashpadClient_SetFirstChanceExceptionHandler(uintptr_t func_ptr)
+{
+
+}
+
+static void hook_luaV_execute(lua_State *L)
+{
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+	std::scoped_lock l2(big::g_lua_manager->m_module_lock);
+
+	static auto hades_func = big::hades2_symbol_to_address["luaV_execute"].as_func<void(lua_State *)>();
+	return hades_func(L);
+}
+
+static void hook_lua_callk(lua_State *L, int nargs, int nresults, int ctx, lua_CFunction k)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_callk"].as_func<void(lua_State *, int, int, int, lua_CFunction)>();
+	return hades_func(L, nargs, nresults, ctx, k);
+}
+
+static void hook_lua_checkstack(lua_State *L, int sz)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_checkstack"].as_func<void(lua_State *, int)>();
+	return hades_func(L, sz);
+}
+
+static void hook_lua_createtable(lua_State *L, int narray, int nrec)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_createtable"].as_func<void(lua_State *, int, int)>();
+	return hades_func(L, narray, nrec);
+}
+
+static int hook_lua_error(lua_State *L)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_error"].as_func<int(lua_State *)>();
+	return hades_func(L);
+}
+
+static int hook_lua_gc(lua_State *L, int what, int data)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_gc"].as_func<int(lua_State *, int, int)>();
+	return hades_func(L, what, data);
+}
+
+static void hook_lua_getfield(lua_State *L, int idx, const char *k)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_getfield"].as_func<void(lua_State *, int, const char *)>();
+	return hades_func(L, idx, k);
+}
+
+static int hook_lua_getmetatable(lua_State *L, int objindex)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_getmetatable"].as_func<int(lua_State *, int)>();
+	return hades_func(L, objindex);
+}
+
+static void hook_lua_gettable(lua_State *L, int idx)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_gettable"].as_func<void(lua_State *, int)>();
+	return hades_func(L, idx);
+}
+
+static void hook_lua_insert(lua_State *L, int idx)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_insert"].as_func<void(lua_State *, int)>();
+	return hades_func(L, idx);
+}
+
+static int hook_lua_pcallk(lua_State *L, int nargs, int nresults, int errfunc, int ctx, lua_CFunction k)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_pcallk"].as_func<int(lua_State *, int, int, int, int, lua_CFunction)>();
+	return hades_func(L, nargs, nresults, errfunc, ctx, k);
+}
+
+static int hook_lua_load(lua_State *L, const char *(__fastcall *reader)(lua_State *, void *, unsigned __int64 *), void *data, const char *chunkname, char *mode)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_load"].as_func<decltype(hook_lua_load)>();
+	return hades_func(L, reader, data, chunkname, mode);
+}
+
+static int hook_luaL_ref(lua_State *L, int t)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaL_ref"].as_func<decltype(hook_luaL_ref)>();
+	return hades_func(L, t);
+}
+
+static void hook_lua_rawseti(lua_State * L, int idx, int n)
+{
+	static auto hades_func = big::hades2_symbol_to_address["lua_rawseti"].as_func<decltype(hook_lua_rawseti)>();
+	return hades_func(L, idx, n);
+}
+
+static void hook_luaH_setint(lua_State *L, void *t, int key, void *value)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_setint"].as_func<decltype(hook_luaH_setint)>();
+	return hades_func(L, t, key, value);
+}
+
+static TValue *hook_luaH_newkey(lua_State *L, Table *t, const TValue *key)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_newkey"].as_func<decltype(hook_luaH_newkey)>();
+	return hades_func(L, t, key);
+}
+
+static void hook_luaH_resize(lua_State *L, Table *t, unsigned int nasize, unsigned int nhsize)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_resize"].as_func<decltype(hook_luaH_resize)>();
+	return hades_func(L, t, nasize, nhsize);
+}
+
+static void *hook_luaM_realloc_(lua_State *L, void *block, size_t osize, size_t nsize)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaM_realloc_"].as_func<decltype(hook_luaM_realloc_)>();
+	return hades_func(L, block, osize, nsize);
+}
+
+static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
+{
+}
+
 // void initRenderer(char *appName, const RendererDesc *pDesc, Renderer **)
 static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 {
@@ -289,52 +414,6 @@ static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 	big::g_renderer->hook();
 
 	LOG(INFO) << "initRenderer finished";
-}
-struct Table;
-
-static void hook_luaH_free(lua_State *L, Table *t)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_free"].as_func<void(lua_State *, Table *)>();
-	return hades_func(L, t);
-}
-
-static int hook_luaH_getn(Table *t)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_getn"].as_func<int(Table *)>();
-	return hades_func(t);
-}
-
-static Table *hook_luaH_new(lua_State *L)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_new"].as_func<Table *(lua_State *)>();
-	return hades_func(L);
-}
-
-static int hook_lua_load(lua_State *L, const char *(__fastcall *reader)(lua_State *, void *, unsigned __int64 *), void *data, const char *chunkname, char *mode)
-{
-	static auto hades_func = big::hades2_symbol_to_address["lua_load"].as_func<decltype(hook_lua_load)>();
-	return hades_func(L, reader, data, chunkname, mode);
-}
-
-//struct TValue;
-
-static TValue *hook_luaH_newkey(lua_State *L, Table *t, const TValue *key)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_newkey"].as_func<TValue *(lua_State *, Table *, const TValue *)>();
-	return hades_func(L, t, key);
-}
-
-static void hook_luaH_resize(lua_State *L, Table *t, int a3, int a4)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_resize"].as_func<void(lua_State *, Table *, int, int)>();
-	return hades_func(L, t, a3, a4);
-}
-
-static void hook_luaH_resizearray(lua_State *L, Table *t, int a3)
-{
-	static auto hades_func = big::hades2_symbol_to_address["luaH_resizearray"].as_func<void(lua_State *, Table *, int)>();
-
-	return hades_func(L, t, a3);
 }
 
 static void hook_SGD_Deserialize_ThingDataDef(void *ctx, int loc, sgg::ThingDataDef *val)
@@ -488,6 +567,17 @@ static void set_sgg_config_values_thread_loop()
 	}
 }
 
+static bool hook_ConfigOption_registerField_int(char *name, int *addr, unsigned int flags, unsigned int defaultValue, float minValue, float maxValue)
+{
+	if (name && strstr(name, "LuaMemoryPoolSize"))
+	{
+		LOG(INFO) << "Setting LuaMemoryPoolSize to 0, previously " << defaultValue;
+		defaultValue = 0;
+	}
+
+	return big::g_hooking->get_original<hook_ConfigOption_registerField_int>()(name, addr, flags, defaultValue, minValue, maxValue);
+}
+
 static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigned int flags, bool defaultValue)
 {
 	bool is_UseAnalytics = false;
@@ -548,6 +638,11 @@ static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigne
 static void hook_PlatformAnalytics_Start()
 {
 	LOG(INFO) << "PlatformAnalytics_Start denied";
+}
+
+static void hook_sgg_DetectFreezeThread(HWND__* pData)
+{
+	LOG(INFO) << "DetectFreezeThread denied";
 }
 
 static void hook_disable_f10_launch(void *bugInfo)
@@ -819,15 +914,6 @@ static eastl::string *hook_ReadCSString(eastl::string *result, void *file_stream
 	}
 
 	return res;
-}
-
-extern "C"
-{
-	extern void luaH_free(lua_State *L, Table *t);
-	extern int luaH_getn(Table *t);
-	extern void luaH_resize(lua_State *L, Table *t, int nasize, int nhsize);
-	extern void luaH_resizearray(lua_State *L, Table *t, int nasize);
-	extern Table *luaH_new(lua_State *L);
 }
 
 namespace MemoryMappedFile
@@ -1253,30 +1339,43 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		const auto initRenderer_ptr = big::hades2_symbol_to_address["initRenderer"];
 		if (initRenderer_ptr)
 		{
-			big::hooking::detour_hook_helper::add_now<hook_initRenderer>("initRenderer", initRenderer_ptr);
+			big::hooking::detour_hook_helper::add_queue<hook_initRenderer>("initRenderer", initRenderer_ptr);
 		}
 
 		const auto backtrace_initializeCrashpad_ptr = big::hades2_symbol_to_address["backtrace::initializeCrashpad"];
 		if (backtrace_initializeCrashpad_ptr)
 		{
-			big::hooking::detour_hook_helper::add_now<hook_skipcrashpadinit>("backtrace::initializeCrashpad",
+			big::hooking::detour_hook_helper::add_queue<hook_skipcrashpadinit>("backtrace::initializeCrashpad",
 			                                                                 backtrace_initializeCrashpad_ptr.as_func<bool()>());
 		}
 
-
-		// If that block fails lua will crash.
-		// This is because lua dummynode_ is a static variable and its address is used in various lua table checks.
-		// Since the target game statically link against lua, we have to do it too,
-		// a duplicate dummynode_ is made, and will eventually get out of sync.
 		{
+			// The game has Lua statically linked, which means all of Lua's global state lives in its .data section.
+			// Because these globals are not exposed, we can't directly call into the game's Lua functions from our DLL.
+			// To work with Lua ourselves, we also have to statically link against a Lua library - but that creates a
+			// separate set of global variables. To solve this, we hook most of our own set of statically linked
+			// Lua functions and redirect them so they call the game's Lua functions instead,
+			// ensuring both sides are in sync.
 			// clang-format off
-			big::hooking::detour_hook_helper::add_now<hook_luaH_free>("luaH_free", &luaH_free);
-			big::hooking::detour_hook_helper::add_now<hook_luaH_getn>("luaH_getn", &luaH_getn);
-			big::hooking::detour_hook_helper::add_now<hook_luaH_newkey>("luaH_newkey", &luaH_newkey);
-			big::hooking::detour_hook_helper::add_now<hook_luaH_resize>("luaH_resize", &luaH_resize);
-			big::hooking::detour_hook_helper::add_now<hook_luaH_resizearray>("luaH_resizearray", &luaH_resizearray);
-			big::hooking::detour_hook_helper::add_now<hook_luaH_new>("luaH_new", &luaH_new);
-			//big::hooking::detour_hook_helper::add_now<hook_lua_load>("lua_load", &lua_load);
+			big::hooking::detour_hook_helper::add_queue<hook_luaL_checkversion_>("", &luaL_checkversion_);
+			big::hooking::detour_hook_helper::add_queue<hook_luaV_execute>("", &luaV_execute);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_callk>("", &lua_callk);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_checkstack>("", &lua_checkstack);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_createtable>("", &lua_createtable);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_error>("", &lua_error);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_gc>("", &lua_gc);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_getfield>("", &lua_getfield);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_getmetatable>("", &lua_getmetatable);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_gettable>("", &lua_gettable);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_insert>("", &lua_insert);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_pcallk>("", &lua_pcallk);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_load>("", &lua_load);
+			big::hooking::detour_hook_helper::add_queue<hook_luaL_ref>("", &luaL_ref);
+			big::hooking::detour_hook_helper::add_queue<hook_lua_rawseti>("", &lua_rawseti);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_setint>("", &luaH_setint);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_newkey>("", &luaH_newkey);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_resize>("", &luaH_resize);
+			big::hooking::detour_hook_helper::add_queue<hook_luaM_realloc_>("", &luaM_realloc_);
 			// clang-format on
 		}
 
@@ -1285,7 +1384,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			if (GUIComponentTextBox_ctor_ptr)
 			{
 				static auto GUIComponentTextBox_ctor = GUIComponentTextBox_ctor_ptr.offset(-0x3B);
-				static auto hook_ = hooking::detour_hook_helper::add_now<sgg__GUIComponentTextBox__GUIComponentTextBox>("sgg__GUIComponentTextBox__GUIComponentTextBox", GUIComponentTextBox_ctor);
+				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox>("sgg__GUIComponentTextBox__GUIComponentTextBox", GUIComponentTextBox_ctor);
 			}
 		}*/
 
@@ -1295,7 +1394,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			if (GUIComponentTextBox_update_ptr)
 			{
 				static auto GUIComponentTextBox_update = GUIComponentTextBox_update_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add_now<sgg__GUIComponentTextBox__Update>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__Update>(
 				    "sgg__GUIComponentTextBox__Update",
 				    GUIComponentTextBox_update);
 			}
@@ -1307,7 +1406,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			if (GUIComponentTextBox_dctor_ptr)
 			{
 				static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
+				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
 			}
 		}
 
@@ -1317,7 +1416,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			if (GUIComponentButton_OnSelected_ptr)
 			{
 				static auto GUIComponentButton_OnSelected = GUIComponentButton_OnSelected_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add<hook_GUIComponentButton_OnSelected>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_GUIComponentButton_OnSelected>(
 				    "GUIComponentButton_OnSelected",
 				    GUIComponentButton_OnSelected);
 			}
@@ -1331,7 +1430,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
 
 				static auto hook_ =
-				    hooking::detour_hook_helper::add<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
+				    hooking::detour_hook_helper::add_queue<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
 			}
 		}
 
@@ -1342,22 +1441,33 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
 
-				static auto hook_ = hooking::detour_hook_helper::add<hook_LoadAllModelAndAnimationData>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_LoadAllModelAndAnimationData>(
 				    "LoadAllModelAndAnimationData Hook",
 				    read_anim_data);
 			}
 		}
 
 		{
-			static auto hook_ = hooking::detour_hook_helper::add<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
+			static auto hook_ =
+			    hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
 		}
 
 		{
 			static auto hook_ =
-			    hooking::detour_hook_helper::add_now<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
+			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_int>("registerField<int> hook", big::hades2_symbol_to_address["sgg::registerField<int>"]);
+		}
+
+		{
+			static auto hook_ =
+			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
 
 			static auto hook_analy_start =
-			    hooking::detour_hook_helper::add_now<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
+			    hooking::detour_hook_helper::add_queue<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
+		}
+
+		{
+			static auto hook_ =
+			    hooking::detour_hook_helper::add_queue<hook_sgg_DetectFreezeThread>("hook_sgg_DetectFreezeThread", big::hades2_symbol_to_address["sgg::DetectFreezeThread"]);
 		}
 
 		{
@@ -1370,7 +1480,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add<hook_disable_f10_launch>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_disable_f10_launch>(
 				    "sgg::LaunchBugReporter F10 Disabler Hook",
 				    ptr_func);
 			}
@@ -1382,7 +1492,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add<hook_fsGetFilesWithExtension_packages>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension_packages>(
 				    "fsGetFilesWithExtension for packages and models",
 				    ptr_func);
 			}
@@ -1394,7 +1504,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add<hook_ParseLuaErrorMessageAndAssert>(
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_ParseLuaErrorMessageAndAssert>(
 				    "ParseLuaErrorMessageAndAssert for better lua stack traces",
 				    ptr_func);
 			}
@@ -1417,7 +1527,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			{
 				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char *, const char *, char *)>();
 
-				static auto hook_once = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent_packages>(
+				static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
 				    "hook_fsAppendPathComponent for packages and models",
 				    fsAppendPathComponent);
 			}
@@ -1426,6 +1536,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
 		    "void __fastcall sgg::SGD_Deserialize(sgg::SGD_Context *ctx, int loc, sgg::ThingDataDef *val)",
 		    gmAddress::scan("44 88 74 24 21", "SGD_Deserialize ThingData").offset(-0x59));*/
+
+		big::hooking::detour_hook_helper::execute_queue();
 
 		DisableThreadLibraryCalls(hmod);
 		g_hmodule     = hmod;
