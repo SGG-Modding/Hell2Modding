@@ -13,7 +13,7 @@ namespace big::hades
 
 	inline void init_hooks()
 	{
-		g_hook_log_write_enabled = big::config::general().bind("Logging", "Output Vanilla Game Log", true, "Output to the Hell2Modding log the vanilla game log Hades2.log");
+		g_hook_log_write_enabled = big::config::general->bind("Logging", "Output Vanilla Game Log", true, "Output to the Hell2Modding log the vanilla game log Hades2.log");
 		hooking::detour_hook_helper::add<hook_log_write>("game logger", big::hades2_symbol_to_address["Log::Write"].as<void*>());
 
 		const auto backtraceHandleException = big::hades2_symbol_to_address["sgg::BacktraceHandleException"];

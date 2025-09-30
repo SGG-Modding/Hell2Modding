@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/string.h>
+#include <unordered_set>
 
 /*struct eastl_basic_string_view_char
 {
