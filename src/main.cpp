@@ -400,6 +400,31 @@ static void *hook_luaM_realloc_(lua_State *L, void *block, size_t osize, size_t 
 	return hades_func(L, block, osize, nsize);
 }
 
+static void hook_luaH_free(lua_State *L, Table *t)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_free"].as_func<void(lua_State *, Table *)>();
+	return hades_func(L, t);
+}
+
+static int hook_luaH_getn(Table *t)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_getn"].as_func<int(Table *)>();
+	return hades_func(t);
+}
+
+static Table *hook_luaH_new(lua_State *L)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_new"].as_func<Table *(lua_State *)>();
+	return hades_func(L);
+}
+
+static void hook_luaH_resizearray(lua_State *L, Table *t, int a3)
+{
+	static auto hades_func = big::hades2_symbol_to_address["luaH_resizearray"].as_func<void(lua_State *, Table *, int)>();
+
+	return hades_func(L, t, a3);
+}
+
 static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
 {
 }
@@ -1376,6 +1401,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_newkey>("", &luaH_newkey);
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_resize>("", &luaH_resize);
 			big::hooking::detour_hook_helper::add_queue<hook_luaM_realloc_>("", &luaM_realloc_);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_free>("", &luaH_free);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_getn>("", &luaH_getn);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_new>("", &luaH_new);
+			big::hooking::detour_hook_helper::add_queue<hook_luaH_resizearray>("", &luaH_resizearray);
 			// clang-format on
 		}
 
