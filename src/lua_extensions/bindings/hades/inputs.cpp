@@ -421,6 +421,11 @@ namespace lua::hades::inputs
 	// ```
 	static sol::table on_key_pressed(sol::table args, sol::this_environment env)
 	{
+		if (!env)
+		{
+			return sol::table(big::g_lua_manager->lua_state(), sol::create);
+		}
+
 		sol::table res(env.env.value().lua_state(), sol::create);
 
 		auto mod = (big::lua_module_ext *)big::lua_module::this_from(env);
