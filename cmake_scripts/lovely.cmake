@@ -1,7 +1,7 @@
 include(FetchContent)
 
 # Path to the Rust staticlib
-set(LOVELY_LIB_DIR "${CMAKE_SOURCE_DIR}/target/x86_64-pc-windows-msvc/release")
+set(LOVELY_LIB_DIR "${CMAKE_SOURCE_DIR}/lovely-lib/target/x86_64-pc-windows-msvc/release")
 
 find_library(LOVELY_LIB lovely_lib PATHS ${LOVELY_LIB_DIR} NO_DEFAULT_PATH)
 
