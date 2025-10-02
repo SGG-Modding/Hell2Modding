@@ -23,8 +23,12 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
 
+      - name: Clone lovely-lib
+        run: git clone https://github.com/xiaoxiao921/lovely-lib
+
       - name: Build Rust lovely staticlib
         run: cargo build --release --target x86_64-pc-windows-msvc --package lovely-lib
+        working-directory: ./lovely-lib
           
       - name: Generate CMake project
         run: cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo -D FINAL=YES -S. -Bbuild -G Ninja
