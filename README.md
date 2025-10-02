@@ -12,6 +12,8 @@ Hell 2 Modding is a modding plugin / framework for Hades II.
 
 It's using [ReturnOfModding](https://github.com/xiaoxiao921/ReturnOfModdingBase) as a base. You can check its README for more information on how it works.
 
+It also uses [lovely-lib](https://github.com/xiaoxiao921/lovely-lib), a library that employs the same patching system as [lovely-injector](https://github.com/ethangreen-dev/lovely-injector/), except for `module` patching, which is already handled by RoM. For more details, see the [lovely-lib documentation](https://github.com/xiaoxiao921/lovely-lib?tab=readme-ov-file#patches).
+
 ## Mod Manager Installation
 
 - [Follow the instructions here.](https://github.com/ebkr/r2modmanPlus?tab=readme-ov-file#first-time-installing)
