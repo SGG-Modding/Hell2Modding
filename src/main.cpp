@@ -456,6 +456,26 @@ static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_co
 	return res;
 }
 
+enum class ResourceDirectory : int
+{
+	Scripts = 0xE,
+};
+
+static bool hook_sgg_IsContentFolderModified(ResourceDirectory directory, bool initialValue, bool checkForAddedFiles)
+{
+	if (directory == ResourceDirectory::Scripts)
+	{
+		return true;
+	}
+
+	if (big::g_hooking->get_original<hook_sgg_IsContentFolderModified>()(directory, initialValue, checkForAddedFiles))
+	{
+		LOG(WARNING) << "Resource directory modified: " << static_cast<int>(directory);
+	}
+
+	return false;
+}
+
 // void initRenderer(char *appName, const RendererDesc *pDesc, Renderer **)
 static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 {
@@ -1472,6 +1492,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox>("sgg__GUIComponentTextBox__GUIComponentTextBox", GUIComponentTextBox_ctor);
 			}
 		}*/
+
+		{
+			big::hooking::detour_hook_helper::add_queue<hook_sgg_IsContentFolderModified>("", big::hades2_symbol_to_address["sgg::IsContentFolderModified"]);
+		}
 
 		{
 			static auto GUIComponentTextBox_update_ptr =
