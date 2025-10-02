@@ -14,8 +14,6 @@
 #include <lua_extensions/lua_manager_extension.hpp>
 #include <memory/gm_address.hpp>
 #include <typeinfo>
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "dxguid.lib")
 
 static IDXGIFactory4* gDxgiFactory                 = nullptr;
 static ID3D12Device* gPd3DDevice                   = nullptr;

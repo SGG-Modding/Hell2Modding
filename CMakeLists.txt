@@ -11,6 +11,7 @@ message("\nFetching modules")
 include(cmake_scripts/capstone.cmake)
 include(cmake_scripts/eastl.cmake)
 include(cmake_scripts/git.cmake)
+include(cmake_scripts/lovely.cmake)
 include(cmake_scripts/lpeg.cmake)
 include(cmake_scripts/luasocket.cmake)
 include(cmake_scripts/raw_pdb.cmake)
@@ -57,7 +58,7 @@ target_include_directories(Hell2Modding PRIVATE
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
