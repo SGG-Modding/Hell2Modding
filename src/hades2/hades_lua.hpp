@@ -15,6 +15,44 @@ extern "C"
 	extern void luaV_execute(lua_State *L);
 }
 
+enum class lovely_PatchTableLoadResultEnum : int32_t
+{
+	Ok                  = 0,
+	CannotReadModDir    = 1,
+	BadDirEntry         = 2,
+	CannotReadLovelyDir = 3,
+	StripPrefixFailed   = 4,
+	MissingParentDir    = 5,
+	FileReadFailed      = 6,
+	ParseError          = 7,
+};
+
+enum class lovely_ApplyBufferPatchesResultEnum : int32_t
+{
+	Ok                            = 0,
+	ChunkNameInvalid              = 1,
+	ModDirNameInvalid             = 2,
+	ByteBufferInvalid             = 3,
+	NoFreeNeededUseOriginalBuffer = 4,
+	DumpDirCreationFailed         = 5,
+	DumpFileWriteFailed           = 6,
+	DumpMetaWriteFailed           = 7,
+	BufferAllocationFailed        = 8,
+};
+
+struct lovely_ApplyBufferPatchesResult
+{
+	char *data_ptr;
+	size_t data_len;
+	lovely_ApplyBufferPatchesResultEnum status;
+};
+
+extern "C"
+{
+	lovely_PatchTableLoadResultEnum lovely_init(const char *plugins_directory_path_ptr);
+	lovely_ApplyBufferPatchesResult *lovely_apply_buffer_patches(const char *buf_ptr, size_t size, const char *name_ptr, const char *plugins_directory_path_ptr);
+}
+
 namespace big
 {
 	extern LONG big_exception_handler(EXCEPTION_POINTERS *exception_info);

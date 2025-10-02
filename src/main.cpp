@@ -429,6 +429,33 @@ static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
 {
 }
 
+static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_content_ptr, size_t original_file_content_size, const char* name, char* mode)
+{
+	const auto *apply_buffer_result =
+	    lovely_apply_buffer_patches(original_file_content_ptr,
+	                                original_file_content_size,
+	                                name,
+	                                (const char *)big::g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
+
+	assert(apply_buffer_result);
+
+	if (apply_buffer_result->status != lovely_ApplyBufferPatchesResultEnum::Ok)
+	{
+		LOG(DEBUG) << "lovely_apply_buffer_patches returned " << static_cast<int>(apply_buffer_result->status);
+	}
+
+	const auto res = big::g_hooking->get_original<hook_game_luaL_loadbufferx>()(L, apply_buffer_result->data_ptr, apply_buffer_result->data_len, name, mode);
+
+	if (apply_buffer_result->status == lovely_ApplyBufferPatchesResultEnum::Ok)
+	{
+		free(apply_buffer_result->data_ptr);
+	}
+
+	free((void *)apply_buffer_result);
+
+	return res;
+}
+
 // void initRenderer(char *appName, const RendererDesc *pDesc, Renderer **)
 static void hook_initRenderer(char *appName, const void *pDesc, void **a3)
 {
@@ -1432,6 +1459,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_new>("", &luaH_new);
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_resizearray>("", &luaH_resizearray);
 			// clang-format on
+
+			// lovely injector integration
+			big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
 		}
 
 		/*{
@@ -1643,6 +1673,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 					    LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
 				    }
 			    }
+
+				const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
+			    LOG(INFO) << "lovely_init returned " << (int32_t)res;
 
 			    //static auto ptr_for_cave_test =
 			    //  gmAddress::scan("E8 ? ? ? ? EB 11 41 80 7D ? ?", "ptr_for_cave_test").get_call().offset(0x37);

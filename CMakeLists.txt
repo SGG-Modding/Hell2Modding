@@ -58,7 +58,7 @@ target_include_directories(Hell2Modding PRIVATE
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis ${LOVELY_LIB} userenv ntdll)
 
 # Warnings as errors
 set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
