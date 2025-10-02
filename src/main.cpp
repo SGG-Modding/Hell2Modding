@@ -796,7 +796,21 @@ static __int64 hook_fmodstudio_getevent(void *fmodstudio_event_system_this, cons
 	return res;
 }
 
-static void init_hook_fmodstudio_getevent()
+using setlocale_t = char* (__cdecl*)(int Category, const char *Locale);
+
+setlocale_t setlocale_orig = nullptr;
+
+char *__cdecl hook_setlocale(int Category, const char *Locale)
+{
+	if (strcmp(Locale, "C") == 0)
+	{
+		Locale = ".utf8";
+	}
+
+	return setlocale_orig(Category, Locale);
+}
+
+static void init_import_hooks()
 {
 	EachImportFunction(::GetModuleHandleA(0),
 	                   "fmodstudio.dll",
@@ -806,6 +820,18 @@ static void init_hook_fmodstudio_getevent()
 		                   {
 			                   fmodstudio_getevent_orig = (fmodstudio_getevent_t)func;
 			                   ForceWrite<void *>(func, hook_fmodstudio_getevent);
+		                   }
+	                   });
+
+	EachImportFunction(::GetModuleHandleA(0),
+	                   "api-ms-win-crt-locale-l1-1-0.dll",
+	                   [](const char *funcname, void *&func)
+	                   {
+		                   if (strcmp(funcname, "setlocale") == 0)
+		                   {
+			                   setlocale_orig = (setlocale_t)func;
+			                   LOG(INFO) << "Hooked setlocale";
+			                   ForceWrite<void *>(func, hook_setlocale);
 		                   }
 	                   });
 }
@@ -1500,7 +1526,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			init_hook_fmodstudio_getevent();
+			init_import_hooks();
 		}
 
 		{
