@@ -1419,6 +1419,18 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 	if (reason == DLL_PROCESS_ATTACH)
 	{
+		//while (!IsDebuggerPresent())
+		{
+			//Sleep(1000);
+		}
+
+		g_hmodule = hmod;
+
+		// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
+		setlocale(LC_ALL, ".utf8");
+		// This also change things like stringstream outputs and add comma to numbers and things like that, we don't want that, so just set locale on the C apis instead.
+		//std::locale::global(std::locale(".utf8"));
+
 		dll_proxy::init();
 
 		if (!rom::is_rom_enabled())
@@ -1659,17 +1671,11 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		big::hooking::detour_hook_helper::execute_queue();
 
 		DisableThreadLibraryCalls(hmod);
-		g_hmodule     = hmod;
 		g_main_thread = CreateThread(
 		    nullptr,
 		    0,
 		    [](PVOID) -> DWORD
 		    {
-			    // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
-			    setlocale(LC_ALL, ".utf8");
-			    // This also change things like stringstream outputs and add comma to numbers and things like that, we don't want that, so just set locale on the C apis instead.
-			    //std::locale::global(std::locale(".utf8"));
-
 			    std::filesystem::path root_folder = paths::get_project_root_folder();
 			    g_file_manager.init(root_folder);
 			    paths::init_dump_file_path();

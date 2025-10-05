@@ -7,12 +7,16 @@ namespace lua::paths_ext
 {
 	std::filesystem::path get_game_executable_folder()
 	{
-		char module_file_path[MAX_PATH];
-		const auto path_size              = GetModuleFileNameA(nullptr, module_file_path, MAX_PATH);
-		std::filesystem::path root_folder = std::string(module_file_path, path_size);
-		root_folder                       = root_folder.parent_path();
+		constexpr size_t max_path = MAX_PATH * 2;
+		wchar_t buffer[max_path];
+		DWORD length = GetModuleFileNameW(nullptr, buffer, max_path);
+		if (length == 0 || length == max_path)
+		{
+			return {};
+		}
 
-		return root_folder;
+		std::filesystem::path exe_path(buffer);
+		return exe_path.parent_path();
 	}
 
 	// Lua API: Function

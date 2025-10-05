@@ -9,6 +9,25 @@
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
 
+std::wstring utf8_to_wstring(const std::string& utf8_str)
+{
+	int wstr_length = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
+	if (wstr_length == 0)
+	{
+		// Failed to get wide string length
+		// You might want to handle this error case appropriately
+		return L"";
+	}
+
+	std::wstring wstr(wstr_length, 0);
+	MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], wstr_length);
+
+	// Remove the null-terminator that MultiByteToWideChar added
+	wstr.pop_back();
+
+	return wstr;
+}
+
 namespace lua::tolk
 {
 	static std::string wstring_to_utf8(const std::wstring& wstr)
@@ -28,25 +47,6 @@ namespace lua::tolk
 		utf8_str.pop_back();
 
 		return utf8_str;
-	}
-
-	static std::wstring utf8_to_wstring(const std::string& utf8_str)
-	{
-		int wstr_length = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
-		if (wstr_length == 0)
-		{
-			// Failed to get wide string length
-			// You might want to handle this error case appropriately
-			return L"";
-		}
-
-		std::wstring wstr(wstr_length, 0);
-		MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], wstr_length);
-
-		// Remove the null-terminator that MultiByteToWideChar added
-		wstr.pop_back();
-
-		return wstr;
 	}
 
 	// Lua API: Function
