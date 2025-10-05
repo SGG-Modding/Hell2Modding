@@ -9,6 +9,7 @@
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 #include <memory/gm_address.hpp>
+#include <lua_extensions/lua_manager_extension.hpp>
 
 namespace sgg
 {
@@ -332,7 +333,7 @@ namespace lua::hades::inputs
 			}
 		}
 
-		std::scoped_lock guard(big::g_lua_manager->m_module_lock);
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 		for (const auto &mod_ : big::g_lua_manager->m_modules)
 		{
 			auto mod               = (big::lua_module_ext *)mod_.get();

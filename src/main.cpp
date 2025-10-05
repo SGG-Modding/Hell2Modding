@@ -292,8 +292,6 @@ static void hook_CrashpadClient_SetFirstChanceExceptionHandler(uintptr_t func_pt
 static void hook_luaV_execute(lua_State *L)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
-	std::scoped_lock l2(big::g_lua_manager->m_module_lock);
-
 	static auto hades_func = big::hades2_symbol_to_address["luaV_execute"].as_func<void(lua_State *)>();
 	return hades_func(L);
 }
@@ -427,6 +425,13 @@ static void hook_luaH_resizearray(lua_State *L, Table *t, int a3)
 
 static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
 {
+}
+
+static int hook_game_lua_pcallk(lua_State *L, int nargs, int nresults, int errfunc, int ctx, lua_CFunction k)
+{
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
+	return big::g_hooking->get_original<hook_game_lua_pcallk>()(L, nargs, nresults, errfunc, ctx, k);
 }
 
 static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_content_ptr, size_t original_file_content_size, const char* name, char* mode)
@@ -1482,6 +1487,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 			// lovely injector integration
 			big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
+			big::hooking::detour_hook_helper::add_queue<hook_game_lua_pcallk>("", big::hades2_symbol_to_address["lua_pcallk"]);
 		}
 
 		/*{
@@ -1639,6 +1645,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
 				    "hook_fsAppendPathComponent for packages and models",
 				    fsAppendPathComponent);
+			}
+			else
+			{
+				LOG(ERROR) << "hook_fsAppendPathComponent for packages and models failure";
 			}
 		}
 

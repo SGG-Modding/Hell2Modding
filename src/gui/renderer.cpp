@@ -321,6 +321,8 @@ namespace big
 
 	static void hook_sgg_scriptmanager_update_for_imgui_callbacks(float a)
 	{
+		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
+
 		render_imgui_frame();
 
 		big::hooking::get_original<hook_sgg_scriptmanager_update_for_imgui_callbacks>()(a);

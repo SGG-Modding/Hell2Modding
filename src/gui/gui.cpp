@@ -159,8 +159,6 @@ namespace big
 
 	void gui::dx_on_tick()
 	{
-		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
-
 		if (!g_lua_manager)
 		{
 			return;
@@ -265,7 +263,7 @@ namespace big
 						ImGui::TreePop();
 					}
 
-					std::scoped_lock guard(g_lua_manager->m_module_lock);
+					std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 					for (const auto& mod_ : g_lua_manager->m_modules)
 					{
 						auto mod = (big::lua_module_ext*)mod_.get();

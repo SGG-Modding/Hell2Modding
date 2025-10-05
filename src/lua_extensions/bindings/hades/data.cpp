@@ -8,6 +8,7 @@
 #include <lua_extensions/lua_module_ext.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
+#include <lua_extensions/lua_manager_extension.hpp>
 
 namespace lua::hades::data
 {
@@ -19,7 +20,7 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamGetFileSize(uintptr_t pFile)
 	{
-		std::scoped_lock l(g_FileStream_to_filename_mutex);
+		std::scoped_lock l2(g_FileStream_to_filename_mutex);
 
 		// that offset can be asserted inside PlatformOpenFile at the bottom
 		auto size = *(size_t*)(pFile + 0x20);
@@ -50,6 +51,8 @@ namespace lua::hades::data
 		}
 	}
 
+	constexpr size_t GetFileSize_index = 7;
+
 	static bool hook_PlatformOpenFile(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
 	{
 		current_file_stream = file_stream;
@@ -64,7 +67,6 @@ namespace lua::hades::data
 				// Index can be found in Local Types
 				// struct IFileSystem
 				// XREF: .data:gSystemFileIO
-				constexpr size_t GetFileSize_index = 7;
 				void** FileStream_vtable           = *(void***)file_stream;
 				if (original_GetFileSize == nullptr)
 				{
@@ -92,6 +94,8 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
@@ -116,7 +120,7 @@ namespace lua::hades::data
 			std::string new_string;
 			bool assigned_new_string = false;
 
-			std::scoped_lock l(big::g_lua_manager->m_module_lock);
+			//std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 			for (const auto& mod_ : big::g_lua_manager->m_modules)
 			{
 				auto mod = (big::lua_module_ext*)mod_.get();
@@ -142,7 +146,7 @@ namespace lua::hades::data
 								if (bufferSizeInBytes * 2 < new_string.size())
 								{
 									std::stringstream ss;
-									ss << "Your patches won't work correctly because of my bad coding, please make an "
+									ss << "SJSON mod patches won't work correctly because of my bad coding, please make an "
 									      "issue on the Hell2Modding repo, make sure to pass this info: Original file "
 									      "size "
 									   << bufferSizeInBytes << " | Doubled size: " << bufferSizeInBytes * 2
@@ -167,7 +171,7 @@ namespace lua::hades::data
 			if (original_GetFileSize != nullptr)
 			{
 				void** FileStream_vtable = *(void***)file_stream;
-				FileStream_vtable[6]     = original_GetFileSize;
+				FileStream_vtable[GetFileSize_index]     = original_GetFileSize;
 			}
 		}
 
@@ -270,6 +274,10 @@ namespace lua::hades::data
 			{
 				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char*, const char*, char*)>();
 				static auto hook_fsAppendPathComponent_ = big::hooking::detour_hook_helper::add<hook_fsAppendPathComponent>("hook_fsAppendPathComponent", fsAppendPathComponent);
+			}
+			else
+			{
+				LOG(ERROR) << "fsAppendPathComponent hook failure";
 			}
 		}
 
