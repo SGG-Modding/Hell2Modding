@@ -2,7 +2,7 @@
 
 Table containing helpers for manipulating file or directory paths
 
-## Functions (8)
+## Functions (9)
 
 ### `combine(path)`
 
@@ -110,6 +110,25 @@ boolean = rom.path.create_directory(path)
 **Example Usage:**
 ```lua
 boolean = rom.path.exists(path)
+```
+
+### `add_file_watcher(path, callback)`
+
+Registers a callback that will be called when a file changes.
+**Example Usage:**
+```lua
+rom.path.add_file_watcher(_ENV["!config_mod_folder_path"], function (file_name, timestamp)
+		log.info(file_name, timestamp)
+end)
+```
+
+- **Parameters:**
+  - `path` (string): The path to add file watcher.
+  - `callback` (function): callback that match signature function ( file_name, timestamp ).
+
+**Example Usage:**
+```lua
+rom.path.add_file_watcher(path, callback)
 ```
 
 

@@ -16,7 +16,7 @@ Returns a memory instance, with the given address.
 myInstance = pointer:new(address)
 ```
 
-## Functions (24)
+## Functions (28)
 
 ### `add(offset)`
 
@@ -119,11 +119,23 @@ number = rom.pointer:get_dword()
 Retrieves the value stored at the memory address as the specified type.
 
 - **Returns:**
-  - `float`: the value stored at the memory address as the specified type.
+  - `number`: the value stored at the memory address as the specified type.
 
 **Example Usage:**
 ```lua
-float = rom.pointer:get_float()
+number = rom.pointer:get_float()
+```
+
+### `get_double()`
+
+Retrieves the value stored at the memory address as the specified type.
+
+- **Returns:**
+  - `number`: the value stored at the memory address as the specified type.
+
+**Example Usage:**
+```lua
+number = rom.pointer:get_double()
 ```
 
 ### `get_qword()`
@@ -184,6 +196,18 @@ Sets the value at the memory address to the specified value of the given type.
 **Example Usage:**
 ```lua
 rom.pointer:set_float(value)
+```
+
+### `set_double(value)`
+
+Sets the value at the memory address to the specified value of the given type.
+
+- **Parameters:**
+  - `value` (number): new value.
+
+**Example Usage:**
+```lua
+rom.pointer:set_double(value)
 ```
 
 ### `set_qword(value)`
@@ -288,6 +312,40 @@ The original value is restored when you call the restore function on the lua_pat
 **Example Usage:**
 ```lua
 lua_patch = rom.pointer:patch_qword(value)
+```
+
+### `patch_float(value)`
+
+Creates a memory patch for modifying the value at the memory address with the specified value.
+The modified value is applied when you call the apply function on the lua_patch object.
+The original value is restored when you call the restore function on the lua_patch object.
+
+- **Parameters:**
+  - `value` (number): new value.
+
+- **Returns:**
+  - `lua_patch`: memory patch instance for modifying the value at the memory address with the specified value. Can call apply / restore on the object.
+
+**Example Usage:**
+```lua
+lua_patch = rom.pointer:patch_float(value)
+```
+
+### `patch_double(value)`
+
+Creates a memory patch for modifying the value at the memory address with the specified value.
+The modified value is applied when you call the apply function on the lua_patch object.
+The original value is restored when you call the restore function on the lua_patch object.
+
+- **Parameters:**
+  - `value` (number): new value.
+
+- **Returns:**
+  - `lua_patch`: memory patch instance for modifying the value at the memory address with the specified value. Can call apply / restore on the object.
+
+**Example Usage:**
+```lua
+lua_patch = rom.pointer:patch_double(value)
 ```
 
 ### `is_null()`

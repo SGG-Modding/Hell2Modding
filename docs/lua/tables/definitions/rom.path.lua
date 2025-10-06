@@ -37,4 +37,15 @@ function path.create_directory(path) end
 ---@return boolean # true if the path exists, false otherwise.
 function path.exists(path) end
 
+-- Registers a callback that will be called when a file changes.
+--**Example Usage:**
+--```lua
+--rom.path.add_file_watcher(_ENV["!config_mod_folder_path"], function (file_name, timestamp)
+--		log.info(file_name, timestamp)
+--end)
+--```
+---@param path string The path to add file watcher.
+---@param callback function callback that match signature function ( file_name, timestamp ).
+function path.add_file_watcher(path, callback) end
+
 

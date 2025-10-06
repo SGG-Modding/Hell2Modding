@@ -42,8 +42,12 @@ function pointer:get_word() end
 function pointer:get_dword() end
 
 -- Retrieves the value stored at the memory address as the specified type.
----@return float # the value stored at the memory address as the specified type.
+---@return number # the value stored at the memory address as the specified type.
 function pointer:get_float() end
+
+-- Retrieves the value stored at the memory address as the specified type.
+---@return number # the value stored at the memory address as the specified type.
+function pointer:get_double() end
 
 -- Retrieves the value stored at the memory address as the specified type.
 ---@return number # the value stored at the memory address as the specified type.
@@ -64,6 +68,10 @@ function pointer:set_dword(value) end
 -- Sets the value at the memory address to the specified value of the given type.
 ---@param value number new value.
 function pointer:set_float(value) end
+
+-- Sets the value at the memory address to the specified value of the given type.
+---@param value number new value.
+function pointer:set_double(value) end
 
 -- Sets the value at the memory address to the specified value of the given type.
 ---@param value number new value.
@@ -104,6 +112,20 @@ function pointer:patch_dword(value) end
 ---@param value number new value.
 ---@return lua_patch # memory patch instance for modifying the value at the memory address with the specified value. Can call apply / restore on the object.
 function pointer:patch_qword(value) end
+
+-- Creates a memory patch for modifying the value at the memory address with the specified value.
+--The modified value is applied when you call the apply function on the lua_patch object.
+--The original value is restored when you call the restore function on the lua_patch object.
+---@param value number new value.
+---@return lua_patch # memory patch instance for modifying the value at the memory address with the specified value. Can call apply / restore on the object.
+function pointer:patch_float(value) end
+
+-- Creates a memory patch for modifying the value at the memory address with the specified value.
+--The modified value is applied when you call the apply function on the lua_patch object.
+--The original value is restored when you call the restore function on the lua_patch object.
+---@param value number new value.
+---@return lua_patch # memory patch instance for modifying the value at the memory address with the specified value. Can call apply / restore on the object.
+function pointer:patch_double(value) end
 
 ---@return boolean # Returns true if the address is null.
 function pointer:is_null() end
