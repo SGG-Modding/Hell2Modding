@@ -15,6 +15,12 @@ namespace lua::hades::gpk
 
 	std::vector<gpk_pack_entry> load_gpk_file(const std::filesystem::path &path)
 	{
+		if (path.extension() != ".gpk")
+		{
+			LOG(WARNING) << "Skipping non-.gpk file: " << path << "\n";
+			return {};
+		}
+
 		static auto LZ4_decompress_safe = big::hades2_symbol_to_address["LZ4_decompress_safe"].as_func<__int64(const char *, char *, int, int)>();
 
 		std::vector<gpk_pack_entry> entries;
@@ -88,6 +94,11 @@ namespace lua::hades::gpk
 
 	void put_gpk_entries_to_folder(const std::vector<gpk_pack_entry> &entries, const std::filesystem::path &output_folder)
 	{
+		if (!entries.size())
+		{
+			return;
+		}
+
 		if (!std::filesystem::exists(output_folder))
 		{
 			std::filesystem::create_directories(output_folder);
