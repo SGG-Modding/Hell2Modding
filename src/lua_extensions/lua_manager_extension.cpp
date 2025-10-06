@@ -4,7 +4,7 @@
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/data.hpp"
 #include "bindings/hades/inputs.hpp"
-#include "bindings/hades/lz4.hpp"
+#include "bindings/hades/gpk.hpp"
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
@@ -94,8 +94,6 @@ namespace big::lua_manager_extension
 
 	static int io_open_utf8(lua_State* L)
 	{
-		MessageBoxA(0, "sdf", "sdfdsf", 0);
-
 		const char *filename = luaL_checkstring(L, 1);
 		const char *mode     = luaL_optstring(L, 2, "r");
 		LStream *p           = newfile(L);
@@ -321,7 +319,7 @@ namespace big::lua_manager_extension
 		lua::hades::audio::bind(lua_ext);
 		lua::hades::data::bind(state, lua_ext);
 		lua::hades::inputs::bind(state, lua_ext);
-		lua::hades::lz4::bind(lua_ext);
+		lua::hades::gpk::bind(lua_ext);
 		lua::luasocket::bind(lua_ext);
 		lua::tolk::bind(lua_ext);
 		lua::gui_ext::bind(lua_ext);

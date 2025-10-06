@@ -1,6 +1,6 @@
 #pragma once
 
-namespace lua::hades::lz4
+namespace lua::hades::gpk
 {
 	void bind(sol::table& state);
 }

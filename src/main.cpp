@@ -941,7 +941,7 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 
 	bool has_pkg_manifest = false;
 	bool has_pkg          = false;
-	bool has_gr2_lz4      = false;
+	bool has_gpk          = false;
 	for (const auto &xd : *out)
 	{
 		if (ends_with(xd.c_str(), ".pkg_manifest"))
@@ -954,9 +954,9 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			has_pkg = true;
 		}
 
-		if (ends_with(xd.c_str(), ".gr2.lz4"))
+		if (ends_with(xd.c_str(), ".gpk"))
 		{
-			has_gr2_lz4 = true;
+			has_gpk = true;
 		}
 	}
 
@@ -978,7 +978,7 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			out->push_back(filename.c_str());
 		}
 	}
-	else if (has_gr2_lz4)
+	else if (has_gpk)
 	{
 		for (const auto &[filename, full_file_path] : additional_granny_files)
 		{
@@ -1705,7 +1705,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 					    LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
 				    }
-				    else if (ends_with((char *)entry.path().u8string().c_str(), ".gr2.lz4"))
+				    else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
 				    {
 					    additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
 					                                    (char *)entry.path().u8string().c_str());
