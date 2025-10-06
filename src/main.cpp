@@ -652,6 +652,12 @@ static bool hook_ConfigOption_registerField_int(char *name, int *addr, unsigned 
 		defaultValue = 0;
 	}
 
+	if (name && strstr(name, "AudioMemoryPoolSize"))
+	{
+		LOG(INFO) << "Setting AudioMemoryPoolSize to 0, previously " << defaultValue;
+		defaultValue = 0;
+	}
+
 	return big::g_hooking->get_original<hook_ConfigOption_registerField_int>()(name, addr, flags, defaultValue, minValue, maxValue);
 }
 
