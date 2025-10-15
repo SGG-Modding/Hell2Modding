@@ -85,6 +85,8 @@ namespace big::hades::lua
 
 	inline void hook_in(lua_State *L)
 	{
+		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
+
 		/*while (!IsDebuggerPresent())
 		{
 			Sleep(1000);
@@ -98,8 +100,6 @@ namespace big::hades::lua
 			auto game_table            = game_luaH_new(L, 0, 0);
 			dummynode_external_address = (intptr_t)game_table->node;
 		}
-
-		std::scoped_lock l(lua_manager_extension::g_manager_mutex);
 
 		lua_manager_extension::g_lua_manager_instance = std::make_unique<lua_manager>(
 		    L,
@@ -168,6 +168,8 @@ namespace big::hades::lua
 
 	inline char hook_sgg_ScriptManager_Load(const char *scriptFile)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		if (scriptFile)
 		{
 			if (!strcmp(scriptFile, "Main.lua"))

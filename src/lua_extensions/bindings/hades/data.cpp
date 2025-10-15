@@ -94,8 +94,6 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
-		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
-
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
@@ -120,7 +118,7 @@ namespace lua::hades::data
 			std::string new_string;
 			bool assigned_new_string = false;
 
-			//std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 			for (const auto& mod_ : big::g_lua_manager->m_modules)
 			{
 				auto mod = (big::lua_module_ext*)mod_.get();
@@ -299,6 +297,8 @@ namespace lua::hades::data
 		// ```
 		state["LoadPackages"] = [](sol::table args, sol::this_environment env_, sol::this_state state_)
 		{
+			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 			for (const auto& [k, v] : args)
 			{
 				if (k.is<std::string>() && v.is<std::string>())

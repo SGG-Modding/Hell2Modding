@@ -289,10 +289,28 @@ static void hook_CrashpadClient_SetFirstChanceExceptionHandler(uintptr_t func_pt
 
 }
 
+std::unordered_set<DWORD> seenThreads;
+std::mutex seenThreadsMutex;
+
+std::string wstring_to_utf8(const std::wstring &wstr);
+
+void log_stacktrace_()
+{
+	__try
+	{
+		*(int *)1 = 1;
+	}
+	__except (big::big_exception_handler(GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER)
+	{
+		Logger::FlushQueue();
+	}
+}
+
 static void hook_luaV_execute(lua_State *L)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 	static auto hades_func = big::hades2_symbol_to_address["luaV_execute"].as_func<void(lua_State *)>();
+
 	return hades_func(L);
 }
 
@@ -352,6 +370,8 @@ static void hook_lua_insert(lua_State *L, int idx)
 
 static int hook_lua_pcallk(lua_State *L, int nargs, int nresults, int errfunc, int ctx, lua_CFunction k)
 {
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 	static auto hades_func = big::hades2_symbol_to_address["lua_pcallk"].as_func<int(lua_State *, int, int, int, int, lua_CFunction)>();
 	return hades_func(L, nargs, nresults, errfunc, ctx, k);
 }
@@ -406,6 +426,32 @@ static void hook_luaH_free(lua_State *L, Table *t)
 
 static int hook_luaH_getn(Table *t)
 {
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
+	//DWORD threadId = GetThreadId(GetCurrentThread());
+
+	//{
+	//	std::lock_guard<std::mutex> lock(seenThreadsMutex);
+	//	if (seenThreads.find(threadId) == seenThreads.end())
+	//	{
+	//		seenThreads.insert(threadId);
+	//		LOG(ERROR) << "New thread entered: ID = " << threadId;
+
+	//		log_stacktrace_();
+
+	//		PWSTR data;
+	//		HRESULT hr = GetThreadDescription(GetCurrentThread(), &data);
+	//		if (SUCCEEDED(hr))
+	//		{
+	//			wprintf(L"%ls\n", data);
+
+	//			LOG(ERROR) << "Thread name: " << wstring_to_utf8(data);
+
+	//			LocalFree(data);
+	//		}
+	//	}
+	//}
+
 	static auto hades_func = big::hades2_symbol_to_address["luaH_getn"].as_func<int(Table *)>();
 	return hades_func(t);
 }
@@ -431,8 +477,55 @@ static int hook_game_lua_pcallk(lua_State *L, int nargs, int nresults, int errfu
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 
+	/*DWORD threadId = GetThreadId(GetCurrentThread());
+
+	{
+		std::lock_guard<std::mutex> lock(seenThreadsMutex);
+		if (seenThreads.find(threadId) == seenThreads.end())
+		{
+			seenThreads.insert(threadId);
+			LOG(ERROR) << "New thread entered: ID = " << threadId;
+
+			log_stacktrace_();
+
+			PWSTR data;
+			HRESULT hr = GetThreadDescription(GetCurrentThread(), &data);
+			if (SUCCEEDED(hr))
+			{
+				wprintf(L"%ls\n", data);
+
+				LOG(ERROR) << "Thread name: " << wstring_to_utf8(data);
+
+				LocalFree(data);
+			}
+		}
+	}*/
+
 	return big::g_hooking->get_original<hook_game_lua_pcallk>()(L, nargs, nresults, errfunc, ctx, k);
 }
+
+//static void hook_sgg_WorkerManager_ExecuteCmd(uintptr_t this_, unsigned __int64 arg)
+//{
+//	PWSTR data;
+//	HRESULT hr = GetThreadDescription(GetCurrentThread(), &data);
+//	if (SUCCEEDED(hr))
+//	{
+//		if (wcscmp(data, L"LoadTaskScheduler") == 0)
+//		{
+//			LocalFree(data);
+//
+//			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+//
+//			big::g_hooking->get_original<hook_sgg_WorkerManager_ExecuteCmd>()(this_, arg);
+//
+//			return;
+//		}
+//
+//		LocalFree(data);
+//	}
+//
+//	big::g_hooking->get_original<hook_sgg_WorkerManager_ExecuteCmd>()(this_, arg);
+//}
 
 static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_content_ptr, size_t original_file_content_size, const char* name, char* mode)
 {
@@ -528,6 +621,8 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 
 static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUIComponentTextBox *prevSelection)
 {
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 	big::g_hooking->get_original<hook_GUIComponentButton_OnSelected>()(this_, prevSelection);
 
 	g_currently_selected_gui_comp = this_;
@@ -1506,6 +1601,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			// lovely injector integration
 			big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
 			big::hooking::detour_hook_helper::add_queue<hook_game_lua_pcallk>("", big::hades2_symbol_to_address["lua_pcallk"]);
+
+			//big::hooking::detour_hook_helper::add_queue<hook_sgg_WorkerManager_ExecuteCmd>("", big::hades2_symbol_to_address["sgg::WorkerManager::ExecuteCmd"]);
 		}
 
 		/*{

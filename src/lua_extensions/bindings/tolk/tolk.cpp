@@ -28,27 +28,27 @@ std::wstring utf8_to_wstring(const std::string& utf8_str)
 	return wstr;
 }
 
-namespace lua::tolk
+std::string wstring_to_utf8(const std::wstring& wstr)
 {
-	static std::string wstring_to_utf8(const std::wstring& wstr)
+	int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+	if (utf8_length == 0)
 	{
-		int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-		if (utf8_length == 0)
-		{
-			// Failed to get UTF-8 length
-			// You might want to handle this error case appropriately
-			return "";
-		}
-
-		std::string utf8_str(utf8_length, 0);
-		WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8_str[0], utf8_length, nullptr, nullptr);
-
-		// Remove the null-terminator that WideCharToMultiByte added
-		utf8_str.pop_back();
-
-		return utf8_str;
+		// Failed to get UTF-8 length
+		// You might want to handle this error case appropriately
+		return "";
 	}
 
+	std::string utf8_str(utf8_length, 0);
+	WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8_str[0], utf8_length, nullptr, nullptr);
+
+	// Remove the null-terminator that WideCharToMultiByte added
+	utf8_str.pop_back();
+
+	return utf8_str;
+}
+
+namespace lua::tolk
+{
 	// Lua API: Function
 	// Table: tolk
 	// Name: silence
