@@ -1014,9 +1014,9 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 				strcpy(output, full_file_path.c_str());
 				break;
 			}
-			else if (strstr(filename.c_str(), pathComponent) && extension_matches(pathComponent, filename.c_str()))
+			else if (strcmp(filename.c_str(), pathComponent) == 0 && extension_matches(pathComponent, filename.c_str()))
 			{
-				LOG(DEBUG) << filename << " | " << pathComponent << " | " << full_file_path;
+				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
 				strcpy(output, full_file_path.c_str());
 				break;
