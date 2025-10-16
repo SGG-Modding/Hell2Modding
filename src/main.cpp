@@ -753,7 +753,9 @@ static bool hook_ConfigOption_registerField_int(char *name, int *addr, unsigned 
 		defaultValue = 0;
 	}
 
-	return big::g_hooking->get_original<hook_ConfigOption_registerField_int>()(name, addr, flags, defaultValue, minValue, maxValue);
+	const auto res = big::g_hooking->get_original<hook_ConfigOption_registerField_int>()(name, addr, flags, defaultValue, minValue, maxValue);
+
+	return res;
 }
 
 static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigned int flags, bool defaultValue)
@@ -1690,8 +1692,37 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		{
 			static auto hook_ =
 			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
+		}
 
-			static auto hook_analy_start =
+		{
+			// h2m init can be delayed it seems, main -> (should be here?) StartApp -> (can sometimes be here?) InitWindow
+
+			// Sanity check some must needed values and correct if so.
+
+			const auto AudioMemoryPoolVoiceSize =
+			    big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolVoiceSize"].as<int *>();
+
+			if (!AudioMemoryPoolVoiceSize)
+			{
+				LOG(ERROR) << "Failed to find sgg::ConfigOptions::AudioMemoryPoolVoiceSize";
+			}
+			else
+			{
+				if (*AudioMemoryPoolVoiceSize != 0)
+				{
+					LOG(WARNING) << "H2M init timing was delayed, trying to fix.";
+				}
+
+				*AudioMemoryPoolVoiceSize = 0;
+
+				const auto LuaMemoryPoolSize = big::hades2_symbol_to_address["sgg::ConfigOptions::LuaMemoryPoolSize"].as<int *>();
+
+				*LuaMemoryPoolSize = 0;
+			}
+		}
+
+		{
+			static auto hook_ =
 			    hooking::detour_hook_helper::add_queue<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
 		}
 
