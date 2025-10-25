@@ -8,15 +8,20 @@
 
 namespace lua::hades::audio
 {
-	static bool need_path_fix_fsAppendPathComponent     = false;
-	static std::string fixed_path_fsAppendPathComponent = "";
+	static std::string g_fixed_path_fsAppendPathComponent;
 
 	static void hook_fsAppendPathComponent(const char* basePath, const char* pathComponent, char* output /*size: 512*/)
 	{
-		if (need_path_fix_fsAppendPathComponent)
+		// TODO: Add thread safety to g_fixed_path_fsAppendPathComponent, as fsAppendPathComponent is called from multiple threads.
+
+		if (g_fixed_path_fsAppendPathComponent.size())
 		{
-			LOG(INFO) << "setting path to " << fixed_path_fsAppendPathComponent;
-			strcpy(output, fixed_path_fsAppendPathComponent.c_str());
+			if (pathComponent && strstr(g_fixed_path_fsAppendPathComponent.c_str(), pathComponent))
+			{
+				LOG(INFO) << "setting path to " << g_fixed_path_fsAppendPathComponent.c_str() << " basePath: " << (basePath ? basePath :
+				"<None>") << " | pathComponent: " << (pathComponent ? pathComponent : "<None>");
+				strcpy(output, g_fixed_path_fsAppendPathComponent.c_str());
+			}
 		}
 		else
 		{
@@ -55,11 +60,9 @@ namespace lua::hades::audio
 				std::string bank_name = (char*)std::filesystem::path(file_path).stem().u8string().c_str();
 				eastl::string_view fp(bank_name.c_str(), bank_name.size());
 
-				need_path_fix_fsAppendPathComponent = true;
-				fixed_path_fsAppendPathComponent    = file_path;
+				g_fixed_path_fsAppendPathComponent = file_path;
 				LoadBank(&fp, sgg__PackageGroup::Base);
-				need_path_fix_fsAppendPathComponent = false;
-				fixed_path_fsAppendPathComponent    = "";
+				g_fixed_path_fsAppendPathComponent = "";
 
 				return true;
 			}
