@@ -739,23 +739,24 @@ static void set_sgg_config_values_thread_loop()
 	}
 }
 
-static bool hook_ConfigOption_registerField_int(char *name, int *addr, unsigned int flags, unsigned int defaultValue, float minValue, float maxValue)
+static void hook_sgg_App_Initialize(void *this_)
 {
-	if (name && strstr(name, "LuaMemoryPoolSize"))
-	{
-		LOG(INFO) << "Setting LuaMemoryPoolSize to 0, previously " << defaultValue;
-		defaultValue = 0;
+	auto AudioMemoryPoolVoiceSize = big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolVoiceSize"].as<int *>();
+	*AudioMemoryPoolVoiceSize = 0;
+
+	LOG(INFO) << "Setting AudioMemoryPoolVoiceSize to " << *AudioMemoryPoolVoiceSize << ", mods will hit the limit otherwise.";
+
+	return big::g_hooking->get_original<hook_sgg_App_Initialize>()(this_);
 	}
 
-	if (name && strstr(name, "AudioMemoryPoolSize"))
+static void hook_sgg_ScriptManager_InitLua()
 	{
-		LOG(INFO) << "Setting AudioMemoryPoolSize to 0, previously " << defaultValue;
-		defaultValue = 0;
-	}
+	auto LuaMemoryPoolSize = big::hades2_symbol_to_address["sgg::ConfigOptions::LuaMemoryPoolSize"].as<int *>();
+	*LuaMemoryPoolSize     = 0;
 
-	const auto res = big::g_hooking->get_original<hook_ConfigOption_registerField_int>()(name, addr, flags, defaultValue, minValue, maxValue);
+	LOG(INFO) << "Setting LuaMemoryPoolSize to " << *LuaMemoryPoolSize << ", mods will hit the limit otherwise.";
 
-	return res;
+	return big::g_hooking->get_original<hook_sgg_ScriptManager_InitLua>()();
 }
 
 static bool hook_ConfigOption_registerField_bool(char *name, bool *addr, unsigned int flags, bool defaultValue)
@@ -1686,39 +1687,14 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		{
 			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_int>("registerField<int> hook", big::hades2_symbol_to_address["sgg::registerField<int>"]);
-		}
-
-		{
-			static auto hook_ =
 			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
 		}
 
-		{
-			// h2m init can be delayed it seems, main -> (should be here?) StartApp -> (can sometimes be here?) InitWindow
-
-			// Sanity check some must needed values and correct if so.
-
-			const auto AudioMemoryPoolVoiceSize =
-			    big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolVoiceSize"].as<int *>();
-
-			if (!AudioMemoryPoolVoiceSize)
-			{
-				LOG(ERROR) << "Failed to find sgg::ConfigOptions::AudioMemoryPoolVoiceSize";
-			}
-			else
-			{
-				if (*AudioMemoryPoolVoiceSize != 0)
 				{
-					LOG(WARNING) << "H2M init timing was delayed, trying to fix.";
-				}
+			static auto hook_ =
+			    hooking::detour_hook_helper::add_queue<hook_sgg_ScriptManager_InitLua>("", big::hades2_symbol_to_address["sgg::ScriptManager::InitLua"]);
 
-				*AudioMemoryPoolVoiceSize = 0;
-
-				const auto LuaMemoryPoolSize = big::hades2_symbol_to_address["sgg::ConfigOptions::LuaMemoryPoolSize"].as<int *>();
-
-				*LuaMemoryPoolSize = 0;
-			}
+			static auto hook2_ = hooking::detour_hook_helper::add_queue<hook_sgg_App_Initialize>("", big::hades2_symbol_to_address["sgg::App::Initialize"]);
 		}
 
 		{
