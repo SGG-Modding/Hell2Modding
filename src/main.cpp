@@ -746,6 +746,11 @@ static void hook_sgg_App_Initialize(void *this_)
 
 	LOG(INFO) << "Setting AudioMemoryPoolVoiceSize to " << *AudioMemoryPoolVoiceSize << ", mods will hit the limit otherwise.";
 
+	auto AudioMemoryPoolSize  = big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolSize"].as<int *>();
+	*AudioMemoryPoolSize     = 0;
+
+	LOG(INFO) << "Setting AudioMemoryPoolSize to " << *AudioMemoryPoolSize << ", mods will hit the limit otherwise.";
+
 	return big::g_hooking->get_original<hook_sgg_App_Initialize>()(this_);
 	}
 
