@@ -1695,6 +1695,26 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    hooking::detour_hook_helper::add_queue<hook_sgg_ScriptManager_InitLua>("", big::hades2_symbol_to_address["sgg::ScriptManager::InitLua"]);
 
 			static auto hook2_ = hooking::detour_hook_helper::add_queue<hook_sgg_App_Initialize>("", big::hades2_symbol_to_address["sgg::App::Initialize"]);
+
+			// ; sgg::ThreadBumpAllocator *__fastcall sgg::App::GetThreadFrameAllocator(sgg::App *this)
+			// Extend the allocator max size cause mods hit the limit otherwise.
+			constexpr size_t original_threadframe_allocator_size             = 0x03'20'00;
+			constexpr size_t extended_threadframe_allocator_size_20mb_in_hex = 0x01'40'00'00;
+
+			const auto patch_1            = gmAddress::scan("B9 00 20 03 00", "mov     ecx, 32000h     ; Size");
+			if (patch_1)
+			{
+				LOG(INFO) << "Patch 1 for sgg::App::GetThreadFrameAllocator to have larger size.";
+
+				ForceWrite<uint32_t>(*patch_1.offset(1).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
+			}
+			const auto patch_2 = gmAddress::scan("48 C7 43 18 00 20 03 00", "mov     qword ptr [rbx+18h], 32000h");
+			if (patch_2)
+			{
+				LOG(INFO) << "Patch 2 for sgg::App::GetThreadFrameAllocator to have larger size.";
+
+				ForceWrite<uint32_t>(*patch_2.offset(4).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
+			}
 		}
 
 		{
