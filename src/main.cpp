@@ -1558,6 +1558,23 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		{
 			extend_sgg_Sbuffer();
+
+			static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
+			if (ptr)
+			{
+				auto e8_call_ptr = ptr.offset(45).as<uint8_t*>();
+				if (*e8_call_ptr != 0xE8)
+				{
+					LOG(ERROR) << "Failed silencing String intern table running low on space message spam - unexpected instruction at call site";
+				}
+				else
+				{
+					for (size_t i = 0; i < 5; i++)
+					{
+						ForceWrite<uint8_t>(*(e8_call_ptr + i), 0x90);
+					}
+				}
+			}
 		}
 
 		const auto initRenderer_ptr = big::hades2_symbol_to_address["initRenderer"];
