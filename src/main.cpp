@@ -1831,7 +1831,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    } g_logger_cleanup;
 
 			    LOG(INFO) << rom::g_project_name;
-			    LOGF(INFO, "Build (GIT SHA1): {}", version::GIT_SHA1);
+			    LOGF(INFO, "Build v{} (Commit {})", big::version::VERSION_NUMBER, version::GIT_SHA1);
 
 			    // TODO: move this to own file, make sure it's called early enough so that it happens before the initial GameReadData call.
 			    for (const auto &entry :

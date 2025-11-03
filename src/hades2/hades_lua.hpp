@@ -5,6 +5,7 @@
 
 #include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
+#include "version.hpp"
 
 extern "C"
 {
@@ -103,6 +104,7 @@ namespace big::hades::lua
 
 		lua_manager_extension::g_lua_manager_instance = std::make_unique<lua_manager>(
 		    L,
+		    big::version::VERSION_NUMBER,
 		    g_file_manager.get_project_folder("config"),
 		    g_file_manager.get_project_folder("plugins_data"),
 		    g_file_manager.get_project_folder("plugins"),

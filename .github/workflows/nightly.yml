@@ -60,7 +60,9 @@ jobs:
 
           cd src
           sed -i 's/FILEVERSION .*/FILEVERSION '"$version_number_comma"'/' resources.rc
+          sed -i 's/PRODUCTVERSION .*/PRODUCTVERSION '"$version_number_comma"'/' resources.rc
           sed -i 's/"ProductVersion", *"[^"]*"/"ProductVersion", "'"$version_number"'"/g' resources.rc
+          sed -i 's/VERSION_NUMBER = "[^"]*"/VERSION_NUMBER = "'"$version_number"'"/' version.hpp
           cd ..
 
       - name: Build 64bit release DLL
