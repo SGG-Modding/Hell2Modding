@@ -1709,16 +1709,20 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			const auto patch_1            = gmAddress::scan("B9 00 20 03 00", "mov     ecx, 32000h     ; Size");
 			if (patch_1)
 			{
-				LOG(INFO) << "Patch 1 for sgg::App::GetThreadFrameAllocator to have larger size.";
-
 				ForceWrite<uint32_t>(*patch_1.offset(1).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
+			}
+			else
+			{
+				LOG(ERROR) << "Patch 1 for sgg::App::GetThreadFrameAllocator failed.";
 			}
 			const auto patch_2 = gmAddress::scan("48 C7 43 18 00 20 03 00", "mov     qword ptr [rbx+18h], 32000h");
 			if (patch_2)
 			{
-				LOG(INFO) << "Patch 2 for sgg::App::GetThreadFrameAllocator to have larger size.";
-
 				ForceWrite<uint32_t>(*patch_2.offset(4).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
+			}
+			else
+			{
+				LOG(ERROR) << "Patch 2 for sgg::App::GetThreadFrameAllocator failed.";
 			}
 		}
 
