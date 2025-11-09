@@ -21,6 +21,7 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/bindings/hades/inputs.hpp>
+#include <lua_extensions/bindings/hades/data.hpp>
 #include <lua_extensions/bindings/paths_ext.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
@@ -1112,6 +1113,40 @@ static void hook_ParseLuaErrorMessageAndAssert(lua_State *msg, const char *len, 
 	big::g_hooking->get_original<hook_ParseLuaErrorMessageAndAssert>()(msg, len, state);
 }
 
+struct sgg_Thing
+{
+	char pad_0000[0x4C];
+	sgg::HashGuid mName; // 0x4C;
+};
+
+static_assert(offsetof(sgg_Thing, mName) == 0x4C, "sgg::Thing->mName has wrong size.");
+
+
+static sgg_Thing* g_current_sgg_obstacle;
+
+static bool hook_sgg_Obstacle_IsObscuring(sgg_Thing *this_, uintptr_t thing)
+{
+	g_current_sgg_obstacle = this_;
+
+	return big::g_hooking->get_original<hook_sgg_Obstacle_IsObscuring>()(this_, thing);
+}
+
+static void hook_sgg_Animation_GetParallaxAmount(uintptr_t this_)
+{
+	if (!this_)
+	{
+		LOG(ERROR) << "hook_sgg_Animation_GetParallaxAmount: this is null, Obstacle is: "
+		           << g_current_sgg_obstacle->mName.mId << ": "<< lua::hades::data::get_string_from_hash_guid(
+		                  g_current_sgg_obstacle->mName.mId);
+
+		Logger::FlushQueue();
+
+		return;
+	}
+
+	big::g_hooking->get_original<hook_sgg_Animation_GetParallaxAmount>()(this_);
+}
+
 static eastl::string *hook_ReadCSString(eastl::string *result, void *file_stream_input)
 {
 	const auto res = big::g_hooking->get_original<hook_ReadCSString>()(result, file_stream_input);
@@ -1789,6 +1824,28 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_ParseLuaErrorMessageAndAssert>(
 				    "ParseLuaErrorMessageAndAssert for better lua stack traces",
+				    ptr_func);
+			}
+		}
+
+		{
+			static auto ptr = big::hades2_symbol_to_address["sgg::Obstacle::IsObscuring"];
+			if (ptr)
+			{
+				static auto ptr_func = ptr;
+
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_Obstacle_IsObscuring>("", ptr_func);			
+			}
+		}
+
+		{
+			static auto ptr = big::hades2_symbol_to_address["sgg::Animation::GetParallaxAmount"];
+			if (ptr)
+			{
+				static auto ptr_func = ptr;
+
+				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_Animation_GetParallaxAmount>(
+				    "",
 				    ptr_func);
 			}
 		}

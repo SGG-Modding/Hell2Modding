@@ -217,7 +217,7 @@ namespace lua::hades::data
 	// Name: get_string_from_hash_guid
 	// Param: hash_guid: integer: Hash value.
 	// Returns: string: Returns the string corresponding to the provided hash value.
-	static const char* get_string_from_hash_guid(unsigned int hash_guid)
+	const char* get_string_from_hash_guid(unsigned int hash_guid)
 	{
 		static auto gStringBuffer = *big::hades2_symbol_to_address["sgg::HashGuid::gStringBuffer"].as<const char**>();
 
