@@ -40,6 +40,37 @@ std::vector<SafetyHookMid> g_sgg_sBuffer_mid_hooks;
 constexpr uint32_t extended_sgg_sBuffer_size = sizeof(char) * 8'388'608 * 8;
 char *extended_sgg_sBuffer;
 
+std::vector<SafetyHookMid> g_sgg_sStringsBuffer_mid_hooks;
+// Mult by 8 the original limit.
+constexpr uint32_t extended_sgg_sStringsBuffer_size = sizeof(char) * 7'340'032 * 8;
+char *extended_sgg_sStringsBuffer;
+
+std::vector<SafetyHookMid> g_sgg_sTempStringsBuffer_mid_hooks;
+// Mult by 8 the original limit.
+constexpr uint32_t extended_sgg_sTempStringsBuffer_size = sizeof(char) * 262'144 * 8;
+char *extended_sgg_sTempStringsBuffer;
+
+void hook_mid_sgg_sStringsBuffer_r14(SafetyHookContext &ctx)
+{
+	ctx.r14 = (uintptr_t)extended_sgg_sStringsBuffer;
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sStringsBuffer_rdi(SafetyHookContext &ctx)
+{
+	ctx.rdi = (uintptr_t)extended_sgg_sStringsBuffer;
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sTempStringsBuffer_rcx(SafetyHookContext &ctx)
+{
+	ctx.rcx = (uintptr_t)extended_sgg_sTempStringsBuffer;
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
 void hook_mid_sgg_sBuffer_rax(SafetyHookContext &ctx)
 {
 	ctx.rax = (uintptr_t)extended_sgg_sBuffer;
@@ -121,6 +152,105 @@ bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uint
 	return false;
 }
 
+bool patch_lea_sgg_sStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+{
+	// Only support lea for now.
+	if (insn->id != X86_INS_LEA)
+	{
+		return false;
+	}
+
+	if (instruction_address_offset >= debug_start_offset && instruction_address_offset <= debug_end_offset)
+	{
+		//LOG(INFO) << insn->mnemonic << " " << insn->op_str << " at " << HEX_TO_UPPER(instruction_address_offset);
+	}
+
+	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
+	{
+		cs_x86_op op = insn->detail->x86.operands[i];
+		if (op.type == X86_OP_MEM)
+		{
+			uint64_t full_addr = op.mem.disp;
+
+			// RIP-relative addressing (LEA, MOV, CMP)
+			if (op.mem.base == X86_REG_RIP)
+			{
+				full_addr = instruction_address + insn->size + op.mem.disp;
+			}
+
+			if (full_addr == target_addr)
+			{
+				LOG(DEBUG) << "Found sgg:sStringsBuffer usage at " << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "). Instruction: " << insn->mnemonic << " " << insn->op_str;
+
+				if (insn->detail->x86.operands[0].reg == X86_REG_R14)
+				{
+					LOG(DEBUG) << "lea r14 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sStringsBuffer_r14));
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "lea rdi patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sStringsBuffer_rdi));
+				}
+				else
+				{
+					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER_OFFSET(instruction_address);
+				}
+
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool patch_lea_sgg_sTempStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+{
+	// Only support lea for now.
+	if (insn->id != X86_INS_LEA)
+	{
+		return false;
+	}
+
+	if (instruction_address_offset >= debug_start_offset && instruction_address_offset <= debug_end_offset)
+	{
+		//LOG(INFO) << insn->mnemonic << " " << insn->op_str << " at " << HEX_TO_UPPER(instruction_address_offset);
+	}
+
+	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
+	{
+		cs_x86_op op = insn->detail->x86.operands[i];
+		if (op.type == X86_OP_MEM)
+		{
+			uint64_t full_addr = op.mem.disp;
+
+			// RIP-relative addressing (LEA, MOV, CMP)
+			if (op.mem.base == X86_REG_RIP)
+			{
+				full_addr = instruction_address + insn->size + op.mem.disp;
+			}
+
+			if (full_addr == target_addr)
+			{
+				LOG(DEBUG) << "Found sgg:sTempStringsBuffer usage at " << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "). Instruction: " << insn->mnemonic << " " << insn->op_str;
+
+				if (insn->detail->x86.operands[0].reg == X86_REG_RCX)
+				{
+					LOG(DEBUG) << "lea rcx patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sTempStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sTempStringsBuffer_rcx));
+				}
+				else
+				{
+					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER(instruction_address);
+				}
+
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 bool extend_sgg_sBufferLen_max_size()
 {
 	// sgg::HashGuid::StringIntern(const char *s, unsigned __int64 length)
@@ -159,6 +289,71 @@ bool extend_sgg_sBufferLen_max_size()
 	}
 
 	return false;
+}
+
+void extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size()
+{
+	// sgg__CopyToStringsBuffer
+	{
+		{
+			static auto check = gmAddress::scan("48 81 FA 00 00 38 00");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
+			}
+		}
+
+		{
+			static auto check = gmAddress::scan("48 81 FA CC CC 64 00");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
+			}
+		}
+
+		{
+			static auto check = gmAddress::scan("48 3D 00 00 70 00 0F");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
+			}
+		}
+
+		{
+			static auto check = gmAddress::scan("48 81 FA 99 99 03 00");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sTempStringsBuffer_size)->apply();
+			}
+		}
+
+		{
+			static auto check = gmAddress::scan("48 3D 00 00 04 00");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sTempStringsBuffer_size)->apply();
+			}
+		}
+	}
+
+	// sgg__CleanupAndCopyVerbatimString
+	{
+		{
+			static auto check = gmAddress::scan("48 3D 00 00 70 00 76");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
+			}
+		}
+
+		{
+			static auto check = gmAddress::scan("48 81 FA 00 00 70 00");
+			if (check)
+			{
+				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
+			}
+		}
+	}
 }
 
 void extend_sgg_Sbuffer()
@@ -229,6 +424,144 @@ void extend_sgg_Sbuffer()
 		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
 		{
 			patch_lea_sgg_sBuffer_usage(insn, sgg_sBuffer.as<uintptr_t>(), 0x19'E9'DC, 0x19'EB'49, instruction_address, instruction_address_offset);
+		}
+	}
+
+	// release the cache memory when done
+	cs_free(insn, 1);
+}
+
+void extend_sgg_sStringsBuffer()
+{
+	extended_sgg_sStringsBuffer = (char *)_aligned_malloc(extended_sgg_sStringsBuffer_size, 16);
+
+	memory::module game_module{"Hades2.exe"};
+	const auto buf = big::hades2_symbol_to_address["sgg::sStringsBuffer"];
+	if (!buf)
+	{
+		LOG(ERROR) << "sgg::sStringsBuffer not found, not extending its size.";
+		return;
+	}
+
+	csh handle;
+	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+	{
+		LOG(ERROR) << "Failed to initialize Capstone. Can't extend sgg::sStringsBuffer";
+		return;
+	}
+
+	cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+	cs_option(handle, CS_OPT_SKIPDATA, CS_OPT_ON);
+
+	// allocate memory cache for 1 instruction, to be used by cs_disasm_iter later.
+	cs_insn *insn = cs_malloc(handle);
+
+	const auto dosHeader = game_module.begin().as<IMAGE_DOS_HEADER *>();
+	const auto ntHeader  = game_module.begin().add(dosHeader->e_lfanew).as<IMAGE_NT_HEADERS *>();
+
+	memory::range m_text_section(0, 0);
+
+	// Locate .text section
+	const auto section = IMAGE_FIRST_SECTION(ntHeader);
+	for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; i++)
+	{
+		const IMAGE_SECTION_HEADER &hdr = section[i];
+		if (memcmp(hdr.Name, ".text", 5) == 0)
+		{
+			m_text_section = memory::range{game_module.begin().add(hdr.VirtualAddress), static_cast<size_t>(hdr.Misc.VirtualSize)};
+			LOG(INFO) << "Found text section start at " << HEX_TO_UPPER_OFFSET(m_text_section.begin().as<uintptr_t>()) << ". End at "
+			          << HEX_TO_UPPER_OFFSET(m_text_section.end().as<uintptr_t>());
+			break;
+		}
+	}
+
+	const uint8_t *code = m_text_section.begin().as<const uint8_t *>();
+	size_t code_size    = m_text_section.size(); // size of @code buffer above
+	uint64_t address    = m_text_section.begin().as<uint64_t>();
+
+	const auto module_base_address = (uintptr_t)GetModuleHandleA(0);
+
+	while (true)
+	{
+		if ((uintptr_t)code >= m_text_section.end().as<uintptr_t>())
+		{
+			break;
+		}
+
+		const uintptr_t instruction_address        = (uintptr_t)code;
+		const uintptr_t instruction_address_offset = instruction_address - module_base_address;
+		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
+		{
+			patch_lea_sgg_sStringsBuffer_usage(insn, buf.as<uintptr_t>(), 0x0, 0x0, instruction_address, instruction_address_offset);
+		}
+	}
+
+	// release the cache memory when done
+	cs_free(insn, 1);
+}
+
+void extend_sgg_sTempStringsBuffer()
+{
+	extended_sgg_sTempStringsBuffer = (char *)_aligned_malloc(extended_sgg_sTempStringsBuffer_size, 16);
+
+	memory::module game_module{"Hades2.exe"};
+	const auto buf = big::hades2_symbol_to_address["sgg::sTempStringsBuffer"];
+	if (!buf)
+	{
+		LOG(ERROR) << "sgg::sTempStringsBuffer not found, not extending its size.";
+		return;
+	}
+
+	csh handle;
+	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+	{
+		LOG(ERROR) << "Failed to initialize Capstone. Can't extend sgg::sTempStringsBuffer";
+		return;
+	}
+
+	cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+	cs_option(handle, CS_OPT_SKIPDATA, CS_OPT_ON);
+
+	// allocate memory cache for 1 instruction, to be used by cs_disasm_iter later.
+	cs_insn *insn = cs_malloc(handle);
+
+	const auto dosHeader = game_module.begin().as<IMAGE_DOS_HEADER *>();
+	const auto ntHeader  = game_module.begin().add(dosHeader->e_lfanew).as<IMAGE_NT_HEADERS *>();
+
+	memory::range m_text_section(0, 0);
+
+	// Locate .text section
+	const auto section = IMAGE_FIRST_SECTION(ntHeader);
+	for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; i++)
+	{
+		const IMAGE_SECTION_HEADER &hdr = section[i];
+		if (memcmp(hdr.Name, ".text", 5) == 0)
+		{
+			m_text_section = memory::range{game_module.begin().add(hdr.VirtualAddress), static_cast<size_t>(hdr.Misc.VirtualSize)};
+			LOG(INFO) << "Found text section start at " << HEX_TO_UPPER_OFFSET(m_text_section.begin().as<uintptr_t>()) << ". End at "
+			          << HEX_TO_UPPER_OFFSET(m_text_section.end().as<uintptr_t>());
+			break;
+		}
+	}
+
+	const uint8_t *code = m_text_section.begin().as<const uint8_t *>();
+	size_t code_size    = m_text_section.size(); // size of @code buffer above
+	uint64_t address    = m_text_section.begin().as<uint64_t>();
+
+	const auto module_base_address = (uintptr_t)GetModuleHandleA(0);
+
+	while (true)
+	{
+		if ((uintptr_t)code >= m_text_section.end().as<uintptr_t>())
+		{
+			break;
+		}
+
+		const uintptr_t instruction_address        = (uintptr_t)code;
+		const uintptr_t instruction_address_offset = instruction_address - module_base_address;
+		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
+		{
+			patch_lea_sgg_sTempStringsBuffer_usage(insn, buf.as<uintptr_t>(), 0x0, 0x0, instruction_address, instruction_address_offset);
 		}
 	}
 
@@ -1593,6 +1926,12 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		{
 			extend_sgg_Sbuffer();
+
+			extend_sgg_sStringsBuffer();
+
+			extend_sgg_sTempStringsBuffer();
+
+			extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
 
 			static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
 			if (ptr)
