@@ -40,6 +40,20 @@ std::vector<SafetyHookMid> g_sgg_sBuffer_mid_hooks;
 constexpr uint32_t extended_sgg_sBuffer_size = sizeof(char) * 8'388'608 * 8;
 char *extended_sgg_sBuffer;
 
+constexpr uint32_t original_sgg_sHashes_kSize = 262'144;
+// Mult by 8 the original limit.
+constexpr uint32_t extended_sgg_sHashes_kSize = original_sgg_sHashes_kSize * 8;
+
+std::vector<SafetyHookMid> g_sgg_sHashes_mid_hooks;
+// Mult by 8 the original limit.
+constexpr uint32_t extended_sgg_sHashes_size = sizeof(uint64_t) * extended_sgg_sHashes_kSize;
+uint64_t *extended_sgg_sHashes;
+
+std::vector<SafetyHookMid> g_sgg_sIndices_mid_hooks;
+// Mult by 8 the original limit.
+constexpr uint32_t extended_sgg_sIndices_size = sizeof(uint32_t) * extended_sgg_sHashes_kSize;
+uint32_t *extended_sgg_sIndices;
+
 std::vector<SafetyHookMid> g_sgg_sStringsBuffer_mid_hooks;
 // Mult by 8 the original limit.
 constexpr uint32_t extended_sgg_sStringsBuffer_size = sizeof(char) * 7'340'032 * 8;
@@ -49,6 +63,108 @@ std::vector<SafetyHookMid> g_sgg_sTempStringsBuffer_mid_hooks;
 // Mult by 8 the original limit.
 constexpr uint32_t extended_sgg_sTempStringsBuffer_size = sizeof(char) * 262'144 * 8;
 char *extended_sgg_sTempStringsBuffer;
+
+void hook_mid_sgg_sIndices_rcx(SafetyHookContext &ctx)
+{
+	ctx.rcx = (uintptr_t)extended_sgg_sIndices;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sIndices_lea_rva_r14(SafetyHookContext &ctx)
+{
+	ctx.r14 = (uintptr_t)extended_sgg_sIndices;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sIndices_cmp_rva_r12_rdi_4_constant(SafetyHookContext &ctx)
+{
+	if (ctx.r12 + ctx.rdi >= extended_sgg_sIndices_size || ctx.r12 + ctx.rdi < 0)
+	{
+		LOG(ERROR) << "sgg:sIndices out of bounds access attempt at r12 + rdi = " << HEX_TO_UPPER(ctx.r12 + ctx.rdi) << ", size = " << HEX_TO_UPPER(extended_sgg_sIndices_size) << ". Skipping instruction.";
+
+		Logger::FlushQueue();
+
+		// Out of bounds access, skip the original instruction.
+		ctx.rip += 9;
+		return;
+	}
+
+	const auto mem_val = extended_sgg_sIndices[ctx.r12 + ctx.rdi];
+
+	// handle rflags depending on the JZ instruction that follows.
+
+	if (mem_val == 0x0FFFFFFFF)
+	{
+		// Set ZF flag
+		ctx.rflags |= 0x40;
+	}
+	else
+	{
+		// Clear ZF flag
+		ctx.rflags &= ~0x40;
+	}
+
+	// Skip the original instruction.
+	ctx.rip += 9;
+}
+
+void hook_mid_sgg_sIndices_mov_ecx_rva_r12_rbx_4(SafetyHookContext &ctx)
+{
+
+	ctx.rcx = extended_sgg_sIndices[ctx.r12 + ctx.rbx];
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sIndices_mov_ebx_rva_r12_rbx_4(SafetyHookContext &ctx)
+{
+	ctx.rbx = extended_sgg_sIndices[ctx.r12 + ctx.rbx];
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sIndices_mov_ecx_rva_r13_rdi_4(SafetyHookContext &ctx)
+{
+	ctx.rcx = extended_sgg_sIndices[ctx.r13 + ctx.rdi];
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sIndices_mov_eax_rva_r13_rdi_4(SafetyHookContext &ctx)
+{
+	ctx.rax = extended_sgg_sIndices[ctx.r13 + ctx.rdi];
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sIndices_cmp_rva_r13_rbx_4_constant(SafetyHookContext &ctx)
+{
+	const auto mem_val = extended_sgg_sIndices[ctx.r13 + ctx.rbx];
+
+	// handle rflags depending on the JZ instruction that follows.
+
+	if (mem_val == 0x0'FF'FF'FF'FF)
+	{
+		// Set ZF flag
+		ctx.rflags |= 0x40;
+	}
+	else
+	{
+		// Clear ZF flag
+		ctx.rflags &= ~0x40;
+	}
+
+	// Skip the original instruction.
+	ctx.rip += 9;
+}
 
 void hook_mid_sgg_sStringsBuffer_r14(SafetyHookContext &ctx)
 {
@@ -95,17 +211,232 @@ void hook_mid_sgg_sBuffer_rdi(SafetyHookContext &ctx)
 	ctx.rip += 7;
 }
 
-bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+void hook_mid_sgg_sHashes_rcx(SafetyHookContext &ctx)
+{
+	ctx.rcx = (uintptr_t)extended_sgg_sHashes;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sHashes_cmp_rva_r12_rbx_8_r14(SafetyHookContext &ctx)
+{
+	const auto mem_val = extended_sgg_sHashes[ctx.r12 + ctx.rbx];
+	const auto reg_val = ctx.r14;
+
+	// handle rflags depending on the JZ instruction that follows.
+
+	if (mem_val == reg_val)
+	{
+		// Set ZF flag
+		ctx.rflags |= 0x40;
+	}
+	else
+	{
+		// Clear ZF flag
+		ctx.rflags &= ~0x40;
+	}
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sHashes_mov_rva_r12_rdi_8_r14(SafetyHookContext &ctx)
+{
+	extended_sgg_sHashes[ctx.r12 + ctx.rdi] = ctx.r14;
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+void hook_mid_sgg_sHashes_cmp_rva_r13_rdi_8_r15(SafetyHookContext &ctx)
+{
+	const auto mem_val = extended_sgg_sHashes[ctx.r13 + ctx.rdi];
+	const auto reg_val = ctx.r15;
+
+	// handle rflags depending on the JZ instruction that follows.
+
+	if (mem_val == reg_val)
+	{
+		// Set ZF flag
+		ctx.rflags |= 0x40;
+	}
+	else
+	{
+		// Clear ZF flag
+		ctx.rflags &= ~0x40;
+	}
+
+	// Skip the original instruction.
+	ctx.rip += 8;
+}
+
+bool patch_sgg_sHashes_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+{
+	if (insn->id != X86_INS_LEA && insn->id != X86_INS_MOV && insn->id != X86_INS_CMP)
+	{
+		return false;
+	}
+
+	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
+	{
+		cs_x86_op op = insn->detail->x86.operands[i];
+		if (op.type == X86_OP_MEM)
+		{
+			uint64_t full_addr = op.mem.disp;
+
+			// RIP-relative addressing (LEA, MOV, CMP)
+			if (op.mem.base == X86_REG_RIP)
+			{
+				full_addr = instruction_address + insn->size + op.mem.disp;
+			}
+			else
+			{
+				full_addr = (uintptr_t)GetModuleHandleA(0) + op.mem.disp;
+			}
+
+			if (full_addr == target_addr)
+			{
+				LOG(DEBUG) << "Found sgg:sHashes usage at " << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "). Instruction: " << insn->mnemonic << " " << insn->op_str;
+
+				if (insn->detail->x86.operands[0].reg == X86_REG_RCX)
+				{
+					LOG(DEBUG) << "lea rcx patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sHashes_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sHashes_rcx));
+				}
+				else if (insn->detail->x86.operands[0].mem.base == X86_REG_R12 && insn->detail->x86.operands[0].mem.index == X86_REG_RBX)
+				{
+					LOG(DEBUG) << "cmp r12 rbx 8 r14 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sHashes_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sHashes_cmp_rva_r12_rbx_8_r14));
+				}
+				else if (insn->detail->x86.operands[0].mem.base == X86_REG_R12 && insn->detail->x86.operands[0].mem.index == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "mov r12 rdi 8 r14 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sHashes_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sHashes_mov_rva_r12_rdi_8_r14));
+				}
+				else if (insn->detail->x86.operands[0].mem.base == X86_REG_R13 && insn->detail->x86.operands[0].mem.index == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "cmp r13 rdi 8 r15 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sHashes_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sHashes_cmp_rva_r13_rdi_8_r15));
+				}
+				else
+				{
+					LOG(ERROR) << "unhandled patch for " << HEX_TO_UPPER(instruction_address);
+				}
+
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+bool patch_sgg_sIndices_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+	{
+	if (instruction_address_offset == 0x1B'2A'91)
+	{
+		LOG(INFO) << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "): " << insn->mnemonic << " " << insn->op_str << " | " << insn->id << " | "
+		          << "operand[0]: " << insn->detail->x86.operands[0].type << " | " << insn->detail->x86.operands[0].mem.base << " | "
+		          << insn->detail->x86.operands[0].mem.index << " | "
+		          << insn->detail->x86.operands[0].mem.disp << " || "
+		          << "operand[1]: " << insn->detail->x86.operands[1].type << " | " << insn->detail->x86.operands[1].mem.base << " | "
+		          << insn->detail->x86.operands[1].mem.index << " | "
+		                                                   << insn->detail->x86.operands[1].mem.disp;
+
+		const auto test = (uintptr_t)GetModuleHandleA(0) + insn->detail->x86.operands[1].mem.disp;
+		LOG(INFO) << HEX_TO_UPPER(test) << " | " << HEX_TO_UPPER(big::hades2_symbol_to_address["sgg::sIndices"]);
+	}
+
+	if (insn->id != X86_INS_LEA && insn->id != X86_INS_MOV && insn->id != X86_INS_CMP)
+	{
+		return false;
+	}
+
+	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
+	{
+		cs_x86_op op = insn->detail->x86.operands[i];
+		if (op.type == X86_OP_MEM)
+		{
+			uint64_t full_addr;
+
+			// RIP-relative addressing (LEA, MOV, CMP)
+			if (op.mem.base == X86_REG_RIP)
+			{
+				full_addr = instruction_address + insn->size + op.mem.disp;
+			}
+			else
+			{
+				full_addr = (uintptr_t)GetModuleHandleA(0) + op.mem.disp;
+			}
+
+			if (full_addr == target_addr)
+			{
+				LOG(DEBUG) << "Found sgg:sIndices usage at " << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "). Instruction: " << insn->mnemonic << " " << insn->op_str;
+
+				if (insn->id == X86_INS_LEA && insn->detail->x86.operands[0].reg == X86_REG_RCX)
+				{
+					LOG(DEBUG) << "lea rcx patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_rcx));
+				}
+				else if (insn->id == X86_INS_LEA && insn->detail->x86.operands[0].reg == X86_REG_R14)
+				{
+					LOG(DEBUG) << "lea rva r14 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_lea_rva_r14));
+				}
+				else if (insn->detail->x86.operands[0].mem.base == X86_REG_R12 && insn->detail->x86.operands[0].mem.index == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "cmp rva r12 rdi 4 -1 (int) patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_cmp_rva_r12_rdi_4_constant));
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_ECX && 
+					insn->detail->x86.operands[1].mem.base == X86_REG_R12 &&  insn->detail->x86.operands[1].mem.index == X86_REG_RBX)
+				{
+					LOG(DEBUG) << "mov ecx rva r12 rbx 4 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_mov_ecx_rva_r12_rbx_4));
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_EBX && insn->detail->x86.operands[1].mem.base == X86_REG_R12
+				         && insn->detail->x86.operands[1].mem.index == X86_REG_RBX)
+				{
+					LOG(DEBUG) << "mov ecx rva r12 rbx 4 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_mov_ebx_rva_r12_rbx_4));
+				}
+				else if (insn->detail->x86.operands[0].mem.base == X86_REG_R13 && insn->detail->x86.operands[0].mem.index == X86_REG_RBX)
+				{
+					LOG(DEBUG) << "cmp r13 rbx 4 -1 (int) patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_cmp_rva_r13_rbx_4_constant));
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_ECX && insn->detail->x86.operands[1].mem.base == X86_REG_R13
+				         && insn->detail->x86.operands[1].mem.index == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "mov ecx rva r13 rdi 4 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_mov_ecx_rva_r13_rdi_4));
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_EAX && insn->detail->x86.operands[1].mem.base == X86_REG_R13
+				         && insn->detail->x86.operands[1].mem.index == X86_REG_RDI)
+				{
+					LOG(DEBUG) << "mov eax rva r13 rdi 4 patch for " << HEX_TO_UPPER(instruction_address);
+					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_mov_eax_rva_r13_rdi_4));
+				}
+				else
+				{
+					LOG(ERROR) << "unhandled patch for " << HEX_TO_UPPER(instruction_address);
+				}
+
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
 {
 	// Only support lea for now.
 	if (insn->id != X86_INS_LEA)
 	{
 		return false;
-	}
-
-	if (instruction_address_offset >= debug_start_offset && instruction_address_offset <= debug_end_offset)
-	{
-		//LOG(INFO) << insn->mnemonic << " " << insn->op_str << " at " << HEX_TO_UPPER(instruction_address_offset);
 	}
 
 	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
@@ -152,17 +483,12 @@ bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uint
 	return false;
 }
 
-bool patch_lea_sgg_sStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+bool patch_lea_sgg_sStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
 {
 	// Only support lea for now.
 	if (insn->id != X86_INS_LEA)
 	{
 		return false;
-	}
-
-	if (instruction_address_offset >= debug_start_offset && instruction_address_offset <= debug_end_offset)
-	{
-		//LOG(INFO) << insn->mnemonic << " " << insn->op_str << " at " << HEX_TO_UPPER(instruction_address_offset);
 	}
 
 	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
@@ -204,17 +530,12 @@ bool patch_lea_sgg_sStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, con
 	return false;
 }
 
-bool patch_lea_sgg_sTempStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t debug_start_offset, const uintptr_t debug_end_offset, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
+bool patch_lea_sgg_sTempStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
 {
 	// Only support lea for now.
 	if (insn->id != X86_INS_LEA)
 	{
 		return false;
-	}
-
-	if (instruction_address_offset >= debug_start_offset && instruction_address_offset <= debug_end_offset)
-	{
-		//LOG(INFO) << insn->mnemonic << " " << insn->op_str << " at " << HEX_TO_UPPER(instruction_address_offset);
 	}
 
 	for (size_t i = 0; i < insn->detail->x86.op_count; i++)
@@ -356,28 +677,22 @@ void extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size()
 	}
 }
 
-void extend_sgg_Sbuffer()
-{
-	extended_sgg_sBuffer = (char *)_aligned_malloc(extended_sgg_sBuffer_size, 16);
-
-	if (!extend_sgg_sBufferLen_max_size())
+void array_extender(void** extended_array, size_t extended_array_size, const char* original_array_symbol_name, std::function<void(cs_insn*, uintptr_t, uintptr_t, uintptr_t)> on_instruction_disassembled)
 	{
-		LOG(WARNING) << "sgg::sBufferLen <= max_size not found, not extending its size.";
-		return;
-	}
+	*extended_array = _aligned_malloc(extended_array_size, 16);
 
 	memory::module game_module{"Hades2.exe"};
-	const auto sgg_sBuffer = big::hades2_symbol_to_address["sgg::sBuffer"];
-	if (!sgg_sBuffer)
+	const auto buf = big::hades2_symbol_to_address[original_array_symbol_name];
+	if (!buf)
 	{
-		LOG(ERROR) << "sgg::sBuffer not found, not extending its size.";
+		LOG(ERROR) << original_array_symbol_name  << " not found, not extending its size.";
 		return;
 	}
 
 	csh handle;
 	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
 	{
-		LOG(ERROR) << "Failed to initialize Capstone. Can't extend sgg::sBuffer";
+		LOG(ERROR) << "Failed to initialize Capstone. Can't extend " << original_array_symbol_name;
 		return;
 	}
 
@@ -423,7 +738,7 @@ void extend_sgg_Sbuffer()
 		const uintptr_t instruction_address_offset = instruction_address - module_base_address;
 		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
 		{
-			patch_lea_sgg_sBuffer_usage(insn, sgg_sBuffer.as<uintptr_t>(), 0x19'E9'DC, 0x19'EB'49, instruction_address, instruction_address_offset);
+			on_instruction_disassembled(insn, buf.as<uintptr_t>(), instruction_address, instruction_address_offset);
 		}
 	}
 
@@ -431,142 +746,144 @@ void extend_sgg_Sbuffer()
 	cs_free(insn, 1);
 }
 
-void extend_sgg_sStringsBuffer()
+
+static uint64_t (*XXH_INLINE_XXH3_64bits)(const char *input, size_t len) = nullptr;
+static void (*InitializeStringIntern)() = nullptr;
+
+static bool* sgg_sInitialized = nullptr;
+uint32_t* sgg_sBufferLen      = nullptr;
+uint32_t *sgg_sItemCount      = nullptr;
+
+std::recursive_mutex g_HashGuid_Lookup_mutex;
+
+sgg::HashGuid *hook_sgg_HashGuid_Lookup(sgg::HashGuid *result, const char *input_, unsigned __int64 length)
 {
-	extended_sgg_sStringsBuffer = (char *)_aligned_malloc(extended_sgg_sStringsBuffer_size, 16);
+	std::scoped_lock l(g_HashGuid_Lookup_mutex);
 
-	memory::module game_module{"Hades2.exe"};
-	const auto buf = big::hades2_symbol_to_address["sgg::sStringsBuffer"];
-	if (!buf)
+	size_t len_;              // r12
+	unsigned __int64 hash__;  // rax
+	int hash_;                // ebx
+	unsigned __int64 _hash_1; // r15
+	signed __int64 Value;     // rax
+	__int64 _hash;            // rbx
+	signed __int64 v11;       // rtt
+	__int64 hash_index;       // rdi
+	signed __int64 v13;       // rsi
+	signed __int64 v15;       // rsi
+
+	if (!input_ || !*sgg_sInitialized)
 	{
-		LOG(ERROR) << "sgg::sStringsBuffer not found, not extending its size.";
-		return;
+	LABEL_17:
+		result->mId = 0;
+		return result;
 	}
-
-	csh handle;
-	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+	if (!length)
 	{
-		LOG(ERROR) << "Failed to initialize Capstone. Can't extend sgg::sStringsBuffer";
-		return;
-	}
-
-	cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
-	cs_option(handle, CS_OPT_SKIPDATA, CS_OPT_ON);
-
-	// allocate memory cache for 1 instruction, to be used by cs_disasm_iter later.
-	cs_insn *insn = cs_malloc(handle);
-
-	const auto dosHeader = game_module.begin().as<IMAGE_DOS_HEADER *>();
-	const auto ntHeader  = game_module.begin().add(dosHeader->e_lfanew).as<IMAGE_NT_HEADERS *>();
-
-	memory::range m_text_section(0, 0);
-
-	// Locate .text section
-	const auto section = IMAGE_FIRST_SECTION(ntHeader);
-	for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; i++)
-	{
-		const IMAGE_SECTION_HEADER &hdr = section[i];
-		if (memcmp(hdr.Name, ".text", 5) == 0)
+		length = -1;
+		do
 		{
-			m_text_section = memory::range{game_module.begin().add(hdr.VirtualAddress), static_cast<size_t>(hdr.Misc.VirtualSize)};
-			LOG(INFO) << "Found text section start at " << HEX_TO_UPPER_OFFSET(m_text_section.begin().as<uintptr_t>()) << ". End at "
-			          << HEX_TO_UPPER_OFFSET(m_text_section.end().as<uintptr_t>());
-			break;
-		}
-	}
-
-	const uint8_t *code = m_text_section.begin().as<const uint8_t *>();
-	size_t code_size    = m_text_section.size(); // size of @code buffer above
-	uint64_t address    = m_text_section.begin().as<uint64_t>();
-
-	const auto module_base_address = (uintptr_t)GetModuleHandleA(0);
-
-	while (true)
-	{
-		if ((uintptr_t)code >= m_text_section.end().as<uintptr_t>())
-		{
-			break;
+			++length;
+		} while (input_[length]);
 		}
 
-		const uintptr_t instruction_address        = (uintptr_t)code;
-		const uintptr_t instruction_address_offset = instruction_address - module_base_address;
-		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
-		{
-			patch_lea_sgg_sStringsBuffer_usage(insn, buf.as<uintptr_t>(), 0x0, 0x0, instruction_address, instruction_address_offset);
-		}
-	}
+	len_    = (unsigned int)length;
+	hash__  = XXH_INLINE_XXH3_64bits(input_, (unsigned int)length);
+	hash_   = hash__;
+	_hash_1 = hash__;
+	_hash   = hash_ & (extended_sgg_sHashes_kSize - 1);
 
-	// release the cache memory when done
-	cs_free(insn, 1);
+LABEL_11:
+	hash_index = (unsigned int)_hash;
+	if (extended_sgg_sIndices[(unsigned int)_hash] == -1)
+	{
+	LABEL_14:
+		goto LABEL_17;
 }
 
-void extend_sgg_sTempStringsBuffer()
+	while (extended_sgg_sHashes[hash_index] != _hash_1)
 {
-	extended_sgg_sTempStringsBuffer = (char *)_aligned_malloc(extended_sgg_sTempStringsBuffer_size, 16);
-
-	memory::module game_module{"Hades2.exe"};
-	const auto buf = big::hades2_symbol_to_address["sgg::sTempStringsBuffer"];
-	if (!buf)
-	{
-		LOG(ERROR) << "sgg::sTempStringsBuffer not found, not extending its size.";
-		return;
-	}
-
-	csh handle;
-	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
-	{
-		LOG(ERROR) << "Failed to initialize Capstone. Can't extend sgg::sTempStringsBuffer";
-		return;
-	}
-
-	cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
-	cs_option(handle, CS_OPT_SKIPDATA, CS_OPT_ON);
-
-	// allocate memory cache for 1 instruction, to be used by cs_disasm_iter later.
-	cs_insn *insn = cs_malloc(handle);
-
-	const auto dosHeader = game_module.begin().as<IMAGE_DOS_HEADER *>();
-	const auto ntHeader  = game_module.begin().add(dosHeader->e_lfanew).as<IMAGE_NT_HEADERS *>();
-
-	memory::range m_text_section(0, 0);
-
-	// Locate .text section
-	const auto section = IMAGE_FIRST_SECTION(ntHeader);
-	for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; i++)
-	{
-		const IMAGE_SECTION_HEADER &hdr = section[i];
-		if (memcmp(hdr.Name, ".text", 5) == 0)
+		_hash      = ((uint32_t)_hash + 1) & (extended_sgg_sHashes_kSize - 1);
+		hash_index = (unsigned int)_hash;
+		if (extended_sgg_sIndices[_hash] == -1)
 		{
-			m_text_section = memory::range{game_module.begin().add(hdr.VirtualAddress), static_cast<size_t>(hdr.Misc.VirtualSize)};
-			LOG(INFO) << "Found text section start at " << HEX_TO_UPPER_OFFSET(m_text_section.begin().as<uintptr_t>()) << ". End at "
-			          << HEX_TO_UPPER_OFFSET(m_text_section.end().as<uintptr_t>());
-			break;
+			goto LABEL_14;
 		}
 	}
 
-	const uint8_t *code = m_text_section.begin().as<const uint8_t *>();
-	size_t code_size    = m_text_section.size(); // size of @code buffer above
-	uint64_t address    = m_text_section.begin().as<uint64_t>();
+	result->mId = extended_sgg_sIndices[hash_index];
 
-	const auto module_base_address = (uintptr_t)GetModuleHandleA(0);
+	return result;
+}
 
-	while (true)
+uint32_t hook_sgg_HashGuid_StringIntern(const char *input_, unsigned __int64 length)
+{
+	std::scoped_lock l(g_HashGuid_Lookup_mutex);
+
+	size_t input_len;             // r15
+	unsigned __int64 hash__;      // r14
+	unsigned __int64 hash_;       // rdi
+	__int64 _hash;                // rbx
+	unsigned int index_from_hash; // ebx
+	unsigned int buffer_len;      // esi
+	unsigned int new_buf_len_;    // eax
+	__int64 new_buffer_len;       // rbx
+	__int64 new_index;            // r14
+
+	if (!input_)
 	{
-		if ((uintptr_t)code >= m_text_section.end().as<uintptr_t>())
-		{
-			break;
-		}
+		return 0;
+	}
 
-		const uintptr_t instruction_address        = (uintptr_t)code;
-		const uintptr_t instruction_address_offset = instruction_address - module_base_address;
-		if (cs_disasm_iter(handle, &code, &code_size, &address, insn))
+	InitializeStringIntern();
+	if (!length)
 		{
-			patch_lea_sgg_sTempStringsBuffer_usage(insn, buf.as<uintptr_t>(), 0x0, 0x0, instruction_address, instruction_address_offset);
+		length = -1;
+		do
+		{
+			++length;
+		} while (input_[length]);
+	}
+
+	input_len = (unsigned int)length;
+	hash__    = XXH_INLINE_XXH3_64bits(input_, (unsigned int)length);
+	hash_     = hash__ & (extended_sgg_sHashes_kSize - 1);
+
+LABEL_10:
+	_hash = (unsigned int)hash_;
+	if (extended_sgg_sIndices[hash_] == -1)
+	{
+	LABEL_13:
+		buffer_len   = *sgg_sBufferLen;
+		new_buf_len_ = input_len + *sgg_sBufferLen + 1;
+
+		new_buffer_len  = (unsigned int)input_len + buffer_len;
+		*sgg_sBufferLen = new_buffer_len + 1;
+		++(*sgg_sItemCount);
+
+		extended_sgg_sHashes[hash_] = hash__;
+
+		extended_sgg_sIndices[hash_] = buffer_len;
+
+		strncpy(&extended_sgg_sBuffer[buffer_len], input_, input_len);
+
+		extended_sgg_sBuffer[new_buffer_len] = 0;
+
+		return extended_sgg_sIndices[hash_];
+	}
+
+	while (extended_sgg_sHashes[_hash] != hash__)
+		{
+		hash_ = ((uint32_t)hash_ + 1) & (extended_sgg_sHashes_kSize - 1);
+		_hash = (unsigned int)hash_;
+		if (extended_sgg_sIndices[hash_] == -1)
+		{
+			goto LABEL_13;
 		}
 	}
 
-	// release the cache memory when done
-	cs_free(insn, 1);
+	index_from_hash = extended_sgg_sIndices[_hash];
+
+	return index_from_hash;
 }
 
 void *operator new[](size_t size)
@@ -1913,11 +2230,38 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		read_game_pdb();
 
 		{
-			extend_sgg_Sbuffer();
+			array_extender((void**)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
+			extend_sgg_sBufferLen_max_size();
 
-			extend_sgg_sStringsBuffer();
+			//array_extender((void **)&extended_sgg_sHashes, extended_sgg_sHashes_size, "sgg::sHashes", patch_sgg_sHashes_usage);
+			//{
+			//	/*
+			//	  while ( sgg::sHashes[v9] != v5 )
+			//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
+			//	*/
+			//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 48");
+			//	if (check)
+			//	{
+			//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
+			//	}
+			//}
+			//{
+			//	/*
+			//	  while ( sgg::sHashes[v9] != v5 )
+			//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
+			//	*/
+			//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 8B");
+			//	if (check)
+			//	{
+			//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
+			//	}
+			//}
 
-			extend_sgg_sTempStringsBuffer();
+			//array_extender((void **)&extended_sgg_sIndices, extended_sgg_sIndices_size, "sgg::sIndices", patch_sgg_sIndices_usage);
+
+			array_extender((void **)&extended_sgg_sStringsBuffer, extended_sgg_sStringsBuffer_size, "sgg::sStringsBuffer", patch_lea_sgg_sStringsBuffer_usage);
+
+			array_extender((void **)&extended_sgg_sTempStringsBuffer, extended_sgg_sTempStringsBuffer_size, "sgg::sTempStringsBuffer", patch_lea_sgg_sTempStringsBuffer_usage);
 
 			extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
 
@@ -1935,6 +2279,36 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 					{
 						ForceWrite<uint8_t>(*(e8_call_ptr + i), 0x90);
 					}
+				}
+			}
+
+			sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
+			XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
+			InitializeStringIntern = big::hades2_symbol_to_address["sgg::HashGuid::InitializeStringIntern"].as_func<void()>();
+			sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
+			sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
+
+			extended_sgg_sHashes = (uint64_t*)_aligned_malloc(extended_sgg_sHashes_size, 16);
+			extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
+			memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
+			memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
+			memset(extended_sgg_sBuffer, 0, extended_sgg_sBuffer_size);
+
+			{
+				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
+				if (ptr)
+				{
+					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>("sgg::HashGuid::StringIntern", ptr);
+				}
+			}
+
+			{
+				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
+				if (ptr)
+				{
+					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>(
+					    "sgg::HashGuid::Lookup",
+					    ptr);
 				}
 			}
 		}
