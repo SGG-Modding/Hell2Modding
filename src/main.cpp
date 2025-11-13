@@ -2685,12 +2685,18 @@ static bool InlineHook_setup(LIEF::PE::Binary *bin, section_address &target, sec
 //SHELLCODE_FUNC(void LoadLibraryShellCode()
 static void LoadLibraryShellCode()
 {
-	CHAR d3d12_string[] = {'d', '3', 'd', '1', '2', '.', 'd', 'l', 'l', '\0'};
-
 	DEFINE_FUNC_PTR("kernel32.dll", LoadLibraryA);
-	LoadLibraryA(d3d12_string);
 
 	DEFINE_FUNC_PTR("kernel32.dll", GetProcAddress);
+
+	CHAR d3d12_string[] = {'d', '3', 'd', '1', '2', '.', 'd', 'l', 'l', '\0'};
+
+	HMODULE d3d12_module = LoadLibraryA(d3d12_string);
+
+	CHAR my_main_string[] = {'m', 'y', '_', 'm', 'a', 'i', 'n', '\0'};
+
+	GetProcAddress(d3d12_module, my_main_string)();
+
 	DEFINE_FUNC_PTR("kernel32.dll", GetModuleHandleA);
 	// __scrt_common_main_seh
 	CHAR game_original_entrypoint[] = {'_', '_', 's', 'c', 'r', 't', '_', 'c', 'o', 'm', 'm', 'o',
@@ -2720,7 +2726,7 @@ static bool ensure_early_entrypoint()
 {
 #ifndef FINAL
 	LOG(WARNING) << "Not a final build, can't execute ensure_early_entrypoint cause of security cookies inserted into "
-	                "the shellcode by the compiler. (msvc flag / GS -) ";
+	                "the shellcode by the compiler. (msvc flag /GS-) ";
 		return false;
 #endif
 
@@ -2737,7 +2743,7 @@ static bool ensure_early_entrypoint()
 
 	if (std::unique_ptr<LIEF::PE::Binary> bin = LIEF::PE::Parser::parse(get_game_executable_path()))
 	{
-		constexpr uint32_t patched_time_date_stamp = 0xFF'FF'00'00;
+		constexpr uint32_t patched_time_date_stamp = 0xFF'FF'00'00 + 1;
 
 		if (bin->header().time_date_stamp() == patched_time_date_stamp)
 		{
@@ -2827,24 +2833,32 @@ static bool ensure_early_entrypoint()
 		std::filesystem::rename(get_game_executable_path_tmp(), get_game_executable_path());
 
 		message("Game executable patched for modding, please relaunch the game. This should only happens once, if there is any issues please tell us at https://github.com/SGG-Modding/Hell2Modding");
+
 		TerminateProcess(GetCurrentProcess(), 0);
 	}
 
 	return true;
 }
 
-BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
+bool g_already_executed_main = false;
+
+extern "C" __declspec(dllexport) void my_main()
 {
 	using namespace big;
 
-	if (reason == DLL_PROCESS_ATTACH)
+	if (g_already_executed_main)
 	{
+		return;
+	}
+
+	g_already_executed_main = true;
+
+	DisableThreadLibraryCalls(g_hmodule);
+
 		//while (!IsDebuggerPresent())
 		//{
 		//	Sleep(1000);
 		//}
-
-		g_hmodule = hmod;
 
 		// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
 		setlocale(LC_ALL, ".utf8");
@@ -2855,7 +2869,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		if (!rom::is_rom_enabled())
 		{
-			return true;
+		return;
 		}
 
 		// Lua API: Namespace
@@ -2868,11 +2882,11 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		read_game_pdb();
 
 		{
-			ensure_early_entrypoint();
+		// ensure_early_entrypoint();
 		}
 
 		{
-			array_extender((void**)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
+		array_extender((void **)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
 			extend_sgg_sBufferLen_max_size();
 
 			//array_extender((void **)&extended_sgg_sHashes, extended_sgg_sHashes_size, "sgg::sHashes", patch_sgg_sHashes_usage);
@@ -2910,10 +2924,11 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
 			if (ptr)
 			{
-				auto e8_call_ptr = ptr.offset(45).as<uint8_t*>();
+			auto e8_call_ptr = ptr.offset(45).as<uint8_t *>();
 				if (*e8_call_ptr != 0xE8)
 				{
-					LOG(ERROR) << "Failed silencing String intern table running low on space message spam - unexpected instruction at call site";
+				LOG(ERROR) << "Failed silencing String intern table running low on space message spam - unexpected "
+				              "instruction at call site";
 				}
 				else
 				{
@@ -2930,7 +2945,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
 			sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
 
-			extended_sgg_sHashes = (uint64_t*)_aligned_malloc(extended_sgg_sHashes_size, 16);
+		extended_sgg_sHashes  = (uint64_t *)_aligned_malloc(extended_sgg_sHashes_size, 16);
 			extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
 			memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
 			memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
@@ -2940,7 +2955,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
 				if (ptr)
 				{
-					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>("sgg::HashGuid::StringIntern", ptr);
+				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>(
+				    "sgg::HashGuid::StringIntern",
+				    ptr);
 				}
 			}
 
@@ -2948,9 +2965,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
 				if (ptr)
 				{
-					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>(
-					    "sgg::HashGuid::Lookup",
-					    ptr);
+				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>("sgg::HashGuid::Lookup", ptr);
 				}
 			}
 		}
@@ -3022,8 +3037,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			static auto GUIComponentTextBox_update_ptr =
-			    big::hades2_symbol_to_address["sgg::GUIComponentTextBox::Update"];
+		static auto GUIComponentTextBox_update_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::Update"];
 			if (GUIComponentTextBox_update_ptr)
 			{
 				static auto GUIComponentTextBox_update = GUIComponentTextBox_update_ptr;
@@ -3056,8 +3070,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			static auto read_anim_data_ptr =
-			    big::hades2_symbol_to_address["sgg::GameDataManager::ReadAllAnimationData"];
+		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadAllAnimationData"];
 			if (read_anim_data_ptr)
 			{
 				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
@@ -3068,8 +3081,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			static auto read_anim_data_ptr =
-			    big::hades2_symbol_to_address["sgg::Granny3D::LoadAllModelAndAnimationData"];
+		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::Granny3D::LoadAllModelAndAnimationData"];
 			if (read_anim_data_ptr)
 			{
 				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
@@ -3081,8 +3093,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 		{
-			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
+		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
 		}
 
 		{
@@ -3091,8 +3102,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		}
 
 				{
-			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_sgg_ScriptManager_InitLua>("", big::hades2_symbol_to_address["sgg::ScriptManager::InitLua"]);
+		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_ScriptManager_InitLua>("", big::hades2_symbol_to_address["sgg::ScriptManager::InitLua"]);
 
 			static auto hook2_ = hooking::detour_hook_helper::add_queue<hook_sgg_App_Initialize>("", big::hades2_symbol_to_address["sgg::App::Initialize"]);
 
@@ -3101,7 +3111,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			constexpr size_t original_threadframe_allocator_size             = 0x03'20'00;
 			constexpr size_t extended_threadframe_allocator_size_20mb_in_hex = 0x01'40'00'00;
 
-			const auto patch_1            = gmAddress::scan("B9 00 20 03 00", "mov     ecx, 32000h     ; Size");
+		const auto patch_1 = gmAddress::scan("B9 00 20 03 00", "mov     ecx, 32000h     ; Size");
 			if (patch_1)
 			{
 				ForceWrite<uint32_t>(*patch_1.offset(1).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
@@ -3214,19 +3224,14 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 
 		big::hooking::detour_hook_helper::execute_queue();
 
-		DisableThreadLibraryCalls(hmod);
-		g_main_thread = CreateThread(
-		    nullptr,
-		    0,
-		    [](PVOID) -> DWORD
-		    {
 			    std::filesystem::path root_folder = paths::get_project_root_folder();
 			    g_file_manager.init(root_folder);
 			    paths::init_dump_file_path();
 
 			    big::config::init_general();
 
-			    auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"));
+	static auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"));
+
 			    static struct logger_cleanup
 			    {
 				    ~logger_cleanup()
@@ -3261,78 +3266,22 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
 			    LOG(INFO) << "lovely_init returned " << (int32_t)res;
 
-			    //static auto ptr_for_cave_test =
-			    //  gmAddress::scan("E8 ? ? ? ? EB 11 41 80 7D ? ?", "ptr_for_cave_test").get_call().offset(0x37);
-
-			    // config test
-			    if (0)
-			    {
-				    auto cfg_file = toml_v2::config_file(
-				        (char *)g_file_manager.get_project_file("./Hell2Modding-Hell2Modding_TEST.cfg")
-				            .get_path()
-				            .u8string()
-				            .c_str(),
-				        true,
-				        "Hell2Modding-Hell2Modding");
-
-				    {
-					    auto my_configurable_value = cfg_file.bind("My Section Name 1", "My Configurable Value 1", false, "This is my configurable value.\nLet's test some stuff\n Shall we");
-
-					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
-
-					    my_configurable_value->set_value(true);
-
-					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
-				    }
-
-				    {
-					    auto my_configurable_value = cfg_file.bind("My Section Name 1", "My Configurable Value 2", "this is another str", "This is my configurable value.\nLet's test some stuff\n Shall we");
-
-					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
-
-					    my_configurable_value->set_value("the another str got a new value");
-
-					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
-				    }
-
-				    {
-					    auto my_configurable_value = cfg_file.bind("AAAAAMy Section Name 1", "My Configurable Value 1", 149, "This is my configurable value.\nLet's test some stuff\n Shall we");
-
-					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
-
-					    my_configurable_value->set_value(169);
-
-					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
-				    }
-
-				    {
-					    auto my_configurable_value = cfg_file.bind("ZZZZZZZZZZZZZZZZZZ", "MyConfigurableValue1", "My default value.......", "This is my configurable value.\nLet's test some stuff\n Shall we");
-
-					    LOG(INFO) << "Value of my_configurable_value: " << my_configurable_value->get_value();
-
-					    my_configurable_value->set_value("yyep");
-
-					    LOG(INFO) << "Value of my_configurable_value 2: " << my_configurable_value->get_value();
-				    }
-			    }
-
-
 #ifdef FINAL
 			    LOG(INFO) << "This is a final build";
 #endif
 
-			    auto thread_pool_instance = std::make_unique<thread_pool>();
+	static auto thread_pool_instance = std::make_unique<thread_pool>();
 			    LOG(INFO) << "Thread pool initialized.";
 
-			    auto byte_patch_manager_instance = std::make_unique<byte_patch_manager>();
+	static auto byte_patch_manager_instance = std::make_unique<byte_patch_manager>();
 			    LOG(INFO) << "Byte Patch Manager initialized.";
 
-			    auto hooking_instance = std::make_unique<hooking>();
+	static auto hooking_instance = std::make_unique<hooking>();
 			    LOG(INFO) << "Hooking initialized.";
 
 			    big::hades::init_hooks();
 
-			    auto renderer_instance = std::make_unique<renderer>();
+	static auto renderer_instance = std::make_unique<renderer>();
 			    LOG(INFO) << "Renderer initialized.";
 
 			    hotkey::init_hotkeys();
@@ -3354,43 +3303,13 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 			    }
 
 				LOG(INFO) << "Running.";
+}
 
-			    while (g_running)
-			    {
-				    std::this_thread::sleep_for(500ms);
-			    }
+BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
+{
+	big::g_hmodule = hmod;
 
-			    g_hooking->disable();
-			    LOG(INFO) << "Hooking disabled.";
-
-			    // Make sure that all threads created don't have any blocking loops
-			    // otherwise make sure that they have stopped executing
-			    thread_pool_instance->destroy();
-			    LOG(INFO) << "Destroyed thread pool.";
-
-			    hooking_instance.reset();
-			    LOG(INFO) << "Hooking uninitialized.";
-
-			    renderer_instance.reset();
-			    LOG(INFO) << "Renderer uninitialized.";
-
-			    byte_patch_manager_instance.reset();
-			    LOG(INFO) << "Byte Patch Manager uninitialized.";
-
-			    thread_pool_instance.reset();
-			    LOG(INFO) << "Thread pool uninitialized.";
-
-			    LOG(INFO) << "Farewell!";
-			    logger_instance->destroy();
-			    logger_instance.reset();
-
-			    CloseHandle(g_main_thread);
-			    FreeLibraryAndExitThread(g_hmodule, 0);
-		    },
-		    nullptr,
-		    0,
-		    &g_main_thread_id);
-	}
+	my_main();
 
 	return true;
 }
