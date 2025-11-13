@@ -13,9 +13,45 @@
 #include "memory/byte_patch_manager.hpp"
 #include "paths/paths.hpp"
 #include "safetyhook.hpp"
+#include "c2shellcode/c2shellcode.hpp"
 #include "threads/thread_pool.hpp"
 #include "threads/util.hpp"
 #include "version.hpp"
+
+// Fuck LIEF
+#ifdef cast
+	#define OLD_CAST_MACRO cast
+	#undef cast
+#endif
+#ifdef FINAL
+	#define OLD_FINAL_MACRO FINAL
+	#undef FINAL
+#endif
+#ifdef num_
+	#define OLD_num__MACRO num_
+	#undef num_
+#endif
+#ifdef FORMAT
+	#define OLD_FORMAT_MACRO FORMAT
+	#undef FORMAT
+#endif
+#include "LIEF/LIEF.hpp"
+#ifdef OLD_CAST_MACRO
+	#define cast OLD_CAST_MACRO
+	#undef OLD_CAST_MACRO
+#endif
+#ifdef OLD_FINAL_MACRO
+	#define FINAL OLD_FINAL_MACRO
+	#undef OLD_FINAL_MACRO
+#endif
+#ifdef OLD_num__MACRO
+	#define num_ OLD_num__MACRO
+	#undef OLD_num__MACRO
+#endif
+#ifdef OLD_FORMAT_MACRO
+	#define FORMAT OLD_FORMAT_MACRO
+	#undef OLD_FORMAT_MACRO
+#endif
 
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
@@ -921,7 +957,7 @@ void operator delete[](void *ptr)
 
 static void message(const char *txt)
 {
-	MessageBoxA(0, txt, "rom", 0);
+	MessageBoxA(0, txt, "Hell2Modding", 0);
 }
 
 static bool hook_skipcrashpadinit()
@@ -2143,24 +2179,32 @@ static void read_game_pdb()
 					    name = record->data.S_LPROC32.name;
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_LPROC32.section,
                                                                            record->data.S_LPROC32.offset);
+
+						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_GPROC32)
 				    {
 					    name = record->data.S_GPROC32.name;
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_GPROC32.section,
                                                                            record->data.S_GPROC32.offset);
+
+						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_LPROC32_ID)
 				    {
 					    name = record->data.S_LPROC32_ID.name;
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_LPROC32_ID.section,
                                                                            record->data.S_LPROC32_ID.offset);
+
+						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32_ID.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_GPROC32_ID)
 				    {
 					    name = record->data.S_GPROC32_ID.name;
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_GPROC32_ID.section,
                                                                            record->data.S_GPROC32_ID.offset);
+
+						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32_ID.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_REGREL32)
 				    {
@@ -2195,6 +2239,600 @@ static void read_game_pdb()
 	MemoryMappedFile::Close(pdbFile);
 }
 
+template<typename T>
+constexpr void store(uint8_t *address, const T &value)
+{
+	std::copy_n(reinterpret_cast<const uint8_t *>(&value), sizeof(T), address);
+}
+
+template<typename T>
+constexpr void store(uintptr_t address, const T &value)
+{
+	store((uint8_t *)address, value);
+}
+
+#pragma pack(push, 1)
+
+struct JmpE9
+{
+	uint8_t opcode{0xE9};
+	int32_t offset{0};
+};
+
+#if SAFETYHOOK_ARCH_X86_64
+
+struct JmpFF
+{
+	uint8_t opcode0{0xFF};
+	uint8_t opcode1{0x25};
+	int32_t offset{0};
+};
+
+struct TrampolineEpilogueE9
+{
+	JmpE9 jmp_to_original{};
+	JmpE9 jmp_to_shellcode{};
+	uint64_t destination_address{};
+};
+
+struct TrampolineEpilogueFF
+{
+	JmpFF jmp_to_original{};
+	uint64_t original_address{};
+};
+#elif SAFETYHOOK_ARCH_X86_32
+struct TrampolineEpilogueE9
+{
+	JmpE9 jmp_to_original{};
+	JmpE9 jmp_to_shellcode{};
+};
+#endif
+#pragma pack(pop)
+
+struct section_address
+{
+	LIEF::PE::Section *section;
+	uint8_t *address_in_section;
+
+	uintptr_t to_rva() const
+	{
+		return (uintptr_t)address_in_section - (uintptr_t)section->content().data() + (uintptr_t)section->virtual_address();
+	}
+};
+
+#if SAFETYHOOK_ARCH_X86_64
+static bool emit_jmp_ff(section_address &where_to_emit_the_jump_instruction, section_address &where_we_jump_to, section_address &jump_target_holder, size_t size = sizeof(JmpFF))
+{
+	if (size < sizeof(JmpFF))
+	{
+		LOG(ERROR) << "not enough space at where_to_emit_the_jump_instruction " << where_to_emit_the_jump_instruction.to_rva();
+		return false;
+	}
+
+	if (size > sizeof(JmpFF))
+	{
+		// pad with NOPs
+		std::fill_n(where_to_emit_the_jump_instruction.address_in_section, size, 0x90);
+	}
+
+	JmpFF jmp{};
+
+	jmp.offset = static_cast<int32_t>(jump_target_holder.to_rva() - where_to_emit_the_jump_instruction.to_rva() - sizeof(jmp));
+
+	LOG(INFO) << "[Emit] FF jmp from " << HEX_TO_UPPER(where_to_emit_the_jump_instruction.to_rva()) << " to "
+	          << HEX_TO_UPPER(where_we_jump_to.to_rva()) << " via jump target holder at "
+	          << HEX_TO_UPPER(jump_target_holder.to_rva()) << ", calculated offset: " HEX_TO_UPPER(jmp.offset);
+
+	store(jump_target_holder.address_in_section, where_we_jump_to.to_rva());
+
+	store(where_to_emit_the_jump_instruction.address_in_section, jmp);
+
+	return true;
+}
+#endif
+
+static bool emit_jmp_e9(section_address& where_to_emit_the_jump_instruction, section_address &where_we_jump_to, size_t size = sizeof(JmpE9))
+{
+	if (size < sizeof(JmpE9))
+	{
+		LOG(ERROR) << "not enough space where we emit to " << where_to_emit_the_jump_instruction.to_rva();
+		return false;
+	}
+
+	if (size > sizeof(JmpE9))
+	{
+		std::fill_n(where_to_emit_the_jump_instruction.address_in_section, size, static_cast<uint8_t>(0x90));
+	}
+
+	JmpE9 jmp{};
+	jmp.offset = static_cast<int32_t>(where_we_jump_to.to_rva() - where_to_emit_the_jump_instruction.to_rva() - sizeof(jmp));
+	store(where_to_emit_the_jump_instruction.address_in_section, jmp);
+
+	return true;
+}
+
+static bool decode(ZydisDecodedInstruction *ix, uint8_t *ip)
+{
+	ZydisDecoder decoder{};
+	ZyanStatus status;
+
+#if SAFETYHOOK_ARCH_X86_64
+	status = ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+#elif SAFETYHOOK_ARCH_X86_32
+	status = ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32);
+#endif
+
+	if (!ZYAN_SUCCESS(status))
+	{
+		return false;
+	}
+
+	return ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&decoder, nullptr, ip, 15, ix));
+}
+
+void InlineHook_enable(LIEF::PE::Binary *bin, section_address &target, section_address& shellcode, const std::vector<uint8_t> &original_bytes, section_address& trampoline, size_t trampoline_size)
+{
+	// jmp from original to trampoline.
+	auto trampoline_epilogue = reinterpret_cast<TrampolineEpilogueE9 *>(trampoline.address_in_section + trampoline_size - sizeof(TrampolineEpilogueE9));
+
+	auto where_we_jump_to = section_address
+	{
+		.section = trampoline.section, 
+		.address_in_section = (uint8_t *)&trampoline_epilogue->jmp_to_shellcode
+	};
+
+	auto success = emit_jmp_e9(
+		target,
+		where_we_jump_to,
+		original_bytes.size()
+	);
+
+	if (!success)
+	{
+		LOG(ERROR) << "[Emit] Failure E9 jmp from original " << 
+			HEX_TO_UPPER(target.to_rva()) << 
+			" to trampoline " << 
+			HEX_TO_UPPER(trampoline.to_rva());
+	}
+	else
+	{
+		LOG(INFO) << "[Emit] E9 jmp from original " << 
+			HEX_TO_UPPER(target.to_rva()) << 
+			" to trampoline " << 
+			HEX_TO_UPPER(trampoline.to_rva());
+	}
+}
+
+static bool InlineHook_e9_hook(LIEF::PE::Binary *bin, std::vector<uint8_t> &original_bytes, section_address &target_section_address, section_address &shellcode, section_address &trampoline, size_t &trampoline_size)
+{
+	original_bytes.clear();
+	trampoline_size = sizeof(TrampolineEpilogueE9);
+
+	const auto target = target_section_address.address_in_section;
+	std::vector<uint8_t *> desired_addresses{target};
+	ZydisDecodedInstruction ix{};
+
+	for (auto ip = target; ip < target + sizeof(JmpE9); ip += ix.length)
+	{
+		if (!decode(&ix, (uint8_t*)ip))
+		{
+			return false;
+		}
+
+		trampoline_size += ix.length;
+		original_bytes.insert(original_bytes.end(), ip, ip + ix.length);
+
+		const auto is_relative = (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) != 0;
+
+		if (is_relative)
+		{
+			if (ix.raw.disp.size == 32)
+			{
+				const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.disp.value);
+				desired_addresses.emplace_back(target_address);
+			}
+			else if (ix.raw.imm[0].size == 32)
+			{
+				const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+				desired_addresses.emplace_back(target_address);
+			}
+			else if (ix.meta.category == ZYDIS_CATEGORY_COND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT)
+			{
+				const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+				desired_addresses.emplace_back(target_address);
+				trampoline_size += 4; // near conditional branches are 4 bytes larger.
+			}
+			else if (ix.meta.category == ZYDIS_CATEGORY_UNCOND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT)
+			{
+				const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+				desired_addresses.emplace_back(target_address);
+				trampoline_size += 3; // near unconditional branches are 3 bytes larger.
+			}
+			else
+			{
+				LOG(ERROR) << "unsupported relative instruction in trampoline at address " << ip;
+
+				return false;
+			}
+		}
+	}
+	
+	uint8_t *tramp_ip   = trampoline.address_in_section;
+
+	for (auto ip = target; ip < target + original_bytes.size(); ip += ix.length)
+	{
+		if (!decode(&ix, (uint8_t*)ip))
+		{
+			//trampoline.free(); not needed here for static binary patching
+			LOG(ERROR) << "failed to decode instruction at address " << ip;
+		}
+
+		const auto is_relative = (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) != 0;
+
+		if (is_relative && ix.raw.disp.size == 32)
+		{
+			std::copy_n(ip, ix.length, tramp_ip);
+			const auto target_address = ip + ix.length + ix.raw.disp.value;
+			const auto new_disp       = target_address - (tramp_ip + ix.length);
+			store(tramp_ip + ix.raw.disp.offset, static_cast<int32_t>(new_disp));
+			tramp_ip += ix.length;
+		}
+		else if (is_relative && ix.raw.imm[0].size == 32)
+		{
+			std::copy_n(ip, ix.length, tramp_ip);
+			const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
+			const auto new_disp       = target_address - (tramp_ip + ix.length);
+			store(tramp_ip + ix.raw.imm[0].offset, static_cast<int32_t>(new_disp));
+			tramp_ip += ix.length;
+		}
+		else if (ix.meta.category == ZYDIS_CATEGORY_COND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT)
+		{
+			const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
+			auto new_disp             = target_address - (tramp_ip + 6);
+
+			// Handle the case where the target is now in the trampoline.
+			if (target_address >= target && target_address < target + original_bytes.size())
+			{
+				new_disp = static_cast<ptrdiff_t>(ix.raw.imm[0].value.s);
+			}
+
+			*tramp_ip       = 0x0F;
+			*(tramp_ip + 1) = 0x10 + ix.opcode;
+			store(tramp_ip + 2, static_cast<int32_t>(new_disp));
+			tramp_ip += 6;
+		}
+		else if (ix.meta.category == ZYDIS_CATEGORY_UNCOND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT)
+		{
+			const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
+			auto new_disp             = target_address - (tramp_ip + 5);
+
+			// Handle the case where the target is now in the trampoline.
+			if (target_address >= target && target_address < target + original_bytes.size())
+			{
+				new_disp = static_cast<ptrdiff_t>(ix.raw.imm[0].value.s);
+			}
+
+			*tramp_ip = 0xE9;
+			store(tramp_ip + 1, static_cast<int32_t>(new_disp));
+			tramp_ip += 5;
+		}
+		else
+		{
+			std::copy_n(ip, ix.length, tramp_ip);
+			tramp_ip += ix.length;
+		}
+	}
+
+	auto trampoline_epilogue = (TrampolineEpilogueE9 *)(trampoline.address_in_section + trampoline_size - sizeof(TrampolineEpilogueE9));
+
+	// jmp from trampoline to original.
+	auto e9_jump_to_orig_location = section_address
+	{
+		.section = trampoline.section,
+		.address_in_section = (uint8_t *)&trampoline_epilogue->jmp_to_original
+	};
+
+	auto jump_destination    = section_address
+	{
+		.section = target_section_address.section,
+		.address_in_section = target + original_bytes.size()
+	};
+
+	auto success = emit_jmp_e9(e9_jump_to_orig_location, jump_destination);
+
+	if (!success)
+	{
+		LOG(ERROR) << "[Emit] Failure E9 jmp from trampoline " << 
+			HEX_TO_UPPER(e9_jump_to_orig_location.to_rva()) << 
+			" to original "
+			<< HEX_TO_UPPER(jump_destination.to_rva());
+		return false;
+	}
+
+	LOG(INFO) << "[Emit] E9 jmp from trampoline " << 
+		HEX_TO_UPPER(e9_jump_to_orig_location.to_rva()) << 
+		" to original " << 
+		HEX_TO_UPPER(jump_destination.to_rva());
+
+	// jmp from trampoline to destination.
+
+#if SAFETYHOOK_ARCH_X86_64
+	//auto jump_target_holder = section_address
+	//{
+	//	.section = trampoline.section,
+	//	.address_in_section = (uint8_t *)&trampoline_epilogue->destination_address
+	//};
+
+	auto trampoline_jmp_to_shellcode = section_address
+	{
+		.section = trampoline.section,
+		.address_in_section = (uint8_t *)&trampoline_epilogue->jmp_to_shellcode
+	};
+
+	//auto where_we_jump_to = section_address
+	//{
+	//	.section = shellcode.section,
+
+	//	// ff 25 is RIP relative addressing, poiting to a qword
+	//    // the qword contains the absolute address we want to jump to.
+	//	.address_in_section = bin->imagebase() + shellcode.address_in_section
+	//};
+
+	//success = emit_jmp_ff(
+	//	trampoline_jmp_to_shellcode,
+	//	where_we_jump_to,
+	//	jump_target_holder
+	//);
+
+	success = emit_jmp_e9(
+		trampoline_jmp_to_shellcode,
+		shellcode);
+
+	if (!success)
+	{
+		LOG(ERROR) << "failed to emit jmp from trampoline to shellcode:" << HEX_TO_UPPER(trampoline_jmp_to_shellcode.to_rva());
+		return false;
+	}
+#elif SAFETYHOOK_ARCH_X86_32
+	if (auto result = emit_jmp_e9(trampoline_jmp_to_shellcode, shellcode); !result)
+	{
+		LOG(ERROR) << "failed to emit jmp from trampoline to shellcode: "
+		           << HEX_TO_UPPER((reinterpret_cast<uint8_t *>(&trampoline_epilogue->jmp_to_shellcode) - shellcode_base_address));
+		return false;
+	}
+#endif
+
+	return true;
+}
+
+#if SAFETYHOOK_ARCH_X86_64
+bool InlineHook_ff_hook(LIEF::PE::Binary *bin, std::vector<uint8_t> &original_bytes, section_address &target_section_address, section_address &destination, section_address &trampoline, size_t &trampoline_size)
+{
+	original_bytes.clear();
+	trampoline_size = sizeof(TrampolineEpilogueFF);
+	ZydisDecodedInstruction ix{};
+
+	auto target = target_section_address.address_in_section;
+
+	for (auto ip = target; ip < target + sizeof(JmpFF) + sizeof(uintptr_t); ip += ix.length)
+	{
+		if (!decode(&ix, (uint8_t*)ip))
+		{
+			LOG(ERROR) << "failed to decode instruction at address " << ip;
+		}
+
+		// We can't support any instruction that is IP relative here because
+		// ff_hook should only be called if e9_hook failed indicating that
+		// we're likely outside the +- 2GB range.
+		if (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE)
+		{
+			LOG(ERROR) << "relative instruction found in ff_hook at address " << ip;
+
+			return false;
+		}
+
+		original_bytes.insert(original_bytes.end(), ip, ip + ix.length);
+		trampoline_size += ix.length;
+	}
+
+	auto trampoline_allocation = trampoline.address_in_section;
+
+	std::copy(original_bytes.begin(), original_bytes.end(), trampoline_allocation);
+
+	const auto trampoline_epilogue = reinterpret_cast<TrampolineEpilogueFF *>(trampoline_allocation + trampoline_size - sizeof(TrampolineEpilogueFF));
+
+	auto jump_target_holder = section_address
+	{
+		.section = destination.section,
+		.address_in_section	= (uint8_t *) & trampoline_epilogue->original_address
+	};
+
+	auto trampoline_jump_to_original = section_address
+	{
+		.section = trampoline.section,
+		.address_in_section = (uint8_t *)&trampoline_epilogue->jmp_to_original};
+
+	auto where_we_jump_to = section_address
+	{
+		.section = target_section_address.section,
+		.address_in_section = target + original_bytes.size()
+	};
+
+	// jmp from trampoline to original.
+	auto success = emit_jmp_ff(
+		trampoline_jump_to_original, 
+		where_we_jump_to, 
+		jump_target_holder
+	);
+
+	if (!success)
+	{
+		LOG(ERROR) << "failed to emit jmp from trampoline to original";
+
+		return false;
+	}
+
+	return true;
+}
+#endif
+
+static bool InlineHook_setup(LIEF::PE::Binary *bin, section_address &target, section_address &shellcode, std::vector<uint8_t> &original_bytes, section_address &trampoline, size_t &trampoline_size)
+{
+	return InlineHook_e9_hook(bin, original_bytes, target, shellcode, trampoline, trampoline_size);
+}
+
+#pragma optimize("", off)
+//SHELLCODE_FUNC(void LoadLibraryShellCode()
+static void LoadLibraryShellCode()
+{
+	CHAR d3d12_string[] = {'d', '3', 'd', '1', '2', '.', 'd', 'l', 'l', '\0'};
+
+	DEFINE_FUNC_PTR("kernel32.dll", LoadLibraryA);
+	LoadLibraryA(d3d12_string);
+
+	DEFINE_FUNC_PTR("kernel32.dll", GetProcAddress);
+	DEFINE_FUNC_PTR("kernel32.dll", GetModuleHandleA);
+	// __scrt_common_main_seh
+	CHAR game_original_entrypoint[] = {'_', '_', 's', 'c', 'r', 't', '_', 'c', 'o', 'm', 'm', 'o',
+	                                   'n', '_', 'm', 'a', 'i', 'n', '_', 's', 'e', 'h', '\0'};
+	GetProcAddress(GetModuleHandleA(0), game_original_entrypoint)();
+	//})
+}
+
+#pragma optimize("", on)
+
+static std::string get_game_executable_path()
+{
+	return (char *)((lua::paths_ext::get_game_executable_folder() / "Hades2.exe").u8string().c_str());
+}
+
+static std::string get_orig_game_executable_path()
+{
+	return (char *)((lua::paths_ext::get_game_executable_folder() / "Hades2_orig.exe").u8string().c_str());
+}
+
+static std::string get_game_executable_path_tmp()
+{
+	return (char *)((lua::paths_ext::get_game_executable_folder() / "Hades2_tmp.exe").u8string().c_str());
+}
+
+static bool ensure_early_entrypoint()
+{
+#ifndef FINAL
+	LOG(WARNING) << "Not a final build, can't execute ensure_early_entrypoint cause of security cookies inserted into "
+	                "the shellcode by the compiler. (msvc flag / GS -) ";
+		return false;
+#endif
+
+	// For some users d3d12 is loaded after the _initterm (which contains cpp dynamic initializers),
+	// so we need to patch the game exe and add a LoadLibrary(d3d12) to the game entrypoint.
+
+	//const auto function_to_hook = "__scrt_common_main_seh";
+	const auto function_to_hook = "mainCRTStartup";
+
+	const auto game_entrypoint_function = big::hades2_symbol_to_address[function_to_hook].as<uintptr_t>();
+	const size_t game_entrypoint_function_size = big::hades2_symbol_to_code_size[function_to_hook];
+
+	const auto game_entrypoint_function_rva = game_entrypoint_function - (uintptr_t)GetModuleHandleA(0);
+
+	if (std::unique_ptr<LIEF::PE::Binary> bin = LIEF::PE::Parser::parse(get_game_executable_path()))
+	{
+		constexpr uint32_t patched_time_date_stamp = 0xFF'FF'00'00;
+
+		if (bin->header().time_date_stamp() == patched_time_date_stamp)
+		{
+			LOG(INFO) << "Game executable already patched to load d3d12.dll at game exe entrypoint, skipping patching.";
+			return true;
+		}
+
+		LOG(INFO) << "Patching game entrypoint (" << function_to_hook << ") to load d3d12.dll as soon as possible: " << HEX_TO_UPPER_OFFSET(game_entrypoint_function) << " (size: " << HEX_TO_UPPER(game_entrypoint_function_size) << ")";
+
+		bin->header().time_date_stamp(patched_time_date_stamp);
+
+		std::vector<uint8_t> empty_section(0x40'00, 0);
+
+		LIEF::PE::Section section;
+		section.name(".h2m");
+		section.content(empty_section);
+		section.size(empty_section.size());
+		section.add_characteristic(LIEF::PE::Section::CHARACTERISTICS::MEM_READ);
+		section.add_characteristic(LIEF::PE::Section::CHARACTERISTICS::MEM_EXECUTE);
+		auto rom_section = bin->add_section(section);
+
+		std::vector<uint8_t> original_bytes;
+
+		bool is_e9_hook = false;
+
+		auto trampoline = section_address
+		{
+			.section = rom_section,
+			.address_in_section = (uint8_t *)rom_section->content().data()
+		};
+		size_t trampoline_size = 0;
+
+		auto text_section = bin->get_section(".text");
+
+		bin->get_export()->add_entry("__scrt_common_main_seh", big::hades2_symbol_to_address["__scrt_common_main_seh"] - (uintptr_t)GetModuleHandleA(0));
+
+		auto target = section_address
+		{
+			.section = text_section,
+		    .address_in_section = 
+				(uint8_t *)text_section->content().data() + 
+				game_entrypoint_function_rva - 
+				text_section->virtual_address()
+		};
+		auto shellcode = section_address
+		{
+			.section = rom_section,
+			.address_in_section = (uint8_t *)rom_section->content().data() + 0x50
+		};
+		memcpy(shellcode.address_in_section, (uint8_t *)LoadLibraryShellCode, 0x2000);
+
+		LOG(INFO) << "Setting up static patching hook at " << HEX_TO_UPPER(target.to_rva()) << " to redirect to shellcode at " << 
+			HEX_TO_UPPER(shellcode.to_rva());
+
+		InlineHook_setup(bin.get(), 
+			target, 
+			shellcode, 
+			original_bytes,
+			trampoline, trampoline_size
+		);
+
+		InlineHook_enable(bin.get(), 
+			target, 
+			shellcode, 
+			original_bytes,
+			trampoline, trampoline_size
+		);
+
+		const auto output_path = get_game_executable_path_tmp();
+		if (std::filesystem::exists(output_path))
+		{
+			std::filesystem::remove(output_path);
+		}
+		LIEF::PE::Builder::config_t builder_config{};
+		builder_config.exports = true;
+
+		bin->write(output_path, builder_config);
+
+		if (std::filesystem::exists(get_orig_game_executable_path()))
+		{
+			std::filesystem::remove(get_orig_game_executable_path());
+		}
+		std::filesystem::rename(get_game_executable_path(), get_orig_game_executable_path());
+
+		Sleep(1);
+
+		std::filesystem::rename(get_game_executable_path_tmp(), get_game_executable_path());
+
+		message("Game executable patched for modding, please relaunch the game. This should only happens once, if there is any issues please tell us at https://github.com/SGG-Modding/Hell2Modding");
+		TerminateProcess(GetCurrentProcess(), 0);
+	}
+
+	return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 {
 	using namespace big;
@@ -2202,9 +2840,9 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 	if (reason == DLL_PROCESS_ATTACH)
 	{
 		//while (!IsDebuggerPresent())
-		{
-			//Sleep(1000);
-		}
+		//{
+		//	Sleep(1000);
+		//}
 
 		g_hmodule = hmod;
 
@@ -2228,6 +2866,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		const auto exception_handling = new exception_handler(true, nullptr);
 
 		read_game_pdb();
+
+		{
+			ensure_early_entrypoint();
+		}
 
 		{
 			array_extender((void**)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
@@ -2710,6 +3352,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				    LOG(ERROR) << rom::g_project_name << "failed to init properly, exiting.";
 				    g_running = false;
 			    }
+
+				LOG(INFO) << "Running.";
 
 			    while (g_running)
 			    {
