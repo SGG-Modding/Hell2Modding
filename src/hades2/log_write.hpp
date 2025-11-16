@@ -21,6 +21,11 @@ namespace big
 		vsnprintf(&result[0], size + 1, message, args);
 		va_end(args);
 
+		if (strcmp(result.c_str(), "Scripts modification detected.") == 0)
+		{
+			return;
+		}
+
 		big::g_hooking->get_original<hook_log_write>()(level, filename, line_number, result.c_str());
 
 		if (!result.starts_with("Script er"))
