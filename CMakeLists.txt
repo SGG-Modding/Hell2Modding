@@ -7,6 +7,9 @@ project(Hell2Modding CXX C ASM ASM_MASM)
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 
 # Fetch modules
+
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 message("\nFetching modules")
 include(cmake_scripts/capstone.cmake)
 include(cmake_scripts/eastl.cmake)
