@@ -5,10 +5,10 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
+#include <lua_extensions/lua_manager_extension.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
-#include <lua_extensions/lua_manager_extension.hpp>
 
 namespace lua::hades::data
 {
@@ -67,7 +67,7 @@ namespace lua::hades::data
 				// Index can be found in Local Types
 				// struct IFileSystem
 				// XREF: .data:gSystemFileIO
-				void** FileStream_vtable           = *(void***)file_stream;
+				void** FileStream_vtable = *(void***)file_stream;
 				if (original_GetFileSize == nullptr)
 				{
 					original_GetFileSize = FileStream_vtable[GetFileSize_index];
@@ -144,7 +144,8 @@ namespace lua::hades::data
 								if (bufferSizeInBytes * 2 < new_string.size())
 								{
 									std::stringstream ss;
-									ss << "SJSON mod patches won't work correctly because of my bad coding, please make an "
+									ss << "SJSON mod patches won't work correctly because of my bad coding, please "
+									      "make an "
 									      "issue on the Hell2Modding repo, make sure to pass this info: Original file "
 									      "size "
 									   << bufferSizeInBytes << " | Doubled size: " << bufferSizeInBytes * 2
@@ -168,8 +169,8 @@ namespace lua::hades::data
 
 			if (original_GetFileSize != nullptr)
 			{
-				void** FileStream_vtable = *(void***)file_stream;
-				FileStream_vtable[GetFileSize_index]     = original_GetFileSize;
+				void** FileStream_vtable             = *(void***)file_stream;
+				FileStream_vtable[GetFileSize_index] = original_GetFileSize;
 			}
 		}
 

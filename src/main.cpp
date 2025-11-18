@@ -19,9 +19,9 @@
 
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
+#include <lua_extensions/bindings/hades/data.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/bindings/hades/inputs.hpp>
-#include <lua_extensions/bindings/hades/data.hpp>
 #include <lua_extensions/bindings/paths_ext.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
 #include <memory/gm_address.hpp>
@@ -97,7 +97,7 @@ void hook_mid_sgg_sIndices_cmp_rva_r12_rdi_4_constant(SafetyHookContext &ctx)
 
 	// handle rflags depending on the JZ instruction that follows.
 
-	if (mem_val == 0x0FFFFFFFF)
+	if (mem_val == 0x0'FF'FF'FF'FF)
 	{
 		// Set ZF flag
 		ctx.rflags |= 0x40;
@@ -114,7 +114,6 @@ void hook_mid_sgg_sIndices_cmp_rva_r12_rdi_4_constant(SafetyHookContext &ctx)
 
 void hook_mid_sgg_sIndices_mov_ecx_rva_r12_rbx_4(SafetyHookContext &ctx)
 {
-
 	ctx.rcx = extended_sgg_sIndices[ctx.r12 + ctx.rbx];
 
 	// Skip the original instruction.
@@ -333,16 +332,14 @@ bool patch_sgg_sHashes_usage(cs_insn *insn, uint64_t target_addr, const uintptr_
 }
 
 bool patch_sgg_sIndices_usage(cs_insn *insn, uint64_t target_addr, const uintptr_t instruction_address, const uintptr_t instruction_address_offset)
-	{
+{
 	if (instruction_address_offset == 0x1B'2A'91)
 	{
 		LOG(INFO) << HEX_TO_UPPER(instruction_address) << "(" << HEX_TO_UPPER(instruction_address_offset) << "): " << insn->mnemonic << " " << insn->op_str << " | " << insn->id << " | "
 		          << "operand[0]: " << insn->detail->x86.operands[0].type << " | " << insn->detail->x86.operands[0].mem.base << " | "
-		          << insn->detail->x86.operands[0].mem.index << " | "
-		          << insn->detail->x86.operands[0].mem.disp << " || "
+		          << insn->detail->x86.operands[0].mem.index << " | " << insn->detail->x86.operands[0].mem.disp << " || "
 		          << "operand[1]: " << insn->detail->x86.operands[1].type << " | " << insn->detail->x86.operands[1].mem.base << " | "
-		          << insn->detail->x86.operands[1].mem.index << " | "
-		                                                   << insn->detail->x86.operands[1].mem.disp;
+		          << insn->detail->x86.operands[1].mem.index << " | " << insn->detail->x86.operands[1].mem.disp;
 
 		const auto test = (uintptr_t)GetModuleHandleA(0) + insn->detail->x86.operands[1].mem.disp;
 		LOG(INFO) << HEX_TO_UPPER(test) << " | " << HEX_TO_UPPER(big::hades2_symbol_to_address["sgg::sIndices"]);
@@ -389,8 +386,8 @@ bool patch_sgg_sIndices_usage(cs_insn *insn, uint64_t target_addr, const uintptr
 					LOG(DEBUG) << "cmp rva r12 rdi 4 -1 (int) patch for " << HEX_TO_UPPER(instruction_address);
 					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_cmp_rva_r12_rdi_4_constant));
 				}
-				else if (insn->detail->x86.operands[0].reg == X86_REG_ECX && 
-					insn->detail->x86.operands[1].mem.base == X86_REG_R12 &&  insn->detail->x86.operands[1].mem.index == X86_REG_RBX)
+				else if (insn->detail->x86.operands[0].reg == X86_REG_ECX && insn->detail->x86.operands[1].mem.base == X86_REG_R12
+				         && insn->detail->x86.operands[1].mem.index == X86_REG_RBX)
 				{
 					LOG(DEBUG) << "mov ecx rva r12 rbx 4 patch for " << HEX_TO_UPPER(instruction_address);
 					g_sgg_sIndices_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sIndices_mov_ecx_rva_r12_rbx_4));
@@ -471,7 +468,7 @@ bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uint
 					LOG(DEBUG) << "lea rdi patch for " << HEX_TO_UPPER(instruction_address);
 					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rdi));
 				}
-				else 
+				else
 				{
 					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER(instruction_address);
 				}
@@ -588,8 +585,7 @@ bool extend_sgg_sBufferLen_max_size()
 
 		memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size, extended_sgg_sBuffer_size)->apply();
 
-		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 =
-		    gmAddress::scan("81 FB 00 00 C0 00");
+		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 = gmAddress::scan("81 FB 00 00 C0 00");
 		if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2)
 		{
 			const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2 =
@@ -677,15 +673,15 @@ void extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size()
 	}
 }
 
-void array_extender(void** extended_array, size_t extended_array_size, const char* original_array_symbol_name, std::function<void(cs_insn*, uintptr_t, uintptr_t, uintptr_t)> on_instruction_disassembled)
-	{
+void array_extender(void **extended_array, size_t extended_array_size, const char *original_array_symbol_name, std::function<void(cs_insn *, uintptr_t, uintptr_t, uintptr_t)> on_instruction_disassembled)
+{
 	*extended_array = _aligned_malloc(extended_array_size, 16);
 
 	memory::module game_module{"Hades2.exe"};
 	const auto buf = big::hades2_symbol_to_address[original_array_symbol_name];
 	if (!buf)
 	{
-		LOG(ERROR) << original_array_symbol_name  << " not found, not extending its size.";
+		LOG(ERROR) << original_array_symbol_name << " not found, not extending its size.";
 		return;
 	}
 
@@ -746,12 +742,11 @@ void array_extender(void** extended_array, size_t extended_array_size, const cha
 	cs_free(insn, 1);
 }
 
-
 static uint64_t (*XXH_INLINE_XXH3_64bits)(const char *input, size_t len) = nullptr;
-static void (*InitializeStringIntern)() = nullptr;
+static void (*InitializeStringIntern)()                                  = nullptr;
 
-static bool* sgg_sInitialized = nullptr;
-uint32_t* sgg_sBufferLen      = nullptr;
+static bool *sgg_sInitialized = nullptr;
+uint32_t *sgg_sBufferLen      = nullptr;
 uint32_t *sgg_sItemCount      = nullptr;
 
 std::recursive_mutex g_HashGuid_Lookup_mutex;
@@ -784,7 +779,7 @@ sgg::HashGuid *hook_sgg_HashGuid_Lookup(sgg::HashGuid *result, const char *input
 		{
 			++length;
 		} while (input_[length]);
-		}
+	}
 
 	len_    = (unsigned int)length;
 	hash__  = XXH_INLINE_XXH3_64bits(input_, (unsigned int)length);
@@ -798,10 +793,10 @@ LABEL_11:
 	{
 	LABEL_14:
 		goto LABEL_17;
-}
+	}
 
 	while (extended_sgg_sHashes[hash_index] != _hash_1)
-{
+	{
 		_hash      = ((uint32_t)_hash + 1) & (extended_sgg_sHashes_kSize - 1);
 		hash_index = (unsigned int)_hash;
 		if (extended_sgg_sIndices[_hash] == -1)
@@ -836,7 +831,7 @@ uint32_t hook_sgg_HashGuid_StringIntern(const char *input_, unsigned __int64 len
 
 	InitializeStringIntern();
 	if (!length)
-		{
+	{
 		length = -1;
 		do
 		{
@@ -872,7 +867,7 @@ LABEL_10:
 	}
 
 	while (extended_sgg_sHashes[_hash] != hash__)
-		{
+	{
 		hash_ = ((uint32_t)hash_ + 1) & (extended_sgg_sHashes_kSize - 1);
 		_hash = (unsigned int)hash_;
 		if (extended_sgg_sIndices[hash_] == -1)
@@ -937,7 +932,6 @@ static bool hook_CrashpadClient_WaitForHandlerStart(uintptr_t this_, DWORD timeo
 
 static void hook_CrashpadClient_SetFirstChanceExceptionHandler(uintptr_t func_ptr)
 {
-
 }
 
 std::unordered_set<DWORD> seenThreads;
@@ -1039,7 +1033,7 @@ static int hook_luaL_ref(lua_State *L, int t)
 	return hades_func(L, t);
 }
 
-static void hook_lua_rawseti(lua_State * L, int idx, int n)
+static void hook_lua_rawseti(lua_State *L, int idx, int n)
 {
 	static auto hades_func = big::hades2_symbol_to_address["lua_rawseti"].as_func<decltype(hook_lua_rawseti)>();
 	return hades_func(L, idx, n);
@@ -1120,7 +1114,7 @@ static void hook_luaH_resizearray(lua_State *L, Table *t, int a3)
 	return hades_func(L, t, a3);
 }
 
-static void hook_luaL_checkversion_(lua_State* L, lua_Number ver)
+static void hook_luaL_checkversion_(lua_State *L, lua_Number ver)
 {
 }
 
@@ -1178,13 +1172,13 @@ static int hook_game_lua_pcallk(lua_State *L, int nargs, int nresults, int errfu
 //	big::g_hooking->get_original<hook_sgg_WorkerManager_ExecuteCmd>()(this_, arg);
 //}
 
-static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_content_ptr, size_t original_file_content_size, const char* name, char* mode)
+static int hook_game_luaL_loadbufferx(lua_State *L, const char *original_file_content_ptr, size_t original_file_content_size, const char *name, char *mode)
 {
-	const auto *apply_buffer_result =
-	    lovely_apply_buffer_patches(original_file_content_ptr,
-	                                original_file_content_size,
-	                                name,
-	                                (const char *)big::g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
+	const auto *apply_buffer_result = lovely_apply_buffer_patches(
+	    original_file_content_ptr,
+	    original_file_content_size,
+	    name,
+	    (const char *)big::g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
 
 	assert(apply_buffer_result);
 
@@ -1193,7 +1187,8 @@ static int hook_game_luaL_loadbufferx(lua_State* L, const char* original_file_co
 		LOG(DEBUG) << "lovely_apply_buffer_patches returned " << static_cast<int>(apply_buffer_result->status);
 	}
 
-	const auto res = big::g_hooking->get_original<hook_game_luaL_loadbufferx>()(L, apply_buffer_result->data_ptr, apply_buffer_result->data_len, name, mode);
+	const auto res =
+	    big::g_hooking->get_original<hook_game_luaL_loadbufferx>()(L, apply_buffer_result->data_ptr, apply_buffer_result->data_len, name, mode);
 
 	if (apply_buffer_result->status == lovely_ApplyBufferPatchesResultEnum::Ok)
 	{
@@ -1397,16 +1392,16 @@ static void hook_sgg_App_Initialize(void *this_)
 
 	LOG(INFO) << "Setting AudioMemoryPoolVoiceSize to " << *AudioMemoryPoolVoiceSize << ", mods will hit the limit otherwise.";
 
-	auto AudioMemoryPoolSize  = big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolSize"].as<int *>();
+	auto AudioMemoryPoolSize = big::hades2_symbol_to_address["sgg::ConfigOptions::AudioMemoryPoolSize"].as<int *>();
 	*AudioMemoryPoolSize     = 0;
 
 	LOG(INFO) << "Setting AudioMemoryPoolSize to " << *AudioMemoryPoolSize << ", mods will hit the limit otherwise.";
 
 	return big::g_hooking->get_original<hook_sgg_App_Initialize>()(this_);
-	}
+}
 
 static void hook_sgg_ScriptManager_InitLua()
-	{
+{
 	auto LuaMemoryPoolSize = big::hades2_symbol_to_address["sgg::ConfigOptions::LuaMemoryPoolSize"].as<int *>();
 	*LuaMemoryPoolSize     = 0;
 
@@ -1477,7 +1472,7 @@ static void hook_PlatformAnalytics_Start()
 	LOG(INFO) << "PlatformAnalytics_Start denied";
 }
 
-static void hook_sgg_DetectFreezeThread(HWND__* pData)
+static void hook_sgg_DetectFreezeThread(HWND__ *pData)
 {
 	LOG(INFO) << "DetectFreezeThread denied";
 }
@@ -1608,7 +1603,7 @@ static __int64 hook_fmodstudio_getevent(void *fmodstudio_event_system_this, cons
 	return res;
 }
 
-using setlocale_t = char* (__cdecl*)(int Category, const char *Locale);
+using setlocale_t = char *(__cdecl *)(int Category, const char *Locale);
 
 setlocale_t setlocale_orig = nullptr;
 
@@ -2144,7 +2139,7 @@ static void read_game_pdb()
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_LPROC32.section,
                                                                            record->data.S_LPROC32.offset);
 
-						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32.codeSize);
+					    big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_GPROC32)
 				    {
@@ -2152,7 +2147,7 @@ static void read_game_pdb()
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_GPROC32.section,
                                                                            record->data.S_GPROC32.offset);
 
-						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32.codeSize);
+					    big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_LPROC32_ID)
 				    {
@@ -2160,7 +2155,7 @@ static void read_game_pdb()
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_LPROC32_ID.section,
                                                                            record->data.S_LPROC32_ID.offset);
 
-						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32_ID.codeSize);
+					    big::hades2_insert_symbol_to_map_code_size(name, record->data.S_LPROC32_ID.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_GPROC32_ID)
 				    {
@@ -2168,7 +2163,7 @@ static void read_game_pdb()
 					    rva  = imageSectionStream.ConvertSectionOffsetToRVA(record->data.S_GPROC32_ID.section,
                                                                            record->data.S_GPROC32_ID.offset);
 
-						big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32_ID.codeSize);
+					    big::hades2_insert_symbol_to_map_code_size(name, record->data.S_GPROC32_ID.codeSize);
 				    }
 				    else if (record->header.kind == PDB::CodeView::DBI::SymbolRecordKind::S_REGREL32)
 				    {
@@ -2233,142 +2228,142 @@ extern "C" __declspec(dllexport) void my_main()
 
 	DisableThreadLibraryCalls(g_hmodule);
 
-		//while (!IsDebuggerPresent())
+	//while (!IsDebuggerPresent())
+	//{
+	//	Sleep(1000);
+	//}
+
+	// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
+	setlocale(LC_ALL, ".utf8");
+	// This also change things like stringstream outputs and add comma to numbers and things like that, we don't want that, so just set locale on the C apis instead.
+	//std::locale::global(std::locale(".utf8"));
+
+	dll_proxy::init();
+
+	if (!rom::is_rom_enabled())
+	{
+		return;
+	}
+
+	// Lua API: Namespace
+	// Name: rom
+	rom::init("Hell2Modding", "Hades2.exe", "rom");
+
+	// Purposely leak it, we are not unloading this module in any case.
+	const auto exception_handling = new exception_handler(true, nullptr);
+
+	read_game_pdb();
+
+	{
+		// ensure_early_entrypoint();
+	}
+
+	{
+		array_extender((void **)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
+		extend_sgg_sBufferLen_max_size();
+
+		//array_extender((void **)&extended_sgg_sHashes, extended_sgg_sHashes_size, "sgg::sHashes", patch_sgg_sHashes_usage);
 		//{
-		//	Sleep(1000);
+		//	/*
+		//	  while ( sgg::sHashes[v9] != v5 )
+		//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
+		//	*/
+		//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 48");
+		//	if (check)
+		//	{
+		//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
+		//	}
+		//}
+		//{
+		//	/*
+		//	  while ( sgg::sHashes[v9] != v5 )
+		//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
+		//	*/
+		//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 8B");
+		//	if (check)
+		//	{
+		//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
+		//	}
 		//}
 
-		// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
-		setlocale(LC_ALL, ".utf8");
-		// This also change things like stringstream outputs and add comma to numbers and things like that, we don't want that, so just set locale on the C apis instead.
-		//std::locale::global(std::locale(".utf8"));
+		//array_extender((void **)&extended_sgg_sIndices, extended_sgg_sIndices_size, "sgg::sIndices", patch_sgg_sIndices_usage);
 
-		dll_proxy::init();
+		array_extender((void **)&extended_sgg_sStringsBuffer, extended_sgg_sStringsBuffer_size, "sgg::sStringsBuffer", patch_lea_sgg_sStringsBuffer_usage);
 
-		if (!rom::is_rom_enabled())
+		array_extender((void **)&extended_sgg_sTempStringsBuffer, extended_sgg_sTempStringsBuffer_size, "sgg::sTempStringsBuffer", patch_lea_sgg_sTempStringsBuffer_usage);
+
+		extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
+
+		static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
+		if (ptr)
 		{
-		return;
-		}
-
-		// Lua API: Namespace
-		// Name: rom
-		rom::init("Hell2Modding", "Hades2.exe", "rom");
-
-		// Purposely leak it, we are not unloading this module in any case.
-		const auto exception_handling = new exception_handler(true, nullptr);
-
-		read_game_pdb();
-
-		{
-		// ensure_early_entrypoint();
-		}
-
-		{
-		array_extender((void **)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
-			extend_sgg_sBufferLen_max_size();
-
-			//array_extender((void **)&extended_sgg_sHashes, extended_sgg_sHashes_size, "sgg::sHashes", patch_sgg_sHashes_usage);
-			//{
-			//	/*
-			//	  while ( sgg::sHashes[v9] != v5 )
-			//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
-			//	*/
-			//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 48");
-			//	if (check)
-			//	{
-			//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
-			//	}
-			//}
-			//{
-			//	/*
-			//	  while ( sgg::sHashes[v9] != v5 )
-			//		v6 = ((_DWORD)v6 + 1) & 0x3FFFF;
-			//	*/
-			//	static auto check = gmAddress::scan("81 E7 FF FF 03 00 8B");
-			//	if (check)
-			//	{
-			//		memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sHashes_size)->apply();
-			//	}
-			//}
-
-			//array_extender((void **)&extended_sgg_sIndices, extended_sgg_sIndices_size, "sgg::sIndices", patch_sgg_sIndices_usage);
-
-			array_extender((void **)&extended_sgg_sStringsBuffer, extended_sgg_sStringsBuffer_size, "sgg::sStringsBuffer", patch_lea_sgg_sStringsBuffer_usage);
-
-			array_extender((void **)&extended_sgg_sTempStringsBuffer, extended_sgg_sTempStringsBuffer_size, "sgg::sTempStringsBuffer", patch_lea_sgg_sTempStringsBuffer_usage);
-
-			extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
-
-			static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
-			if (ptr)
-			{
 			auto e8_call_ptr = ptr.offset(45).as<uint8_t *>();
-				if (*e8_call_ptr != 0xE8)
-				{
+			if (*e8_call_ptr != 0xE8)
+			{
 				LOG(ERROR) << "Failed silencing String intern table running low on space message spam - unexpected "
 				              "instruction at call site";
-				}
-				else
+			}
+			else
+			{
+				for (size_t i = 0; i < 5; i++)
 				{
-					for (size_t i = 0; i < 5; i++)
-					{
-						ForceWrite<uint8_t>(*(e8_call_ptr + i), 0x90);
-					}
+					ForceWrite<uint8_t>(*(e8_call_ptr + i), 0x90);
 				}
 			}
+		}
 
-			sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
-			XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
-			InitializeStringIntern = big::hades2_symbol_to_address["sgg::HashGuid::InitializeStringIntern"].as_func<void()>();
-			sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
-			sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
+		sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
+		XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
+		InitializeStringIntern = big::hades2_symbol_to_address["sgg::HashGuid::InitializeStringIntern"].as_func<void()>();
+		sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
+		sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
 
 		extended_sgg_sHashes  = (uint64_t *)_aligned_malloc(extended_sgg_sHashes_size, 16);
-			extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
-			memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
-			memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
-			memset(extended_sgg_sBuffer, 0, extended_sgg_sBuffer_size);
+		extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
+		memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
+		memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
+		memset(extended_sgg_sBuffer, 0, extended_sgg_sBuffer_size);
 
+		{
+			const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
+			if (ptr)
 			{
-				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
-				if (ptr)
-				{
 				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>(
 				    "sgg::HashGuid::StringIntern",
 				    ptr);
-				}
 			}
+		}
 
+		{
+			const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
+			if (ptr)
 			{
-				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
-				if (ptr)
-				{
 				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>("sgg::HashGuid::Lookup", ptr);
-				}
 			}
 		}
+	}
 
-		const auto initRenderer_ptr = big::hades2_symbol_to_address["initRenderer"];
-		if (initRenderer_ptr)
-		{
-			big::hooking::detour_hook_helper::add_queue<hook_initRenderer>("initRenderer", initRenderer_ptr);
-		}
+	const auto initRenderer_ptr = big::hades2_symbol_to_address["initRenderer"];
+	if (initRenderer_ptr)
+	{
+		big::hooking::detour_hook_helper::add_queue<hook_initRenderer>("initRenderer", initRenderer_ptr);
+	}
 
-		const auto backtrace_initializeCrashpad_ptr = big::hades2_symbol_to_address["backtrace::initializeCrashpad"];
-		if (backtrace_initializeCrashpad_ptr)
-		{
-			big::hooking::detour_hook_helper::add_queue<hook_skipcrashpadinit>("backtrace::initializeCrashpad",
-			                                                                 backtrace_initializeCrashpad_ptr.as_func<bool()>());
-		}
+	const auto backtrace_initializeCrashpad_ptr = big::hades2_symbol_to_address["backtrace::initializeCrashpad"];
+	if (backtrace_initializeCrashpad_ptr)
+	{
+		big::hooking::detour_hook_helper::add_queue<hook_skipcrashpadinit>("backtrace::initializeCrashpad",
+		                                                                   backtrace_initializeCrashpad_ptr.as_func<bool()>());
+	}
 
-		{
-			// The game has Lua statically linked, which means all of Lua's global state lives in its .data section.
-			// Because these globals are not exposed, we can't directly call into the game's Lua functions from our DLL.
-			// To work with Lua ourselves, we also have to statically link against a Lua library - but that creates a
-			// separate set of global variables. To solve this, we hook most of our own set of statically linked
-			// Lua functions and redirect them so they call the game's Lua functions instead,
-			// ensuring both sides are in sync.
-			// clang-format off
+	{
+		// The game has Lua statically linked, which means all of Lua's global state lives in its .data section.
+		// Because these globals are not exposed, we can't directly call into the game's Lua functions from our DLL.
+		// To work with Lua ourselves, we also have to statically link against a Lua library - but that creates a
+		// separate set of global variables. To solve this, we hook most of our own set of statically linked
+		// Lua functions and redirect them so they call the game's Lua functions instead,
+		// ensuring both sides are in sync.
+		// clang-format off
 			big::hooking::detour_hook_helper::add_queue<hook_luaL_checkversion_>("", &luaL_checkversion_);
 			big::hooking::detour_hook_helper::add_queue<hook_luaV_execute>("", &luaV_execute);
 			big::hooking::detour_hook_helper::add_queue<hook_lua_callk>("", &lua_callk);
@@ -2392,16 +2387,16 @@ extern "C" __declspec(dllexport) void my_main()
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_getn>("", &luaH_getn);
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_new>("", &luaH_new);
 			big::hooking::detour_hook_helper::add_queue<hook_luaH_resizearray>("", &luaH_resizearray);
-			// clang-format on
+		// clang-format on
 
-			// lovely injector integration
-			big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
-			big::hooking::detour_hook_helper::add_queue<hook_game_lua_pcallk>("", big::hades2_symbol_to_address["lua_pcallk"]);
+		// lovely injector integration
+		big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
+		big::hooking::detour_hook_helper::add_queue<hook_game_lua_pcallk>("", big::hades2_symbol_to_address["lua_pcallk"]);
 
-			//big::hooking::detour_hook_helper::add_queue<hook_sgg_WorkerManager_ExecuteCmd>("", big::hades2_symbol_to_address["sgg::WorkerManager::ExecuteCmd"]);
-		}
+		//big::hooking::detour_hook_helper::add_queue<hook_sgg_WorkerManager_ExecuteCmd>("", big::hades2_symbol_to_address["sgg::WorkerManager::ExecuteCmd"]);
+	}
 
-		/*{
+	/*{
 			static auto GUIComponentTextBox_ctor_ptr = gmAddress::scan("89 BB 2C 06 00 00", "sgg::GUIComponentTextBox::GUIComponentTextBox");
 			if (GUIComponentTextBox_ctor_ptr)
 			{
@@ -2410,166 +2405,166 @@ extern "C" __declspec(dllexport) void my_main()
 			}
 		}*/
 
-		{
-			big::hooking::detour_hook_helper::add_queue<hook_sgg_IsContentFolderModified>("", big::hades2_symbol_to_address["sgg::IsContentFolderModified"]);
-		}
+	{
+		big::hooking::detour_hook_helper::add_queue<hook_sgg_IsContentFolderModified>("", big::hades2_symbol_to_address["sgg::IsContentFolderModified"]);
+	}
 
-		{
+	{
 		static auto GUIComponentTextBox_update_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::Update"];
-			if (GUIComponentTextBox_update_ptr)
-			{
-				static auto GUIComponentTextBox_update = GUIComponentTextBox_update_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__Update>(
-				    "sgg__GUIComponentTextBox__Update",
-				    GUIComponentTextBox_update);
-			}
-		}
-
+		if (GUIComponentTextBox_update_ptr)
 		{
-			static auto GUIComponentTextBox_dctor_ptr =
-			    big::hades2_symbol_to_address["sgg::GUIComponentTextBox::~GUIComponentTextBox"];
-			if (GUIComponentTextBox_dctor_ptr)
-			{
-				static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
-			}
+			static auto GUIComponentTextBox_update = GUIComponentTextBox_update_ptr;
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__Update>(
+			    "sgg__GUIComponentTextBox__Update",
+			    GUIComponentTextBox_update);
 		}
+	}
 
+	{
+		static auto GUIComponentTextBox_dctor_ptr =
+		    big::hades2_symbol_to_address["sgg::GUIComponentTextBox::~GUIComponentTextBox"];
+		if (GUIComponentTextBox_dctor_ptr)
 		{
-			static auto GUIComponentButton_OnSelected_ptr =
-			    big::hades2_symbol_to_address["sgg::GUIComponentButton::OnSelected"];
-			if (GUIComponentButton_OnSelected_ptr)
-			{
-				static auto GUIComponentButton_OnSelected = GUIComponentButton_OnSelected_ptr;
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_GUIComponentButton_OnSelected>(
-				    "GUIComponentButton_OnSelected",
-				    GUIComponentButton_OnSelected);
-			}
+			static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr;
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
 		}
+	}
 
+	{
+		static auto GUIComponentButton_OnSelected_ptr =
+		    big::hades2_symbol_to_address["sgg::GUIComponentButton::OnSelected"];
+		if (GUIComponentButton_OnSelected_ptr)
 		{
+			static auto GUIComponentButton_OnSelected = GUIComponentButton_OnSelected_ptr;
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_GUIComponentButton_OnSelected>(
+			    "GUIComponentButton_OnSelected",
+			    GUIComponentButton_OnSelected);
+		}
+	}
+
+	{
 		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadAllAnimationData"];
-			if (read_anim_data_ptr)
-			{
-				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
-
-				static auto hook_ =
-				    hooking::detour_hook_helper::add_queue<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
-			}
-		}
-
+		if (read_anim_data_ptr)
 		{
-		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::Granny3D::LoadAllModelAndAnimationData"];
-			if (read_anim_data_ptr)
-			{
-				static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
+			static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
 
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_LoadAllModelAndAnimationData>(
-				    "LoadAllModelAndAnimationData Hook",
-				    read_anim_data);
-			}
-		}
-
-		{
-		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
-		}
-
-		{
 			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
+			    hooking::detour_hook_helper::add_queue<hook_ReadAllAnimationData>("ReadAllAnimationData Hook", read_anim_data);
 		}
+	}
 
-				{
+	{
+		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::Granny3D::LoadAllModelAndAnimationData"];
+		if (read_anim_data_ptr)
+		{
+			static auto read_anim_data = read_anim_data_ptr.as_func<void()>();
+
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_LoadAllModelAndAnimationData>(
+			    "LoadAllModelAndAnimationData Hook",
+			    read_anim_data);
+		}
+	}
+
+	{
+		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
+	}
+
+	{
+		static auto hook_ =
+		    hooking::detour_hook_helper::add_queue<hook_ConfigOption_registerField_bool>("registerField<bool> hook", big::hades2_symbol_to_address["sgg::registerField<bool>"]);
+	}
+
+	{
 		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_ScriptManager_InitLua>("", big::hades2_symbol_to_address["sgg::ScriptManager::InitLua"]);
 
-			static auto hook2_ = hooking::detour_hook_helper::add_queue<hook_sgg_App_Initialize>("", big::hades2_symbol_to_address["sgg::App::Initialize"]);
+		static auto hook2_ = hooking::detour_hook_helper::add_queue<hook_sgg_App_Initialize>("", big::hades2_symbol_to_address["sgg::App::Initialize"]);
 
-			// ; sgg::ThreadBumpAllocator *__fastcall sgg::App::GetThreadFrameAllocator(sgg::App *this)
-			// Extend the allocator max size cause mods hit the limit otherwise.
-			constexpr size_t original_threadframe_allocator_size             = 0x03'20'00;
-			constexpr size_t extended_threadframe_allocator_size_20mb_in_hex = 0x01'40'00'00;
+		// ; sgg::ThreadBumpAllocator *__fastcall sgg::App::GetThreadFrameAllocator(sgg::App *this)
+		// Extend the allocator max size cause mods hit the limit otherwise.
+		constexpr size_t original_threadframe_allocator_size             = 0x03'20'00;
+		constexpr size_t extended_threadframe_allocator_size_20mb_in_hex = 0x01'40'00'00;
 
 		const auto patch_1 = gmAddress::scan("B9 00 20 03 00", "mov     ecx, 32000h     ; Size");
-			if (patch_1)
-			{
-				ForceWrite<uint32_t>(*patch_1.offset(1).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
-			}
-			else
-			{
-				LOG(ERROR) << "Patch 1 for sgg::App::GetThreadFrameAllocator failed.";
-			}
-			const auto patch_2 = gmAddress::scan("48 C7 43 18 00 20 03 00", "mov     qword ptr [rbx+18h], 32000h");
-			if (patch_2)
-			{
-				ForceWrite<uint32_t>(*patch_2.offset(4).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
-			}
-			else
-			{
-				LOG(ERROR) << "Patch 2 for sgg::App::GetThreadFrameAllocator failed.";
-			}
-		}
-
+		if (patch_1)
 		{
-			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
+			ForceWrite<uint32_t>(*patch_1.offset(1).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
 		}
-
+		else
 		{
-			static auto hook_ =
-			    hooking::detour_hook_helper::add_queue<hook_sgg_DetectFreezeThread>("hook_sgg_DetectFreezeThread", big::hades2_symbol_to_address["sgg::DetectFreezeThread"]);
+			LOG(ERROR) << "Patch 1 for sgg::App::GetThreadFrameAllocator failed.";
 		}
-
+		const auto patch_2 = gmAddress::scan("48 C7 43 18 00 20 03 00", "mov     qword ptr [rbx+18h], 32000h");
+		if (patch_2)
 		{
-			init_import_hooks();
+			ForceWrite<uint32_t>(*patch_2.offset(4).as<uint32_t *>(), extended_threadframe_allocator_size_20mb_in_hex);
 		}
-
+		else
 		{
-			static auto ptr = big::hades2_symbol_to_address["sgg::LaunchBugReporter"];
-			if (ptr)
-			{
-				static auto ptr_func = ptr;
-
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_disable_f10_launch>(
-				    "sgg::LaunchBugReporter F10 Disabler Hook",
-				    ptr_func);
-			}
+			LOG(ERROR) << "Patch 2 for sgg::App::GetThreadFrameAllocator failed.";
 		}
+	}
 
+	{
+		static auto hook_ =
+		    hooking::detour_hook_helper::add_queue<hook_PlatformAnalytics_Start>("PlatformAnalytics Start", big::hades2_symbol_to_address["sgg::PlatformAnalytics::Start"]);
+	}
+
+	{
+		static auto hook_ =
+		    hooking::detour_hook_helper::add_queue<hook_sgg_DetectFreezeThread>("hook_sgg_DetectFreezeThread", big::hades2_symbol_to_address["sgg::DetectFreezeThread"]);
+	}
+
+	{
+		init_import_hooks();
+	}
+
+	{
+		static auto ptr = big::hades2_symbol_to_address["sgg::LaunchBugReporter"];
+		if (ptr)
 		{
-			static auto ptr = big::hades2_symbol_to_address["fsGetFilesWithExtension"];
-			if (ptr)
-			{
-				static auto ptr_func = ptr;
+			static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension_packages>(
-				    "fsGetFilesWithExtension for packages and models",
-				    ptr_func);
-			}
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_disable_f10_launch>(
+			    "sgg::LaunchBugReporter F10 Disabler Hook",
+			    ptr_func);
 		}
+	}
 
+	{
+		static auto ptr = big::hades2_symbol_to_address["fsGetFilesWithExtension"];
+		if (ptr)
 		{
-			static auto ptr = big::hades2_symbol_to_address["ParseLuaErrorMessageAndAssert"];
-			if (ptr)
-			{
-				static auto ptr_func = ptr;
+			static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_ParseLuaErrorMessageAndAssert>(
-				    "ParseLuaErrorMessageAndAssert for better lua stack traces",
-				    ptr_func);
-			}
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension_packages>(
+			    "fsGetFilesWithExtension for packages and models",
+			    ptr_func);
 		}
+	}
 
+	{
+		static auto ptr = big::hades2_symbol_to_address["ParseLuaErrorMessageAndAssert"];
+		if (ptr)
 		{
-			static auto ptr = big::hades2_symbol_to_address["sgg::Obstacle::IsObscuring"];
-			if (ptr)
-			{
-				static auto ptr_func = ptr;
+			static auto ptr_func = ptr;
 
-				static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_Obstacle_IsObscuring>("", ptr_func);			
-			}
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_ParseLuaErrorMessageAndAssert>(
+			    "ParseLuaErrorMessageAndAssert for better lua stack traces",
+			    ptr_func);
 		}
+	}
 
-		/*{
+	{
+		static auto ptr = big::hades2_symbol_to_address["sgg::Obstacle::IsObscuring"];
+		if (ptr)
+		{
+			static auto ptr_func = ptr;
+
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_Obstacle_IsObscuring>("", ptr_func);
+		}
+	}
+
+	/*{
 			static auto ptr = gmAddress::scan("E8 ? ? ? ? 90 49 8B CF", "ReadCSString");
 			if (ptr)
 			{
@@ -2580,107 +2575,107 @@ extern "C" __declspec(dllexport) void my_main()
 			}
 		}*/
 
+	{
+		static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
+		if (fsAppendPathComponent_ptr)
 		{
-			static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
-			if (fsAppendPathComponent_ptr)
-			{
-				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char *, const char *, char *)>();
+			static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char *, const char *, char *)>();
 
-				static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
-				    "hook_fsAppendPathComponent for packages and models",
-				    fsAppendPathComponent);
-			}
-			else
-			{
-				LOG(ERROR) << "hook_fsAppendPathComponent for packages and models failure";
-			}
+			static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
+			    "hook_fsAppendPathComponent for packages and models",
+			    fsAppendPathComponent);
 		}
+		else
+		{
+			LOG(ERROR) << "hook_fsAppendPathComponent for packages and models failure";
+		}
+	}
 
-		/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
+	/*big::hooking::detour_hook_helper::add_now<hook_SGD_Deserialize_ThingDataDef>(
 		    "void __fastcall sgg::SGD_Deserialize(sgg::SGD_Context *ctx, int loc, sgg::ThingDataDef *val)",
 		    gmAddress::scan("44 88 74 24 21", "SGD_Deserialize ThingData").offset(-0x59));*/
 
-		big::hooking::detour_hook_helper::execute_queue();
+	big::hooking::detour_hook_helper::execute_queue();
 
-			    std::filesystem::path root_folder = paths::get_project_root_folder();
-			    g_file_manager.init(root_folder);
-			    paths::init_dump_file_path();
+	std::filesystem::path root_folder = paths::get_project_root_folder();
+	g_file_manager.init(root_folder);
+	paths::init_dump_file_path();
 
-			    big::config::init_general();
+	big::config::init_general();
 
 	static auto logger_instance = std::make_unique<logger>(rom::g_project_name, g_file_manager.get_project_file("./LogOutput.log"));
 
-			    static struct logger_cleanup
-			    {
-				    ~logger_cleanup()
-				    {
-					    Logger::Destroy();
-				    }
-			    } g_logger_cleanup;
+	static struct logger_cleanup
+	{
+		~logger_cleanup()
+		{
+			Logger::Destroy();
+		}
+	} g_logger_cleanup;
 
-			    LOG(INFO) << rom::g_project_name;
-			    LOGF(INFO, "Build v{} (Commit {})", big::version::VERSION_NUMBER, version::GIT_SHA1);
+	LOG(INFO) << rom::g_project_name;
+	LOGF(INFO, "Build v{} (Commit {})", big::version::VERSION_NUMBER, version::GIT_SHA1);
 
-			    // TODO: move this to own file, make sure it's called early enough so that it happens before the initial GameReadData call.
-			    for (const auto &entry :
-			         std::filesystem::recursive_directory_iterator(g_file_manager.get_project_folder("plugins_data").get_path(), std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
-			    {
-				    if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
-				    {
-					    additional_package_files.emplace((char *)entry.path().filename().u8string().c_str(),
-					                                     (char *)entry.path().u8string().c_str());
+	// TODO: move this to own file, make sure it's called early enough so that it happens before the initial GameReadData call.
+	for (const auto &entry :
+	     std::filesystem::recursive_directory_iterator(g_file_manager.get_project_folder("plugins_data").get_path(), std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
+	{
+		if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
+		{
+			additional_package_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                                 (char *)entry.path().u8string().c_str());
 
-					    LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
-				    }
-				    else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
-				    {
-					    additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
-					                                    (char *)entry.path().u8string().c_str());
+			LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
+		}
+		else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
+		{
+			additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                                (char *)entry.path().u8string().c_str());
 
-					    LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
-				    }
-			    }
+			LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
+		}
+	}
 
-				const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
-			    LOG(INFO) << "lovely_init returned " << (int32_t)res;
+	const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
+	LOG(INFO) << "lovely_init returned " << (int32_t)res;
 
 #ifdef FINAL
-			    LOG(INFO) << "This is a final build";
+	LOG(INFO) << "This is a final build";
 #endif
 
 	static auto thread_pool_instance = std::make_unique<thread_pool>();
-			    LOG(INFO) << "Thread pool initialized.";
+	LOG(INFO) << "Thread pool initialized.";
 
 	static auto byte_patch_manager_instance = std::make_unique<byte_patch_manager>();
-			    LOG(INFO) << "Byte Patch Manager initialized.";
+	LOG(INFO) << "Byte Patch Manager initialized.";
 
 	static auto hooking_instance = std::make_unique<hooking>();
-			    LOG(INFO) << "Hooking initialized.";
+	LOG(INFO) << "Hooking initialized.";
 
-			    big::hades::init_hooks();
+	big::hades::init_hooks();
 
 	static auto renderer_instance = std::make_unique<renderer>();
-			    LOG(INFO) << "Renderer initialized.";
+	LOG(INFO) << "Renderer initialized.";
 
-			    hotkey::init_hotkeys();
+	hotkey::init_hotkeys();
 
-			    if (!g_abort)
-			    {
-				    g_hooking->enable();
-				    LOG(INFO) << "Hooking enabled.";
-			    }
+	if (!g_abort)
+	{
+		g_hooking->enable();
+		LOG(INFO) << "Hooking enabled.";
+	}
 
-			    asi_loader::init(g_hmodule);
+	asi_loader::init(g_hmodule);
 
-			    g_running = true;
+	g_running = true;
 
-			    if (g_abort)
-			    {
-				    LOG(ERROR) << rom::g_project_name << "failed to init properly, exiting.";
-				    g_running = false;
-			    }
+	if (g_abort)
+	{
+		LOG(ERROR) << rom::g_project_name << "failed to init properly, exiting.";
+		g_running = false;
+	}
 
-				LOG(INFO) << "Running.";
+	LOG(INFO) << "Running.";
 }
 
 BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
