@@ -1,5 +1,4 @@
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -59,12 +58,9 @@ target_include_directories(Hell2Modding PRIVATE
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone_static safetyhook Zydis::Zydis ${LOVELY_LIB} userenv ntdll)
+target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis ${LOVELY_LIB} userenv ntdll)
 
-# Forced due to LIEF
-set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR OFF)
-# Seems like Base was never warning free
-set_property(TARGET ReturnOfModdingBase PROPERTY COMPILE_WARNING_AS_ERROR OFF)
+set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
 
 add_compile_definitions(Hell2Modding
     "_CRT_SECURE_NO_WARNINGS"

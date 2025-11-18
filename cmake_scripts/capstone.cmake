@@ -3,7 +3,7 @@ include(FetchContent)
 FetchContent_Declare(
     capstone
     GIT_REPOSITORY https://github.com/aquynh/capstone.git
-    GIT_TAG        8872be6087dd17734d38f290b119f13a56f3027c
+    GIT_TAG        0f1674223452827493357dd7258145fe9f51cd05
 )
 
 set(CAPSTONE_BUILD_SHARED OFF CACHE BOOL "Disable shared builds of capstone" FORCE)
