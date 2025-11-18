@@ -13,7 +13,6 @@
 #include "memory/byte_patch_manager.hpp"
 #include "paths/paths.hpp"
 #include "safetyhook.hpp"
-#include "c2shellcode/c2shellcode.hpp"
 #include "threads/thread_pool.hpp"
 #include "threads/util.hpp"
 #include "version.hpp"
