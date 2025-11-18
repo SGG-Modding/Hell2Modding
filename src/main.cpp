@@ -1118,6 +1118,13 @@ static void hook_luaL_checkversion_(lua_State *L, lua_Number ver)
 {
 }
 
+static void *hook_game_l_malloc(void *ud, void *ptr, unsigned __int64 osize, size_t nsize)
+{
+	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
+	return big::g_hooking->get_original<hook_game_l_malloc>()(ud, ptr, osize, nsize);
+}
+
 static int hook_game_lua_pcallk(lua_State *L, int nargs, int nresults, int errfunc, int ctx, lua_CFunction k)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
@@ -2392,6 +2399,11 @@ extern "C" __declspec(dllexport) void my_main()
 		// lovely injector integration
 		big::hooking::detour_hook_helper::add_queue<hook_game_luaL_loadbufferx>("", big::hades2_symbol_to_address["luaL_loadbufferx"]);
 		big::hooking::detour_hook_helper::add_queue<hook_game_lua_pcallk>("", big::hades2_symbol_to_address["lua_pcallk"]);
+
+		// Maybe one day we will know why
+		// [0] C:\Users\Andrew\Projects\Iris\Code\Lua\src\ltable.cpp:483 luaH_get
+		// [1] C :\Users\Andrew\Projects\Iris\Code\Lua\src\lvm.cpp : 116 luaV_gettable
+		big::hooking::detour_hook_helper::add_queue<hook_game_l_malloc>("", big::hades2_symbol_to_address["l_malloc"]);
 
 		//big::hooking::detour_hook_helper::add_queue<hook_sgg_WorkerManager_ExecuteCmd>("", big::hades2_symbol_to_address["sgg::WorkerManager::ExecuteCmd"]);
 	}
