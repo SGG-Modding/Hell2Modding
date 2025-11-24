@@ -10,8 +10,141 @@
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
 
+namespace sgg
+{
+	enum class PackageGroup : __int8
+	{
+		Weapons = 0x0,
+		Level   = 0x1,
+		Base    = 0x2,
+	};
+}
+
 namespace lua::hades::data
 {
+	static std::recursive_mutex g_load_packages_overrides_mutex;
+
+	using HashGuidIdType = decltype(sgg::HashGuid::mId);
+
+	static ankerl::unordered_dense::map<HashGuidIdType, std::vector<HashGuidIdType>> g_load_packages_overrides;
+
+	// Lua API: Function
+	// Table: data
+	// Name: get_string_from_hash_guid
+	// Param: hash_guid: integer: Hash value.
+	// Returns: string: Returns the string corresponding to the provided hash value.
+	static const char* get_string_from_hash_guid(lua_Number hash_guid)
+	{
+		static auto gStringBuffer = *big::hades2_symbol_to_address["sgg::HashGuid::gStringBuffer"].as<const char**>();
+
+		return &gStringBuffer[(HashGuidIdType)hash_guid];
+	}
+
+	// Lua API: Function
+	// Table: data
+	// Name: get_hash_guid_from_string
+	// Param: str: string: String value.
+	// Returns: number: Returns the hash guid corresponding to the provided string value.
+	static HashGuidIdType get_hash_guid_from_string(std::string str)
+	{
+		static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"].as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
+		sgg::HashGuid res{};
+		Lookup(&res, str.c_str(), str.size());
+
+		return res.mId;
+	}
+
+	static void hook_LoadPackage(void* this_, sgg::HashGuid packageName, sgg::PackageGroup group)
+	{
+		std::scoped_lock l(g_load_packages_overrides_mutex);
+
+		// Example logs: 
+		// NikkelM-ColouredBiomeMap
+		// MainMenu
+		// Launch
+		// GUI
+		//LOG(ERROR) << get_string_from_hash_guid(packageName.mId);
+
+		auto it = g_load_packages_overrides.find(packageName.mId);
+		if (it != g_load_packages_overrides.end())
+		{
+			for (const auto p : it->second)
+			{
+				big::g_hooking->get_original<hook_LoadPackage>()(this_, sgg::HashGuid{.mId = p}, group);
+			}
+		}
+		else
+		{
+			big::g_hooking->get_original<hook_LoadPackage>()(this_, packageName, group);
+		}
+	}
+
+	// Lua API: Function
+	// Table: data
+	// Name: load_package_overrides_get
+	// Param: hash_guid: number: The HashGuid to look up.
+	// Returns: table<number>: A table of HashGuid values that replace the input.
+	// Returns the override list for the given HashGuid. If LoadPackage(hash_guid)
+	// is called, each HashGuid in this list will be loaded instead.
+	sol::table load_package_overrides_get(lua_Number hash_guid)
+	{
+		std::scoped_lock l(g_load_packages_overrides_mutex);
+
+		auto res = sol::table(big::g_lua_manager->lua_state(), sol::create);
+
+		for (const auto id : g_load_packages_overrides[(HashGuidIdType)hash_guid])
+		{
+			res.add((lua_Number)id);
+		}
+
+		return res;
+	}
+
+	// Lua API: Function
+	// Table: data
+	// Name: load_package_overrides_set
+	// Param: hash_guid: number: The original HashGuid that will be replaced.
+	// Param: hash_guid_table_override: table<number>: List of HashGuid values that should be used instead.
+	// Defines an override list for a given HashGuid. When LoadPackage(hash_guid)
+	// is called, it will instead load each HashGuid listed in the override table.
+	// 	
+	// **Example Usage:**
+	// ```lua
+	// local gui_hash = rom.data.get_hash_guid_from_string("GUI")
+	// local some_custom_hash = rom.data.get_hash_guid_from_string("NikkelM-ColouredBiomeMap")
+	// rom.data.load_package_overrides_set(gui_hash, {gui_hash, some_custom_hash})
+	// ```
+	void load_package_overrides_set(lua_Number hash_guid, sol::table overrides)
+	{
+		std::scoped_lock l(g_load_packages_overrides_mutex);
+
+		std::stringstream ss;
+
+		ss << "Overrides for " << (HashGuidIdType)hash_guid << "(" << get_string_from_hash_guid(hash_guid) << ")"
+		   << ": ";
+
+		bool first = true;
+
+		for (const auto& [k, v] : overrides)
+		{
+			if (v.is<lua_Number>())
+			{
+				const auto id = (HashGuidIdType)v.as<lua_Number>();
+				g_load_packages_overrides[hash_guid].push_back(id);
+
+				if (!first)
+				{
+					ss << ", ";
+				}
+				first = false;
+
+				ss << id;
+			}
+		}
+
+		LOG(INFO) << ss.str();
+	}
+
 	static std::recursive_mutex g_FileStream_to_filename_mutex;
 	static std::unordered_map<void*, std::filesystem::path> g_FileStream_to_filename;
 
@@ -213,18 +346,6 @@ namespace lua::hades::data
 		}
 	}
 
-	// Lua API: Function
-	// Table: data
-	// Name: get_string_from_hash_guid
-	// Param: hash_guid: integer: Hash value.
-	// Returns: string: Returns the string corresponding to the provided hash value.
-	const char* get_string_from_hash_guid(unsigned int hash_guid)
-	{
-		static auto gStringBuffer = *big::hades2_symbol_to_address["sgg::HashGuid::gStringBuffer"].as<const char**>();
-
-		return &gStringBuffer[hash_guid];
-	}
-
 	static bool contains_byte_sequence(std::ifstream& file, std::span<const char> sequence)
 	{
 		if (!file.is_open())
@@ -268,6 +389,12 @@ namespace lua::hades::data
 		}
 
 		{
+			//static auto LoadPackage = big::hades2_symbol_to_address["sgg::GameAssetManager::LoadPackage"].as_func<void(void*, sgg::HashGuid, sgg::PackageGroup)>();
+
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_LoadPackage>("hook_LoadPackage", big::hades2_symbol_to_address["sgg::GameAssetManager::LoadPackage"]);
+		}
+
+		{
 			static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
 			if (fsAppendPathComponent_ptr)
 			{
@@ -283,7 +410,12 @@ namespace lua::hades::data
 		auto ns = lua_ext.create_named("data");
 		ns.set_function("on_sjson_read_as_string", sol::overload(on_sjson_read_as_string_no_path_filter, on_sjson_read_as_string_with_path_filter));
 		ns.set_function("reload_game_data", reload_game_data);
+
 		ns.set_function("get_string_from_hash_guid", get_string_from_hash_guid);
+		ns.set_function("get_hash_guid_from_string", get_hash_guid_from_string);
+
+		ns.set_function("load_package_overrides_get", load_package_overrides_get);
+		ns.set_function("load_package_overrides_set", load_package_overrides_set);
 
 		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
 		// Lua API: Function
