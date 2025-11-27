@@ -19,4 +19,3 @@ endforeach()
 if(NOT LOVELY_LIB)
     message(FATAL_ERROR "Could not find lovely_lib static library in any of the expected locations")
 endif()
-
