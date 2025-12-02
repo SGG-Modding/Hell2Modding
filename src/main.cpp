@@ -2656,6 +2656,14 @@ extern "C" __declspec(dllexport) void my_main()
 #endif
 
 	static auto thread_pool_instance = std::make_unique<thread_pool>();
+	static struct thread_pool
+	{
+		~thread_pool()
+		{
+			thread_pool_instance->destroy();
+		}
+	} g_thread_pool_cleanup;
+
 	LOG(INFO) << "Thread pool initialized.";
 
 	static auto byte_patch_manager_instance = std::make_unique<byte_patch_manager>();
