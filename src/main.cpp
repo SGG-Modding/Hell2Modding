@@ -1339,6 +1339,37 @@ static void ForceWrite(T &dst, const T &src)
 	::VirtualProtect(&dst, sizeof(T), old_flag, &old_flag);
 }
 
+static void* (*g_sgg_GameDataManager_GetUnitData)(sgg::HashGuid) = nullptr;
+static decltype(sgg::HashGuid::mId) (*g_sgg_HashGuid_StringIntern)(const char*, size_t) = nullptr;
+static const char *(*g_sgg_LuaTableExtensions_String)(void *, const char *, const char *) = nullptr;
+
+static float hook_sgg_ScriptAction_SpawnUnit(void* args)
+{
+	const auto name_str = g_sgg_LuaTableExtensions_String(args, "Name", 0);
+	if (!name_str)
+	{
+		return -1.0f;
+	}
+	const auto unit_data_name = g_sgg_HashGuid_StringIntern(name_str, 0);
+	if (!unit_data_name)
+	{
+		LOG(ERROR) << "Failed to intern unit data name string: " << name_str;
+
+		return -1.0f;
+	}
+	const auto unit_data = g_sgg_GameDataManager_GetUnitData(sgg::HashGuid{.mId = unit_data_name});
+	if (!unit_data)
+	{
+		LOG(ERROR) << "Failed to get unit data for name: " << name_str;
+
+		return -1.0f;
+	}
+
+	//LOG(INFO) << "Spawning unit: " << name_str << " (HashGuid: " << std::hex << unit_data_name << std::dec << ")";
+
+	return big::g_hooking->get_original<hook_sgg_ScriptAction_SpawnUnit>()(args);
+}
+
 static void hook_PlayerHandleInput(void *this_, float elapsedSeconds, void *input)
 {
 	static auto jump_stuff = gmAddress::scan("74 7C 38 05").as<uint8_t *>();
@@ -2476,6 +2507,15 @@ extern "C" __declspec(dllexport) void my_main()
 			    read_anim_data);
 		}
 	}
+
+	{
+		g_sgg_GameDataManager_GetUnitData = big::hades2_symbol_to_address["sgg::GameDataManager::GetUnitData"].as<decltype(g_sgg_GameDataManager_GetUnitData)>();
+		g_sgg_HashGuid_StringIntern = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"].as<decltype(g_sgg_HashGuid_StringIntern)>();
+		g_sgg_LuaTableExtensions_String = big::hades2_symbol_to_address["sgg::LuaTableExtensions::String"].as<decltype(g_sgg_LuaTableExtensions_String)>();
+
+		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_ScriptAction_SpawnUnit>("", big::hades2_symbol_to_address["sgg::ScriptAction::SpawnUnit"]);
+	}
+
 
 	{
 		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
