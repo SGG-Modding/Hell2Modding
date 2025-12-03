@@ -107,6 +107,10 @@ namespace lua::hades::gpk
 		for (const auto &entry : entries)
 		{
 			std::filesystem::path outPath = output_folder / entry.name;
+			if (outPath.extension() != ".gr2")
+			{
+				outPath += ".gr2";
+			}
 
 			// Ensure parent directory exists (in case names contain subdirs)
 			if (outPath.has_parent_path())
