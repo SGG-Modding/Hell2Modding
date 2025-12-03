@@ -18,7 +18,7 @@ namespace sgg
 		Level   = 0x1,
 		Base    = 0x2,
 	};
-}
+} // namespace sgg
 
 namespace lua::hades::data
 {
@@ -27,8 +27,6 @@ namespace lua::hades::data
 	using HashGuidIdType = decltype(sgg::HashGuid::mId);
 
 	static ankerl::unordered_dense::map<HashGuidIdType, std::vector<HashGuidIdType>> g_load_packages_overrides;
-
-	static constexpr size_t g_size_multiplier_for_sjson_patches = 8;
 
 	// Lua API: Function
 	// Table: data
@@ -60,7 +58,7 @@ namespace lua::hades::data
 	{
 		std::scoped_lock l(g_load_packages_overrides_mutex);
 
-		// Example logs: 
+		// Example logs:
 		// NikkelM-ColouredBiomeMap
 		// MainMenu
 		// Launch
@@ -88,7 +86,7 @@ namespace lua::hades::data
 	// Returns: table<number>: A table of HashGuid values that replace the input.
 	// Returns the override list for the given HashGuid. If LoadPackage(hash_guid)
 	// is called, each HashGuid in this list will be loaded instead.
-	sol::table load_package_overrides_get(lua_Number hash_guid)
+	static sol::table load_package_overrides_get(lua_Number hash_guid)
 	{
 		std::scoped_lock l(g_load_packages_overrides_mutex);
 
@@ -109,14 +107,14 @@ namespace lua::hades::data
 	// Param: hash_guid_table_override: table<number>: List of HashGuid values that should be used instead.
 	// Defines an override list for a given HashGuid. When LoadPackage(hash_guid)
 	// is called, it will instead load each HashGuid listed in the override table.
-	// 	
+	//
 	// **Example Usage:**
 	// ```lua
 	// local gui_hash = rom.data.get_hash_guid_from_string("GUI")
 	// local some_custom_hash = rom.data.get_hash_guid_from_string("NikkelM-ColouredBiomeMap")
 	// rom.data.load_package_overrides_set(gui_hash, {gui_hash, some_custom_hash})
 	// ```
-	void load_package_overrides_set(lua_Number hash_guid, sol::table overrides)
+	static void load_package_overrides_set(lua_Number hash_guid, sol::table overrides)
 	{
 		std::scoped_lock l(g_load_packages_overrides_mutex);
 
@@ -147,74 +145,78 @@ namespace lua::hades::data
 		LOG(INFO) << ss.str();
 	}
 
-	static std::recursive_mutex g_FileStream_to_filename_mutex;
-	static std::unordered_map<void*, std::filesystem::path> g_FileStream_to_filename;
-
-	static void* g_original_GetFileSize = nullptr;
-	static void* g_current_file_stream  = nullptr;
+	static std::unordered_map<void*, std::filesystem::path> g_sjson_FileStream_to_filepath;
+	static constexpr size_t g_sjson_size_multiplier_for_patches = 8;
 
 	static size_t hook_FileStreamGetFileSize(uintptr_t pFile)
 	{
-		std::scoped_lock l2(g_FileStream_to_filename_mutex);
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 
 		// that offset can be asserted inside PlatformOpenFile at the bottom
 		auto size = *(size_t*)(pFile + 0x20);
 
-		// Used for allocating the output buffer and the Read call.
-		auto it = g_FileStream_to_filename.find((void*)pFile);
-		if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
+		// The returned size is used after for allocating the output buffer and the Read call.
+		auto it = g_sjson_FileStream_to_filepath.find((void*)pFile);
+		if (it != g_sjson_FileStream_to_filepath.end())
 		{
-			size *= g_size_multiplier_for_sjson_patches;
+			size *= g_sjson_size_multiplier_for_patches;
 		}
 
 		return size;
 	}
 
-	static void hook_fsAppendPathComponent(const char* basePath, const char* pathComponent, char* output /*size: 512*/)
-	{
-		big::g_hooking->get_original<hook_fsAppendPathComponent>()(basePath, pathComponent, output);
-
-		if (g_current_file_stream && output)
-		{
-			std::filesystem::path output_ = output;
-			if (output_.is_absolute() && std::filesystem::exists(output_))
-			{
-				std::scoped_lock l(g_FileStream_to_filename_mutex);
-
-				g_FileStream_to_filename[g_current_file_stream] = output_;
-			}
-		}
-	}
+	static void* g_current_file_stream = nullptr;
 
 	static constexpr size_t g_GetFileSize_index = 7;
 
-	static bool hook_PlatformOpenFile(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
+	static bool hook_sgg_PlatformFile_CreateStreamWithRetry(int32_t resourceDir, const char* fileName, int32_t mode, void* file_stream)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		g_current_file_stream = file_stream;
 
+		const auto res = big::g_hooking->get_original<hook_sgg_PlatformFile_CreateStreamWithRetry>()(resourceDir, fileName, mode, file_stream);
+
+		g_current_file_stream = nullptr;
+
+		return res;
+	}
+
+	static bool hook_PlatformOpenFile(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
+	{
 		const auto res = big::g_hooking->get_original<hook_PlatformOpenFile>()(resourceDir, fileName, mode, file_stream);
 		if (res)
 		{
 			// We need to hook IFileSystem::GetFileSize too because the buffer is preallocated through malloc before the Read call happens.
-			// This is dirty as hell but we'll just multiply the size with g_size_multiplier_for_sjson_patches as I don't think
+			// This is dirty as hell but we'll just multiply the size with g_sjson_size_multiplier_for_patches as I don't think
 			// it's possible to know in advance what our patches to the game files will do to the file size.
 			// TODO: There seems to be some threading issues as users are reporting the message box appearing randomly
 			{
 				// Index can be found in Local Types
 				// struct IFileSystem
 				// XREF: .data:gSystemFileIO
-				void** FileStream_vtable = *(void***)file_stream;
-				if (g_original_GetFileSize == nullptr)
-				{
-					g_original_GetFileSize = FileStream_vtable[g_GetFileSize_index];
-				}
+				void** FileStream_vtable               = *(void***)file_stream;
 				FileStream_vtable[g_GetFileSize_index] = hook_FileStreamGetFileSize;
 			}
 		}
 
-		g_current_file_stream = nullptr;
-
 		return res;
+	}
+
+	static void hook_fsAppendPathComponent(const char* basePath, const char* pathComponent, char* output /*size: 512*/)
+	{
+		big::g_hooking->get_original<hook_fsAppendPathComponent>()(basePath, pathComponent, output);
+
+		if (output && g_current_file_stream)
+		{
+			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
+			std::filesystem::path output_ = output;
+			if (output_.is_absolute() && std::filesystem::exists(output_) && output_.extension() == ".sjson")
+			{
+				g_sjson_FileStream_to_filepath[g_current_file_stream] = output_;
+			}
+		}
 	}
 
 	static bool check_path(const std::filesystem::path& firstPath, const std::filesystem::path& secondPath)
@@ -230,18 +232,18 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
-			std::scoped_lock l(g_FileStream_to_filename_mutex);
-
-			it = g_FileStream_to_filename.find(file_stream);
-			if (it != g_FileStream_to_filename.end() && it->second.extension() == ".sjson")
+			it = g_sjson_FileStream_to_filepath.find(file_stream);
+			if (it != g_sjson_FileStream_to_filepath.end())
 			{
 				// The actual size of the buffer in this case is half.
-				bufferSizeInBytes /= g_size_multiplier_for_sjson_patches;
+				bufferSizeInBytes /= g_sjson_size_multiplier_for_patches;
 				is_game_data       = true;
 			}
 		}
@@ -254,7 +256,6 @@ namespace lua::hades::data
 			std::string new_string;
 			bool assigned_new_string = false;
 
-			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 			for (const auto& mod_ : big::g_lua_manager->m_modules)
 			{
 				auto mod = (big::lua_module_ext*)mod_.get();
@@ -277,14 +278,16 @@ namespace lua::hades::data
 
 								//LOG(INFO) << (char*)it->second.u8string().c_str() << " | " << new_string.size() << " | orig: " << bufferSizeInBytes << " | " << new_string;
 
-								if (bufferSizeInBytes * g_size_multiplier_for_sjson_patches < new_string.size())
+								LOG(DEBUG) << "Applying SJSON on read callback for file: " << (char*)it->second.u8string().c_str() << " from mod: " << mod->guid();
+
+								if (bufferSizeInBytes * g_sjson_size_multiplier_for_patches < new_string.size())
 								{
 									std::stringstream ss;
 									ss << "SJSON mod patches won't work correctly because of my bad coding, please "
 									      "make an "
 									      "issue on the Hell2Modding repo, make sure to pass this info: Original file "
 									      "size "
-									   << bufferSizeInBytes << " | New size: " << bufferSizeInBytes * g_size_multiplier_for_sjson_patches
+									   << bufferSizeInBytes << " | New size: " << bufferSizeInBytes * g_sjson_size_multiplier_for_patches
 									   << " | Needed size for patch: " << new_string.size()
 									   << " | filename: " << (char*)it->second.u8string().c_str();
 									MessageBoxA(0, ss.str().c_str(), "Hell2Modding", 0);
@@ -302,12 +305,6 @@ namespace lua::hades::data
 				memcpy(outputBuffer, new_string.data(), new_string.size());
 				size_read = new_string.size();
 			}
-
-			if (g_original_GetFileSize != nullptr)
-			{
-				void** FileStream_vtable             = *(void***)file_stream;
-				FileStream_vtable[g_GetFileSize_index] = g_original_GetFileSize;
-			}
 		}
 
 		return size_read;
@@ -320,6 +317,8 @@ namespace lua::hades::data
 	// Param: file_path_being_read: string: optional. Use only if you want your lua function to be called for a given file_path.
 	static void on_sjson_read_as_string_no_path_filter(sol::protected_function func, sol::this_environment env)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		auto mod = (big::lua_module_ext*)big::lua_module::this_from(env);
 		if (mod)
 		{
@@ -329,6 +328,8 @@ namespace lua::hades::data
 
 	static void on_sjson_read_as_string_with_path_filter(sol::protected_function func, const std::string& file_path_being_read, sol::this_environment env)
 	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 		auto mod = (big::lua_module_ext*)big::lua_module::this_from(env);
 		if (mod)
 		{
@@ -341,7 +342,7 @@ namespace lua::hades::data
 	// Name: reload_game_data
 	static void reload_game_data()
 	{
-		static auto read_game_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadGameData"];
+		static gmAddress read_game_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadGameData"];
 		if (read_game_data_ptr)
 		{
 			static auto f = read_game_data_ptr.as_func<void()>();
@@ -384,21 +385,18 @@ namespace lua::hades::data
 	void bind(sol::state_view& state, sol::table& lua_ext)
 	{
 		{
-			static auto hook_open =
-			    big::hooking::detour_hook_helper::add<hook_PlatformOpenFile>("hook_PlatformOpenFile", big::hades2_symbol_to_address["PlatformOpenFile"]);
-		}
-		{
-			static auto hook_read = big::hooking::detour_hook_helper::add<hook_FileStreamRead>("hook_FileStreamRead", big::hades2_symbol_to_address["FileStreamRead"]);
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_sgg_PlatformFile_CreateStreamWithRetry>("", big::hades2_symbol_to_address["sgg::PlatformFile::CreateStreamWithRetry"]);
 		}
 
 		{
-			//static auto LoadPackage = big::hades2_symbol_to_address["sgg::GameAssetManager::LoadPackage"].as_func<void(void*, sgg::HashGuid, sgg::PackageGroup)>();
-
-			static auto hook_ = big::hooking::detour_hook_helper::add<hook_LoadPackage>("hook_LoadPackage", big::hades2_symbol_to_address["sgg::GameAssetManager::LoadPackage"]);
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_PlatformOpenFile>("hook_PlatformOpenFile", big::hades2_symbol_to_address["PlatformOpenFile"]);
+		}
+		{
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_FileStreamRead>("hook_FileStreamRead", big::hades2_symbol_to_address["FileStreamRead"]);
 		}
 
 		{
-			static auto fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
+			static gmAddress fsAppendPathComponent_ptr = big::hades2_symbol_to_address["fsAppendPathComponent"];
 			if (fsAppendPathComponent_ptr)
 			{
 				static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char*, const char*, char*)>();
@@ -408,6 +406,10 @@ namespace lua::hades::data
 			{
 				LOG(ERROR) << "fsAppendPathComponent hook failure";
 			}
+		}
+
+		{
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_LoadPackage>("hook_LoadPackage", big::hades2_symbol_to_address["sgg::GameAssetManager::LoadPackage"]);
 		}
 
 		auto ns = lua_ext.create_named("data");
