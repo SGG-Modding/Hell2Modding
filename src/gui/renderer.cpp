@@ -263,6 +263,25 @@ namespace big
 {
 	static LRESULT static_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	{
+		switch (msg)
+		{
+		case WM_CLOSE:
+		case WM_DESTROY:
+		case WM_QUIT:
+		{
+			TerminateProcess(GetCurrentProcess(), 0);
+			return 0;
+		}
+
+		case WM_SYSKEYDOWN:
+			if (wparam == VK_F4 && (GetKeyState(VK_MENU) & 0x80'00))
+			{
+				TerminateProcess(GetCurrentProcess(), 0);
+				return 0;
+			}
+			break;
+		}
+
 		if (g_running)
 		{
 			g_renderer->wndproc(hwnd, msg, wparam, lparam);

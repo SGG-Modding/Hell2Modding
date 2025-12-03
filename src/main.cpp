@@ -1370,6 +1370,12 @@ static float hook_sgg_ScriptAction_SpawnUnit(void* args)
 	return big::g_hooking->get_original<hook_sgg_ScriptAction_SpawnUnit>()(args);
 }
 
+static void hook_sgg_IrisMainApp_Exit(void* this_)
+{
+	// hack for speeding up process termination
+	TerminateProcess(GetCurrentProcess(), 0);
+}
+
 static void hook_PlayerHandleInput(void *this_, float elapsedSeconds, void *input)
 {
 	static auto jump_stuff = gmAddress::scan("74 7C 38 05").as<uint8_t *>();
@@ -2516,6 +2522,11 @@ extern "C" __declspec(dllexport) void my_main()
 		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_ScriptAction_SpawnUnit>("", big::hades2_symbol_to_address["sgg::ScriptAction::SpawnUnit"]);
 	}
 
+	{
+		// Fast app close.
+
+		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_sgg_IrisMainApp_Exit>("", big::hades2_symbol_to_address["sgg::IrisMainApp::Exit"]);
+	}
 
 	{
 		static auto hook_ = hooking::detour_hook_helper::add_queue<hook_PlayerHandleInput>("Player HandleInput Hook", big::hades2_symbol_to_address["sgg::Player::HandleInput"]);
