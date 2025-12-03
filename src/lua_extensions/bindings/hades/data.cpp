@@ -182,6 +182,19 @@ namespace lua::hades::data
 		return res;
 	}
 
+		static bool hook_sgg_PlatformFile_CreateStream(int32_t resourceDir, const char* fileName, int32_t mode, void* file_stream)
+	{
+		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
+		g_current_file_stream = file_stream;
+
+		const auto res = big::g_hooking->get_original<hook_sgg_PlatformFile_CreateStream>()(resourceDir, fileName, mode, file_stream);
+
+		g_current_file_stream = nullptr;
+
+		return res;
+	}
+
 	static bool hook_PlatformOpenFile(int64_t resourceDir, const char* fileName, int64_t mode, void* file_stream)
 	{
 		const auto res = big::g_hooking->get_original<hook_PlatformOpenFile>()(resourceDir, fileName, mode, file_stream);
@@ -386,6 +399,10 @@ namespace lua::hades::data
 	{
 		{
 			static auto hook_ = big::hooking::detour_hook_helper::add<hook_sgg_PlatformFile_CreateStreamWithRetry>("", big::hades2_symbol_to_address["sgg::PlatformFile::CreateStreamWithRetry"]);
+		}
+
+		{
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_sgg_PlatformFile_CreateStream>("", big::hades2_symbol_to_address["sgg::PlatformFile::CreateStream"]);
 		}
 
 		{
