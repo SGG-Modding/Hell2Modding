@@ -222,11 +222,11 @@ namespace lua::hades::data
 
 		if (output && g_current_file_stream)
 		{
-			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
-
 			std::filesystem::path output_ = output;
-			if (output_.is_absolute() && std::filesystem::exists(output_) && output_.extension() == ".sjson")
+			if (output_.extension() == ".sjson")
 			{
+				std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+
 				g_sjson_FileStream_to_filepath[g_current_file_stream] = output_;
 			}
 		}
@@ -245,19 +245,25 @@ namespace lua::hades::data
 
 	static size_t hook_FileStreamRead(void* file_stream, void* outputBuffer, size_t bufferSizeInBytes)
 	{
-		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+		std::unique_lock l(big::lua_manager_extension::g_manager_mutex, std::defer_lock);
 
 		std::unordered_map<void*, std::filesystem::path>::iterator it;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
+			l.lock();
+
 			it = g_sjson_FileStream_to_filepath.find(file_stream);
 			if (it != g_sjson_FileStream_to_filepath.end())
 			{
 				// The actual size of the buffer in this case is half.
 				bufferSizeInBytes /= g_sjson_size_multiplier_for_patches;
 				is_game_data       = true;
+			}
+			else
+			{
+				l.unlock();
 			}
 		}
 
