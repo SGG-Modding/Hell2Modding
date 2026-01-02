@@ -246,6 +246,13 @@ namespace big
 					ImGui::EndMenu();
 				}
 
+				if (ImGui::BeginMenu("Config"))
+				{
+					toml_v2::config_file::imgui_config_file();
+
+					ImGui::EndMenu();
+				}
+
 				if (ImGui::BeginMenu("Keybinds"))
 				{
 					ImGui::Checkbox("Enable Vanilla Debug Keybinds", &lua::hades::inputs::enable_vanilla_debug_keybinds);
