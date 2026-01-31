@@ -88,8 +88,8 @@ set_target_properties(Hell2Modding
 if(MSVC AND FINAL)
     target_compile_options(Hell2Modding
         PUBLIC
-            $<$<CONFIG:Release>:/Ob3> # Aggresive inlining (Release)
-            $<$<CONFIG:RelWithDebInfo>:/Ob3> # Aggresive inlining (RelWithDebInfo)
+            $<$<CONFIG:Release>:/Ob3> # Aggressive inlining (Release)
+            $<$<CONFIG:RelWithDebInfo>:/Ob3> # Aggressive inlining (RelWithDebInfo)
             /Oi # Enable intrinsics
             /Ot # Favor fast code
             /fp:fast # -ffast-math (fused multiply-add if the arch allows)
