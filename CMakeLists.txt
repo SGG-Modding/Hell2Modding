@@ -10,7 +10,7 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-message("\nFetching modules")
+message(STATUS "\nFetching modules")
 include(cmake_scripts/capstone.cmake)
 include(cmake_scripts/eastl.cmake)
 include(cmake_scripts/git.cmake)
@@ -23,6 +23,7 @@ include(cmake_scripts/safetyhook.cmake)
 include(cmake_scripts/tolk.cmake)
 
 message(STATUS "Hell2Modding")
+
 file(GLOB_RECURSE SRC_MAIN
     "${SRC_DIR}/**.hpp"
     "${SRC_DIR}/**.h"
@@ -34,41 +35,59 @@ file(GLOB_RECURSE SRC_MAIN
     "${SRC_DIR}/**.rc"
 )
 
-add_compile_options(/bigobj)
-add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-
-if (FINAL)
-    add_compile_definitions(FINAL)
-endif()
-
 add_library(Hell2Modding MODULE "${SRC_MAIN}")
 
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_property(TARGET Hell2Modding PROPERTY CXX_STANDARD 23)
-
-source_group(TREE ${SRC_DIR} PREFIX "src" FILES ${SRC_MAIN})
-
-target_include_directories(Hell2Modding PRIVATE
-    "${SRC_DIR}"
-    "${eastl_SOURCE_DIR}/include"
-    "${tolk_SOURCE_DIR}/include"
-    "${lpeg_SOURCE_DIR}"
-    "${luasocket_SOURCE_DIR}/src"
-    "${raw_pdb_SOURCE_DIR}/src"
-    "${capstone_SOURCE_DIR}/include/"
+target_compile_options(Hell2Modding
+    PUBLIC
+        $<$<OR:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>:/bigobj;/utf-8>
 )
+
+target_compile_features(Hell2Modding PRIVATE cxx_std_23)
+
+# Visual Studio IDE specifics
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+source_group(
+    TREE ${SRC_DIR} 
+    PREFIX "src" 
+    FILES ${SRC_MAIN}
+)
+
+target_include_directories(Hell2Modding PRIVATE ${SRC_DIR})
 
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
 
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis ${LOVELY_LIB} userenv ntdll)
+target_link_libraries(Hell2Modding 
+    PRIVATE 
+        ReturnOfModdingBase 
+        dxgi 
+        dxguid 
+        Tolk 
+        lpeg_static 
+        luasocket_static 
+        wsock32 
+        ws2_32 
+        EASTL 
+        raw_pdb 
+        capstone 
+        safetyhook 
+        Zydis::Zydis 
+        ${LOVELY_LIB} 
+        userenv 
+        ntdll
+)
 
-set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
+set_target_properties(Hell2Modding
+    PROPERTIES
+        COMPILE_WARNING_AS_ERROR ON
+        OUTPUT_NAME "d3d12_"
+)
 
-add_compile_definitions(Hell2Modding
-    "_CRT_SECURE_NO_WARNINGS"
-    "NOMINMAX"
-    "WIN32_LEAN_AND_MEAN"
+target_compile_definitions(Hell2Modding
+    PUBLIC
+        $<$<BOOL:${FINAL}>:FINAL>
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 if (MSVC)
@@ -108,5 +127,3 @@ if (MSVC)
         set(CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO} /PDBALTPATH:d3d12.pdb")
     endif()
 endif()
-
-set_target_properties(Hell2Modding PROPERTIES OUTPUT_NAME "d3d12_")
