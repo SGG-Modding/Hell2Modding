@@ -1,0 +1,71 @@
+{
+    "version": 5,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 24,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "gen-ninja",
+            "hidden": true,
+            "generator": "Ninja"
+        },
+        {
+            "name": "build-type-deb",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "build-type-rel-with-deb",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "arch_msvc_x64",
+            "hidden": true,
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            }
+        },
+        {
+            "name": "common-structure",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}"
+        },
+        {
+            "name": "x64-Release-FastCompile",
+            "inherits": [
+                "gen-ninja",
+                "build-type-rel-with-deb",
+                "arch_msvc_x64",
+                "common-structure"
+            ]
+        },
+        {
+            "name": "x64-Release-FINAL",
+            "inherits": "x64-Release-FastCompile",
+            "cacheVariables": {
+                "FINAL": {
+                    "type": "BOOL",
+                    "value": "ON"
+                }
+            }
+        },
+        {
+            "name": "x64-Debug",
+            "inherits": [
+                "gen-ninja",
+                "build-type-deb",
+                "arch_msvc_x64",
+                "common-structure"
+            ]
+        }
+    ]
+}
