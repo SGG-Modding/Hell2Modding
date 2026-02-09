@@ -1,16 +1,17 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 project(Hell2Modding CXX C ASM ASM_MASM)
 
-set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
-
-# Fetch modules
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-message("\nFetching modules")
+
+set(SRC_DIR "${PROJECT_SOURCE_DIR}/src")
+
+# Fetch modules
+message(STATUS "\nFetching modules")
 include(cmake_scripts/capstone.cmake)
 include(cmake_scripts/eastl.cmake)
 include(cmake_scripts/git.cmake)
@@ -22,7 +23,6 @@ include(cmake_scripts/rom.cmake)
 include(cmake_scripts/safetyhook.cmake)
 include(cmake_scripts/tolk.cmake)
 
-message(STATUS "Hell2Modding")
 file(GLOB_RECURSE SRC_MAIN
     "${SRC_DIR}/**.hpp"
     "${SRC_DIR}/**.h"
@@ -34,79 +34,78 @@ file(GLOB_RECURSE SRC_MAIN
     "${SRC_DIR}/**.rc"
 )
 
-add_compile_options(/bigobj)
-add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-
-if (FINAL)
-    add_compile_definitions(FINAL)
+if(CMAKE_GENERATOR MATCHES "Visual Studio|Xcode")
+    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+    source_group(
+        TREE ${SRC_DIR} 
+        PREFIX "src" 
+        FILES ${SRC_MAIN}
+    )
 endif()
 
+message(STATUS "Hell2Modding")
 add_library(Hell2Modding MODULE "${SRC_MAIN}")
 
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_property(TARGET Hell2Modding PROPERTY CXX_STANDARD 23)
-
-source_group(TREE ${SRC_DIR} PREFIX "src" FILES ${SRC_MAIN})
-
-target_include_directories(Hell2Modding PRIVATE
-    "${SRC_DIR}"
-    "${eastl_SOURCE_DIR}/include"
-    "${tolk_SOURCE_DIR}/include"
-    "${lpeg_SOURCE_DIR}"
-    "${luasocket_SOURCE_DIR}/src"
-    "${raw_pdb_SOURCE_DIR}/src"
-    "${capstone_SOURCE_DIR}/include/"
+target_compile_options(Hell2Modding
+    PUBLIC
+        $<$<OR:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>:/bigobj;/utf-8>
 )
-
+target_compile_features(Hell2Modding PRIVATE cxx_std_23)
+target_compile_definitions(Hell2Modding
+    PUBLIC
+        $<$<BOOL:${FINAL}>:FINAL>
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
 target_precompile_headers(Hell2Modding PRIVATE "${SRC_DIR}/common.hpp")
-
-target_link_libraries(Hell2Modding PRIVATE ReturnOfModdingBase dxgi dxguid Tolk lpeg_static luasocket_static wsock32 ws2_32 EASTL raw_pdb capstone-static safetyhook Zydis::Zydis ${LOVELY_LIB} userenv ntdll)
-
-set_property(TARGET Hell2Modding PROPERTY COMPILE_WARNING_AS_ERROR ON)
-
-add_compile_definitions(Hell2Modding
-    "_CRT_SECURE_NO_WARNINGS"
-    "NOMINMAX"
-    "WIN32_LEAN_AND_MEAN"
+target_include_directories(Hell2Modding PRIVATE ${SRC_DIR})
+target_link_libraries(Hell2Modding 
+    PRIVATE 
+        ReturnOfModdingBase 
+        dxgi 
+        dxguid 
+        Tolk 
+        lpeg_static 
+        luasocket_static 
+        wsock32 
+        ws2_32 
+        EASTL 
+        raw_pdb 
+        capstone 
+        safetyhook 
+        Zydis::Zydis 
+        ${LOVELY_LIB} 
+        userenv 
+        ntdll
+)
+set_target_properties(Hell2Modding
+    PROPERTIES
+        COMPILE_WARNING_AS_ERROR ON
+        OUTPUT_NAME "d3d12_"
 )
 
-if (MSVC)
-    if (FINAL)
-        # Aggresive inlining (Release)
-        string(REPLACE "Ob2" "Ob3" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-        # Aggresive inlining (RelWithDebInfo)
-        string(REPLACE "Ob1" "Ob3" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
-        # Enable intrinsics
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Oi")
-        # Favor fast code
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Ot")
-        # -ffast-math (fused multiply-add if the arch allows)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /fp:fast")
-        # Whole program optimization
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GL")
-        # Function-level linking
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Gy")
-        # Disable Buffer Security Check
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GS-")
-        # Package global data in COMDAT sections for optimization.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Gw")
+if(MSVC AND FINAL)
+    target_compile_options(Hell2Modding
+        PUBLIC
+            $<$<CONFIG:Release>:/Ob3> # Aggressive inlining (Release)
+            $<$<CONFIG:RelWithDebInfo>:/Ob3> # Aggressive inlining (RelWithDebInfo)
+            /Oi # Enable intrinsics
+            /Ot # Favor fast code
+            /fp:fast # -ffast-math (fused multiply-add if the arch allows)
+            /GL # Whole program optimization
+            /Gy # Function-level linking
+            /GS- # Disable Buffer Security Check
+            /Gw # Package global data in COMDAT sections for optimization.
+    )
 
-        # For all objects:
-        # - strip unused functions
-        # - fold identical functions
-        # - link-time code generation
-        string(REPLACE "INCREMENTAL" "INCREMENTAL:NO" CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO}")
-        string(REPLACE "INCREMENTAL" "INCREMENTAL:NO" CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO}")
-        string(REPLACE "INCREMENTAL" "INCREMENTAL:NO" CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO}")
-        set(CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} /OPT:ICF,REF /LTCG")
-        set(CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO} /OPT:ICF,REF /LTCG")
-        set(CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO} /OPT:ICF,REF /LTCG")
-
-        set(CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} /PDBALTPATH:d3d12.pdb")
-        set(CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO} /PDBALTPATH:d3d12.pdb")
-        set(CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO} /PDBALTPATH:d3d12.pdb")
-    endif()
+    target_link_options(Hell2Modding
+        PUBLIC
+            $<$<CONFIG:RelWithDebInfo>:
+                /INCREMENTAL:NO # Disable incremental linking for space 
+                /OPT:ICF,REF # Strip unused functions and fold identical ones
+                /LTCG # Link-time code generation
+                /PDBALTPATH:d3d12.pdb # Provide alternate PDB path
+            >
+    )
 endif()
-
-set_target_properties(Hell2Modding PROPERTIES OUTPUT_NAME "d3d12_")

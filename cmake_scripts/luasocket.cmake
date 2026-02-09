@@ -26,25 +26,32 @@ set(FILES
     ${luasocket_SOURCE_DIR}/src/mime.c
 )
 
-set(CMAKE_SHARED_LIBRARY_PREFIX "")
 add_library(luasocket_static STATIC ${FILES})
-set_target_properties(luasocket_static PROPERTIES OUTPUT_NAME "luasocket")
 
-if (WIN32)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-endif ()
+target_compile_definitions(luasocket_static PUBLIC $<$<BOOL:${WIN32}>:_CRT_SECURE_NO_WARNINGS>)
 
 find_package(Lua)
-if (LUA_FOUND)
-    target_link_libraries(luasocket_static PRIVATE ${LUA_LIBRARIES} wsock32 ws2_32)
-    target_include_directories(luasocket_static PRIVATE ${LUA_INCLUDE_DIR})
-else()
-    target_link_libraries(luasocket_static PRIVATE lua_static wsock32 ws2_32)
-endif()
 
-set_target_properties(luasocket_static PROPERTIES OUTPUT_NAME luasocket)
-set_target_properties(luasocket_static PROPERTIES PREFIX "")
+target_link_libraries(luasocket_static 
+    PRIVATE 
+        $<IF:$<BOOL:${LUA_FOUND}>,${LUA_LIBRARIES},lua_static> 
+        wsock32 
+        ws2_32
+)
+
+target_include_directories(luasocket_static
+    PUBLIC
+        ${luasocket_SOURCE_DIR}/src
+    PRIVATE 
+        $<$<BOOL:${LUA_FOUND}>:${LUA_INCLUDE_DIR}> # FIXME: It'd be better if lua_static did populate its INTERFACE_INCLUDE_DIRECTORIES property instead
+)
+
+set_target_properties(luasocket_static 
+    PROPERTIES 
+        OUTPUT_NAME luasocket
+        PREFIX ""
+)
+
 install(
     TARGETS luasocket_static
     RENAME luasocket
