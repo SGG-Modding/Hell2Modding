@@ -24,9 +24,9 @@ namespace big
 		gui& operator=(gui&&) noexcept = delete;
 
 		bool is_open();
-		void toggle(bool toggle);
+		static void toggle(bool toggle);
 
-		ImGuiMouseCursor m_mouse_cursor = ImGuiMouseCursor_Arrow;
+		ImGuiMouseCursor g_mouse_cursor = ImGuiMouseCursor_Arrow;
 
 		void dx_init();
 		void dx_on_tick();
@@ -39,20 +39,21 @@ namespace big
 
 		void wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
-	private:
-		void toggle_mouse();
-
-		std::filesystem::path m_file_path;
-		toml::table m_table;
-		void init_pref();
-		void save_pref();
+		static void init_pref();
 
 	private:
-		bool m_is_open;
-		toml::node* m_is_open_at_startup;
-		toml::node* m_onboarded;
+		static void toggle_mouse();
 
-		ImGuiStyle m_default_config;
+	private:
+		static bool g_is_open;
+
+		static std::filesystem::path g_pref_file_path;
+		static toml::table g_pref_table;
+		static toml::node* g_pref_is_open_at_startup;
+		static toml::node* g_pref_onboarded;
+		static void save_pref();
+
+		ImGuiStyle m_default_style;
 	};
 
 	inline gui* g_gui;

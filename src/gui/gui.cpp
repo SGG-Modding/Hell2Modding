@@ -18,9 +18,15 @@
 
 namespace big
 {
+	bool gui::g_is_open = false;
+	std::filesystem::path gui::g_pref_file_path{};
+	toml::table gui::g_pref_table{};
+	toml::node* gui::g_pref_is_open_at_startup{nullptr};
+	toml::node* gui::g_pref_onboarded{nullptr};
+
 	gui::gui()
 	{
-		init_pref();
+		toggle(g_pref_is_open_at_startup->ref<bool>());
 
 		g_renderer->add_dx_callback({[this]
 		                             {
@@ -51,12 +57,12 @@ namespace big
 
 	bool gui::is_open()
 	{
-		return m_is_open;
+		return g_is_open;
 	}
 
 	void gui::toggle(bool toggle)
 	{
-		m_is_open = toggle;
+		g_is_open = toggle;
 
 		toggle_mouse();
 	}
@@ -170,7 +176,7 @@ namespace big
 
 		g_lua_manager->always_draw_independent_gui();
 
-		if (!m_onboarded->ref<bool>())
+		if (!g_pref_onboarded->ref<bool>())
 		{
 			static bool onboarding_open = false;
 			if (!onboarding_open)
@@ -208,7 +214,7 @@ namespace big
 
 				if (ImGui::Button("Close"))
 				{
-					m_onboarded->ref<bool>() = true;
+					g_pref_onboarded->ref<bool>() = true;
 					save_pref();
 					ImGui::CloseCurrentPopup();
 				}
@@ -217,14 +223,14 @@ namespace big
 			}
 		}
 
-		if (m_is_open)
+		if (g_is_open)
 		{
 			if (ImGui::BeginMainMenuBar())
 			{
 				ImGui::SetNextWindowSize({400.0f, 0});
 				if (ImGui::BeginMenu("GUI"))
 				{
-					if (ImGui::Checkbox("Open GUI At Startup", &m_is_open_at_startup->ref<bool>()))
+					if (ImGui::Checkbox("Open GUI At Startup", &g_pref_is_open_at_startup->ref<bool>()))
 					{
 						save_pref();
 					}
@@ -337,7 +343,7 @@ namespace big
 				ImGui::EndMainMenuBar();
 			}
 
-			ImGui::SetMouseCursor(g_gui->m_mouse_cursor);
+			ImGui::SetMouseCursor(g_gui->g_mouse_cursor);
 
 			g_lua_manager->draw_independent_gui();
 
@@ -360,12 +366,12 @@ namespace big
 
 	void gui::save_default_style()
 	{
-		memcpy(&m_default_config, &ImGui::GetStyle(), sizeof(ImGuiStyle));
+		memcpy(&m_default_style, &ImGui::GetStyle(), sizeof(ImGuiStyle));
 	}
 
 	void gui::restore_default_style()
 	{
-		memcpy(&ImGui::GetStyle(), &m_default_config, sizeof(ImGuiStyle));
+		memcpy(&ImGui::GetStyle(), &m_default_style, sizeof(ImGuiStyle));
 	}
 
 	void gui::push_theme_colors()
@@ -404,7 +410,7 @@ namespace big
 		{
 			// Persist and restore the cursor position between menu instances.
 			static POINT cursor_coords{};
-			if (g_gui->m_is_open)
+			if (g_gui->g_is_open)
 			{
 				GetCursorPos(&cursor_coords);
 			}
@@ -413,13 +419,13 @@ namespace big
 				SetCursorPos(cursor_coords.x, cursor_coords.y);
 			}
 
-			toggle(editing_gui_keybind || !m_is_open);
+			toggle(editing_gui_keybind || !g_is_open);
 			if (editing_gui_keybind)
 			{
 				editing_gui_keybind = false;
 			}
 
-			LOG(DEBUG) << "Toggled Modding GUI to: " << (m_is_open ? "visible" : "hidden");
+			LOG(DEBUG) << "Toggled Modding GUI to: " << (g_is_open ? "visible" : "hidden");
 		}
 	}
 
@@ -496,7 +502,7 @@ namespace big
 	{
 		auto& io = ImGui::GetIO();
 
-		if (m_is_open)
+		if (g_is_open)
 		{
 			io.MouseDrawCursor  = true;
 			io.ConfigFlags     &= ~ImGuiConfigFlags_NoMouse;
@@ -539,65 +545,88 @@ namespace big
 
 	void gui::init_pref()
 	{
-		try
+		constexpr int max_attempts = 10;
+		int attempt                = 0;
+
+		while (attempt < max_attempts)
 		{
-			const auto file_name = rom::g_project_name + '-' + rom::g_project_name + '-' + "GUI.cfg";
-			m_file_path          = g_file_manager.get_project_folder("config").get_path() / file_name;
-			if (std::filesystem::exists(m_file_path))
+			try
 			{
-				m_table = toml::parse_file(m_file_path.c_str());
-			}
+				const auto file_name = rom::g_project_name + '-' + rom::g_project_name + '-' + "GUI.cfg";
+				g_pref_file_path     = g_file_manager.get_project_folder("config").get_path() / file_name;
 
-			auto init_node = [](toml::table& table, toml::node*& node, const char* node_name, bool default_value)
-			{
-				const auto entry_doesnt_exist = !table.contains(node_name);
-				if (entry_doesnt_exist)
+				if (std::filesystem::exists(g_pref_file_path))
 				{
-					table.insert_or_assign(node_name, default_value);
+					g_pref_table = toml::parse_file(g_pref_file_path.c_str());
 				}
 
-				node = table.get(node_name);
-				if (node == nullptr)
+				auto init_node = [](toml::table& table, toml::node*& node, const char* node_name, bool default_value)
 				{
-					LOG(ERROR) << "what";
-				}
-
-				if (node == nullptr || node->type() != toml::node_type::boolean)
-				{
-					LOG(WARNING) << "Invalid serialized data. Clearing " << node_name;
-
-					table.insert_or_assign(node_name, default_value);
-					node = table.get(node_name);
-					if (node == nullptr)
+					const auto entry_doesnt_exist = !table.contains(node_name);
+					if (entry_doesnt_exist)
 					{
-						LOG(ERROR) << "what2";
+						table.insert_or_assign(node_name, default_value);
+					}
+
+					node = table.get(node_name);
+					if (!node)
+					{
+						LOG(ERROR) << "Node retrieval failed for " << node_name;
+					}
+
+					if (!node || node->type() != toml::node_type::boolean)
+					{
+						LOG(WARNING) << "Invalid serialized data. Clearing " << node_name;
+						table.insert_or_assign(node_name, default_value);
+						node = table.get(node_name);
+						if (!node)
+						{
+							LOG(ERROR) << "Node retrieval failed after reset for " << node_name;
+						}
+					}
+				};
+
+				init_node(g_pref_table, g_pref_is_open_at_startup, "is_open_at_startup", false);
+				init_node(g_pref_table, g_pref_onboarded, "onboarded", false);
+
+				save_pref();
+				return; // success, exit function
+			}
+			catch (const std::exception& e)
+			{
+				LOG(INFO) << "Failed init preferences: " << e.what();
+
+				try
+				{
+					if (std::filesystem::exists(g_pref_file_path))
+					{
+						std::filesystem::remove(g_pref_file_path);
 					}
 				}
-			};
+				catch (const std::exception& ee)
+				{
+					LOG(ERROR) << "Failed to remove corrupt config file: " << ee.what();
+				}
 
-			constexpr auto is_open_at_startup_name = "is_open_at_startup";
-			init_node(m_table, m_is_open_at_startup, is_open_at_startup_name, false);
-			constexpr auto onboarded_name = "onboarded";
-			init_node(m_table, m_onboarded, onboarded_name, false);
+				attempt++;
+				if (attempt >= max_attempts)
+				{
+					LOG(ERROR) << "Max attempts reached. Preferences initialization failed.";
+					return;
+				}
 
-			save_pref();
-
-			toggle(m_is_open_at_startup->ref<bool>());
-		}
-		catch (const std::exception& e)
-		{
-			LOG(INFO) << "Failed init hotkeys: " << e.what();
-
-			toggle(false);
+				LOG(INFO) << "Retrying initialization (" << attempt << "/" << max_attempts << ")";
+			}
 		}
 	}
 
+
 	void gui::save_pref()
 	{
-		std::ofstream file_stream(m_file_path, std::ios::out | std::ios::trunc);
+		std::ofstream file_stream(g_pref_file_path, std::ios::out | std::ios::trunc);
 		if (file_stream.is_open())
 		{
-			file_stream << m_table;
+			file_stream << g_pref_table;
 		}
 		else
 		{

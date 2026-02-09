@@ -2681,6 +2681,8 @@ extern "C" __declspec(dllexport) void my_main()
 	static auto byte_patch_manager_instance = std::make_unique<byte_patch_manager>();
 	LOG(INFO) << "Byte Patch Manager initialized.";
 
+	big::gui::init_pref();
+
 	static auto hooking_instance = std::make_unique<hooking>();
 	LOG(INFO) << "Hooking initialized.";
 
