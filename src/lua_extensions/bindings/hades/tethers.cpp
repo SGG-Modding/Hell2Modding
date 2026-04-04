@@ -197,7 +197,7 @@ namespace lua::hades::tethers
 					// ── NON-ELASTIC (CHAIN) TETHER ──
 					if (link.retract_speed <= 0.0f && link.track_z_ratio <= 0.0f)
 					{
-						// Passive anchor — still needs hard clamp
+						// Passive anchor — hard clamp only
 						if (dist > link.distance && g_shift_location)
 						{
 							float nx = dx / dist;
@@ -212,26 +212,33 @@ namespace lua::hades::tethers
 						continue;
 					}
 
-					if (dist <= link.distance)
-					{
-						continue;
-					}
-
 					float nx = dx / dist;
 					float ny = dy / dist;
-					float overshoot = dist - link.distance;
 
-					if (std::isfinite(overshoot) && g_shift_location)
+					if (dist > link.distance && g_shift_location)
 					{
-						Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
-						g_shift_location(thing, delta);
-
-						if (link.retract_speed > 0.0f)
+						// H1 CheckTether: hard clamp at Distance + cascade
+						float overshoot = dist - link.distance;
+						if (std::isfinite(overshoot))
 						{
+							Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
+							g_shift_location(thing, delta);
+
 							constexpr float CASCADE_FRACTION = 0.95f;
 							Vectormath::Vector2 cascade = {-nx * overshoot * CASCADE_FRACTION,
 							                               -ny * overshoot * CASCADE_FRACTION};
 							g_shift_location(target, cascade);
+						}
+					}
+					else if (dist > link.distance * 0.65f && g_shift_location)
+					{
+						// H1 UpdateTethers: gradual pull when beyond retract threshold
+						// Pull at retract_speed, capped to not overshoot the target
+						float pull = std::min(dist, link.retract_speed * dt);
+						Vectormath::Vector2 delta = {nx * pull, ny * pull};
+						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+						{
+							g_shift_location(thing, delta);
 						}
 					}
 				}
@@ -241,6 +248,56 @@ namespace lua::hades::tethers
 				{
 					float dz = target->mZLocation - thing->mZLocation;
 					thing->mZLocation += dz * link.track_z_ratio * dt;
+				}
+			}
+
+			// Pull from tethered_from: segments follow their predecessor (toward head).
+			// When the head moves and cascades through the chain, segments near the
+			// base may still be stacked. This pull spreads them out by following
+			// the segment closer to the head.
+			if (!data.tethered_from.empty() && g_shift_location)
+			{
+				for (int from_id : data.tethered_from)
+				{
+					auto *from_thing = get_thing(from_id);
+					if (!from_thing)
+						continue;
+
+					float fdx = from_thing->mLocation.mX - thing->mLocation.mX;
+					float fdy = from_thing->mLocation.mY - thing->mLocation.mY;
+					float fdist = sqrtf(fdx * fdx + fdy * fdy);
+
+					if (fdist > 1.0f && std::isfinite(fdist))
+					{
+						auto *from_data = get_tether_data(from_id);
+						float link_dist = 73.0f;
+						float link_retract = 500.0f;
+						if (from_data)
+						{
+							for (auto &fl : from_data->links)
+							{
+								if (fl.target_id == id)
+								{
+									link_dist = fl.distance;
+									link_retract = fl.retract_speed;
+									break;
+								}
+							}
+						}
+
+						if (fdist > link_dist * 0.65f && link_retract > 0.0f)
+						{
+							float fnx = fdx / fdist;
+							float fny = fdy / fdist;
+							float pull = std::min(fdist, link_retract * dt);
+							Vectormath::Vector2 delta = {fnx * pull, fny * pull};
+							if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+							{
+								g_shift_location(thing, delta);
+							}
+						}
+					}
+					break;
 				}
 			}
 		}
