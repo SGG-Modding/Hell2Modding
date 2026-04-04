@@ -254,7 +254,7 @@ namespace lua::hades::tethers
 						// Skip passive anchors (retract_speed=0) — base must stay fixed.
 						if (link.retract_speed > 0.0f)
 						{
-							constexpr float CASCADE_FRACTION = 0.67f;
+							constexpr float CASCADE_FRACTION = 0.95f;
 							op.cascade_target = target;
 							op.cascade_delta = {-nx * overshoot * CASCADE_FRACTION,
 							                    -ny * overshoot * CASCADE_FRACTION};
@@ -264,19 +264,34 @@ namespace lua::hades::tethers
 					}
 				}
 
-				// Z tracking (queue for application in phase 2)
-				if (link.track_z_ratio > 0.0f)
+			}
+
+			// Z tracking — uses tethered_from (toward head), NOT link target (toward base).
+			// Each segment follows the Z of the thing closer to the head, so when
+			// the head goes up during attacks, the neck segments follow it up.
+			if (!data.tethered_from.empty() && !data.links.empty())
+			{
+				float my_track_z = data.links[0].track_z_ratio;
+				if (my_track_z > 0.0f)
 				{
-					float dz = target->mZLocation - thing->mZLocation;
-					PendingOp zop{};
-					zop.thing = thing;
-					zop.shift_delta = {0.0f, 0.0f};
-					zop.cascade_target = nullptr;
-					zop.cascade_delta = {0.0f, 0.0f};
-					zop.has_z_track = true;
-					zop.z_delta = dz * link.track_z_ratio * dt;
-					zop.set_ignore_gravity = (thing->pPhysics != nullptr);
-					pending.push_back(zop);
+					for (int from_id : data.tethered_from)
+					{
+						auto *from_thing = get_thing(from_id);
+						if (!from_thing)
+							continue;
+
+						float dz = from_thing->mZLocation - thing->mZLocation;
+						PendingOp zop{};
+						zop.thing = thing;
+						zop.shift_delta = {0.0f, 0.0f};
+						zop.cascade_target = nullptr;
+						zop.cascade_delta = {0.0f, 0.0f};
+						zop.has_z_track = true;
+						zop.z_delta = dz * my_track_z * dt;
+						zop.set_ignore_gravity = false;
+						pending.push_back(zop);
+						break;
+					}
 				}
 			}
 		}
@@ -315,16 +330,9 @@ namespace lua::hades::tethers
 		}
 	}
 
-	// Periodic cleanup counter (avoid doing it every frame)
-	static int g_cleanup_counter = 0;
-	static constexpr int CLEANUP_INTERVAL = 60;
-
 	static void cleanup_stale_tethers();
 
 	// ── Hook: PhysicsSystem::UpdateThing ───────────────────────────────────
-	// Runs update_all_tethers once per frame (guarded), processing ALL
-	// tethered things including dormant obstacles the engine skips.
-
 	static char hook_PhysicsSystem_UpdateThing(void *this_, Thing_H2 *thing, float elapsedSeconds)
 	{
 		char result = big::g_hooking->get_original<hook_PhysicsSystem_UpdateThing>()(this_, thing, elapsedSeconds);
@@ -332,18 +340,12 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			// Run tether update once per frame
 			static float s_last_dt = -1.0f;
 			if (elapsedSeconds != s_last_dt)
 			{
 				s_last_dt = elapsedSeconds;
+				cleanup_stale_tethers();
 				update_all_tethers(elapsedSeconds);
-
-				if (++g_cleanup_counter >= CLEANUP_INTERVAL)
-				{
-					g_cleanup_counter = 0;
-					cleanup_stale_tethers();
-				}
 			}
 
 			// Keep tethered things physics-active
