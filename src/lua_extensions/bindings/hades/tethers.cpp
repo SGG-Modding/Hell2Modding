@@ -81,15 +81,19 @@ namespace lua::hades::tethers
 	// data in our own sidecar map keyed by Thing ID, and use the engine's
 	// ApplyForce function to apply forces (avoiding mVelocity offset issues).
 
-	struct TetherData
+	struct TetherLink
 	{
+		int target_id        = 0;
 		float distance       = 0.0f;
 		float elasticity     = 0.0f;
 		float retract_speed  = 0.0f;
 		float track_z_ratio  = 0.0f;
-		// Per-target resting angle (radians) — preserves spawn offset direction
-		std::unordered_map<int, float> rest_angles;
-		std::vector<int> tethered_to;
+		float rest_angle     = 0.0f;
+	};
+
+	struct TetherData
+	{
+		std::vector<TetherLink> links;
 		std::vector<int> tethered_from;
 	};
 
@@ -116,7 +120,7 @@ namespace lua::hades::tethers
 
 		for (auto &[id, data] : g_tether_data)
 		{
-			if (data.tethered_to.empty() || data.distance <= 0.0f)
+			if (data.links.empty())
 			{
 				continue;
 			}
@@ -127,9 +131,9 @@ namespace lua::hades::tethers
 				continue;
 			}
 
-			for (int target_id : data.tethered_to)
+			for (auto &link : data.links)
 			{
-				auto *target = get_thing(target_id);
+				auto *target = get_thing(link.target_id);
 				if (!target)
 				{
 					continue;
@@ -142,11 +146,11 @@ namespace lua::hades::tethers
 
 				if (should_log)
 				{
-					LOG(DEBUG) << "tethers: " << id << " -> " << target_id
+					LOG(DEBUG) << "tethers: " << id << " -> " << link.target_id
 					           << " pos=(" << thing->mLocation.mX << "," << thing->mLocation.mY << ")"
 					           << " target=(" << target->mLocation.mX << "," << target->mLocation.mY << ")"
-					           << " dist=" << dist << " max=" << data.distance
-					           << " elast=" << data.elasticity
+					           << " dist=" << dist << " max=" << link.distance
+					           << " elast=" << link.elasticity
 					           << " hasPhys=" << (thing->pPhysics ? "Y" : "N");
 				}
 
@@ -155,12 +159,9 @@ namespace lua::hades::tethers
 					continue;
 				}
 
-				if (data.elasticity > 0.0f)
+				if (link.elasticity > 0.0f)
 				{
 					// ── ELASTIC TETHER — critically damped spring ──
-					// Writes mVelocity directly; engine's obstacle physics applies it.
-					// Uses critically damped spring for smooth follow with minimal overshoot.
-
 					if (!thing->pPhysics)
 					{
 						continue;
@@ -170,34 +171,21 @@ namespace lua::hades::tethers
 
 					if (dist < 0.001f)
 					{
-						// At center — push outward to spread apart
 						float angle = (float)(id % 360) * 0.0174533f;
-						pc->mVelocity.mX = cosf(angle) * data.distance * 2.0f;
-						pc->mVelocity.mY = sinf(angle) * data.distance * 2.0f;
+						pc->mVelocity.mX = cosf(angle) * link.distance * 2.0f;
+						pc->mVelocity.mY = sinf(angle) * link.distance * 2.0f;
 						continue;
 					}
 
-					// Ideal position: at tether distance from target at the stored resting angle
-					float rest_angle = 0.0f;
-					auto angle_it = data.rest_angles.find(target_id);
-					if (angle_it != data.rest_angles.end())
-					{
-						rest_angle = angle_it->second;
-					}
-					float ideal_x = target->mLocation.mX + cosf(rest_angle) * data.distance;
-					float ideal_y = target->mLocation.mY + sinf(rest_angle) * data.distance;
+					float ideal_x = target->mLocation.mX + cosf(link.rest_angle) * link.distance;
+					float ideal_y = target->mLocation.mY + sinf(link.rest_angle) * link.distance;
 
-					// Displacement from ideal
 					float diff_x = ideal_x - thing->mLocation.mX;
 					float diff_y = ideal_y - thing->mLocation.mY;
 
-					// Critically damped spring: vel = spring_force - damping * current_vel
-					// omega = sqrt(elasticity) gives natural frequency
-					// Critical damping coefficient = 2 * omega
-					float omega = sqrtf(data.elasticity) * 0.1f;
+					float omega = sqrtf(link.elasticity) * 0.1f;
 					float damping_coeff = 2.0f * omega;
 
-					// Spring acceleration = omega^2 * displacement - damping * velocity
 					float ax = omega * omega * diff_x - damping_coeff * pc->mVelocity.mX;
 					float ay = omega * omega * diff_y - damping_coeff * pc->mVelocity.mY;
 
@@ -207,28 +195,38 @@ namespace lua::hades::tethers
 				else
 				{
 					// ── NON-ELASTIC (CHAIN) TETHER ──
-					if (data.retract_speed <= 0.0f && data.track_z_ratio <= 0.0f)
+					if (link.retract_speed <= 0.0f && link.track_z_ratio <= 0.0f)
 					{
+						// Passive anchor — still needs hard clamp
+						if (dist > link.distance && g_shift_location)
+						{
+							float nx = dx / dist;
+							float ny = dy / dist;
+							float overshoot = dist - link.distance;
+							Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
+							if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+							{
+								g_shift_location(thing, delta);
+							}
+						}
 						continue;
 					}
 
-					if (dist <= data.distance)
+					if (dist <= link.distance)
 					{
 						continue;
 					}
 
 					float nx = dx / dist;
 					float ny = dy / dist;
-					float overshoot = dist - data.distance;
+					float overshoot = dist - link.distance;
 
-					// Hard clamp + cascade via ShiftLocation (triggers engine rendering updates)
 					if (std::isfinite(overshoot) && g_shift_location)
 					{
 						Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
 						g_shift_location(thing, delta);
 
-						// Cascade: shift target in the opposite direction (following the source)
-						if (data.retract_speed > 0.0f)
+						if (link.retract_speed > 0.0f)
 						{
 							constexpr float CASCADE_FRACTION = 0.95f;
 							Vectormath::Vector2 cascade = {-nx * overshoot * CASCADE_FRACTION,
@@ -239,10 +237,10 @@ namespace lua::hades::tethers
 				}
 
 				// Z tracking
-				if (data.track_z_ratio > 0.0f)
+				if (link.track_z_ratio > 0.0f)
 				{
 					float dz = target->mZLocation - thing->mZLocation;
-					thing->mZLocation += dz * data.track_z_ratio * dt;
+					thing->mZLocation += dz * link.track_z_ratio * dt;
 				}
 			}
 		}
@@ -279,28 +277,27 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			// Clamp this specific unit if it has a tether
 			auto *thing = reinterpret_cast<Thing_H2 *>(this_);
 			if (thing)
 			{
 				auto *data = get_tether_data(thing->mId);
-				if (data && !data->tethered_to.empty() && data->elasticity > 0.0f)
+				if (data && !data->links.empty())
 				{
-					// Only clamp elastic tethers in ApplyShift.
-					// Non-elastic (chain) tethers are handled by the batch update.
-					for (int target_id : data->tethered_to)
+					for (auto &link : data->links)
 					{
-						auto *target = get_thing(target_id);
+						if (link.elasticity <= 0.0f)
+							continue;
+						auto *target = get_thing(link.target_id);
 						if (!target)
 							continue;
 						float dx      = thing->mLocation.mX - target->mLocation.mX;
 						float dy      = thing->mLocation.mY - target->mLocation.mY;
 						float dist_sq = dx * dx + dy * dy;
-						if (dist_sq > data->distance * data->distance)
+						if (dist_sq > link.distance * link.distance)
 						{
 							float dist         = sqrtf(dist_sq);
-							thing->mLocation.mX = target->mLocation.mX + (dx / dist) * data->distance;
-							thing->mLocation.mY = target->mLocation.mY + (dy / dist) * data->distance;
+							thing->mLocation.mX = target->mLocation.mX + (dx / dist) * link.distance;
+							thing->mLocation.mY = target->mLocation.mY + (dy / dist) * link.distance;
 						}
 					}
 				}
@@ -309,8 +306,6 @@ namespace lua::hades::tethers
 
 		return result;
 	}
-
-	// ── Cleanup: remove stale tether references ────────────────────────────
 
 	static void cleanup_stale_tethers()
 	{
@@ -325,14 +320,12 @@ namespace lua::hades::tethers
 				continue;
 			}
 
-			// Remove dead targets from tethered_to
-			std::erase_if(data.tethered_to,
-			              [](int tid)
+			std::erase_if(data.links,
+			              [](const TetherLink &link)
 			              {
-				              return get_thing(tid) == nullptr;
+				              return get_thing(link.target_id) == nullptr;
 			              });
 
-			// Remove dead sources from tethered_from
 			std::erase_if(data.tethered_from,
 			              [](int tid)
 			              {
@@ -342,13 +335,12 @@ namespace lua::hades::tethers
 
 		for (int id : to_remove)
 		{
-			// Before removing, clean up reverse references
 			auto it = g_tether_data.find(id);
 			if (it != g_tether_data.end())
 			{
-				for (int target_id : it->second.tethered_to)
+				for (auto &link : it->second.links)
 				{
-					auto *target_data = get_tether_data(target_id);
+					auto *target_data = get_tether_data(link.target_id);
 					if (target_data)
 					{
 						std::erase(target_data->tethered_from, id);
@@ -359,7 +351,11 @@ namespace lua::hades::tethers
 					auto *source_data = get_tether_data(source_id);
 					if (source_data)
 					{
-						std::erase(source_data->tethered_to, id);
+						std::erase_if(source_data->links,
+						              [id](const TetherLink &link)
+						              {
+							              return link.target_id == id;
+						              });
 					}
 				}
 				g_tether_data.erase(it);
@@ -367,25 +363,6 @@ namespace lua::hades::tethers
 		}
 	}
 
-	// ── Lua API ────────────────────────────────────────────────────────────
-
-	// Lua API: Function
-	// Table: tethers
-	// Name: add
-	// Param: source_id: integer: The Thing Id of the object to be constrained (the one that gets pulled).
-	// Param: target_id: integer: The Thing Id of the anchor object (the one that pulls).
-	// Param: distance: number: Maximum distance before the tether pulls the source back.
-	// Param: retract_speed: number: optional. Speed at which the source retracts toward the target when beyond distance. Default 0.
-	// Param: elasticity: number: optional. Elasticity coefficient. When > 0, allows elastic stretching instead of hard clamping. Default 0.
-	// Param: track_z_ratio: number: optional. How much the source tracks the target's Z position (0.0-1.0). Default 0.
-	// Creates a tether constraint between two game objects.
-	// The source object will be pulled toward the target when it exceeds the tether distance.
-	//
-	// **Example Usage:**
-	// ```lua
-	// -- Tether a neck segment to the head
-	// rom.tethers.add(neckSegmentId, headId, 73, 500, 0, 0.2)
-	// ```
 	static bool add_tether(int source_id, int target_id, float distance, sol::optional<float> retract_speed, sol::optional<float> elasticity, sol::optional<float> track_z_ratio)
 	{
 		auto *source = get_thing(source_id);
@@ -404,35 +381,33 @@ namespace lua::hades::tethers
 
 		std::scoped_lock l(g_tether_mutex);
 
-		auto &src_data         = g_tether_data[source_id];
-		src_data.distance      = distance;
-		src_data.retract_speed = retract_speed.value_or(0.0f);
-		src_data.elasticity    = elasticity.value_or(0.0f);
-		src_data.track_z_ratio = track_z_ratio.value_or(0.0f);
+		auto &src_data = g_tether_data[source_id];
 
-		// Add target to source's tethered_to (avoid duplicates)
-		if (std::find(src_data.tethered_to.begin(), src_data.tethered_to.end(), target_id) == src_data.tethered_to.end())
+		// Find or create link for this target
+		TetherLink *link = nullptr;
+		for (auto &l : src_data.links)
 		{
-			src_data.tethered_to.push_back(target_id);
+			if (l.target_id == target_id) { link = &l; break; }
 		}
-
-		// Capture initial resting angle from spawn offset
-		if (src_data.rest_angles.find(target_id) == src_data.rest_angles.end())
+		if (!link)
 		{
+			src_data.links.push_back({});
+			link = &src_data.links.back();
+			link->target_id = target_id;
+
 			float dx = source->mLocation.mX - target->mLocation.mX;
 			float dy = source->mLocation.mY - target->mLocation.mY;
 			if (dx * dx + dy * dy > 0.01f)
-			{
-				src_data.rest_angles[target_id] = atan2f(dy, dx);
-			}
+				link->rest_angle = atan2f(dy, dx);
 			else
-			{
-				// No offset yet — assign based on ID for spread
-				src_data.rest_angles[target_id] = (float)(source_id % 360) * 0.0174533f;
-			}
+				link->rest_angle = (float)(source_id % 360) * 0.0174533f;
 		}
 
-		// Add source to target's tethered_from
+		link->distance      = distance;
+		link->retract_speed = retract_speed.value_or(0.0f);
+		link->elasticity    = elasticity.value_or(0.0f);
+		link->track_z_ratio = track_z_ratio.value_or(0.0f);
+
 		auto &tgt_data = g_tether_data[target_id];
 		if (std::find(tgt_data.tethered_from.begin(), tgt_data.tethered_from.end(), source_id) == tgt_data.tethered_from.end())
 		{
@@ -443,12 +418,6 @@ namespace lua::hades::tethers
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: remove
-	// Param: source_id: integer: The Thing Id of the constrained object.
-	// Param: target_id: integer: The Thing Id of the anchor object.
-	// Removes a tether constraint between two game objects.
 	static bool remove_tether(int source_id, int target_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
@@ -456,14 +425,8 @@ namespace lua::hades::tethers
 		auto *src_data = get_tether_data(source_id);
 		if (src_data)
 		{
-			std::erase(src_data->tethered_to, target_id);
-			if (src_data->tethered_to.empty())
-			{
-				src_data->distance      = 0.0f;
-				src_data->retract_speed = 0.0f;
-				src_data->elasticity    = 0.0f;
-				src_data->track_z_ratio = 0.0f;
-			}
+			std::erase_if(src_data->links,
+			              [target_id](const TetherLink &l) { return l.target_id == target_id; });
 		}
 
 		auto *tgt_data = get_tether_data(target_id);
@@ -476,197 +439,109 @@ namespace lua::hades::tethers
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: remove_all
-	// Param: thing_id: integer: The Thing Id to remove all tethers from (both as source and target).
-	// Removes all tether constraints involving the specified object.
 	static void remove_all_tethers(int thing_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
 
 		auto *data = get_tether_data(thing_id);
-		if (!data)
+		if (!data) return;
+
+		for (auto &link : data->links)
 		{
-			return;
+			auto *tgt = get_tether_data(link.target_id);
+			if (tgt) std::erase(tgt->tethered_from, thing_id);
 		}
 
-		// Remove this thing from all targets' tethered_from
-		for (int tid : data->tethered_to)
-		{
-			auto *tgt = get_tether_data(tid);
-			if (tgt)
-			{
-				std::erase(tgt->tethered_from, thing_id);
-			}
-		}
-
-		// Remove this thing from all sources' tethered_to
 		for (int sid : data->tethered_from)
 		{
 			auto *src = get_tether_data(sid);
 			if (src)
 			{
-				std::erase(src->tethered_to, thing_id);
-				if (src->tethered_to.empty())
-				{
-					src->distance      = 0.0f;
-					src->retract_speed = 0.0f;
-					src->elasticity    = 0.0f;
-					src->track_z_ratio = 0.0f;
-				}
+				std::erase_if(src->links,
+				              [thing_id](const TetherLink &l) { return l.target_id == thing_id; });
 			}
 		}
 
 		g_tether_data.erase(thing_id);
-
 		LOG(DEBUG) << "tethers.remove_all: " << thing_id;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: get_tethered_to
-	// Param: thing_id: integer: The Thing Id to query.
-	// Returns: table<integer>: List of Thing Ids that this object is tethered TO.
 	static sol::table get_tethered_to(int thing_id, sol::this_state state)
 	{
 		sol::table result(state, sol::create);
-
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
 		if (data)
 		{
 			int idx = 1;
-			for (int tid : data->tethered_to)
-			{
-				result[idx++] = tid;
-			}
+			for (auto &link : data->links)
+				result[idx++] = link.target_id;
 		}
-
 		return result;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: get_tethered_from
-	// Param: thing_id: integer: The Thing Id to query.
-	// Returns: table<integer>: List of Thing Ids that are tethered FROM this object (things that have this as their anchor).
 	static sol::table get_tethered_from(int thing_id, sol::this_state state)
 	{
 		sol::table result(state, sol::create);
-
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
 		if (data)
 		{
 			int idx = 1;
 			for (int sid : data->tethered_from)
-			{
 				result[idx++] = sid;
-			}
 		}
-
 		return result;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: set_distance
-	// Param: thing_id: integer: The Thing Id whose tether distance to set.
-	// Param: distance: number: New tether distance.
-	// Modifies the tether distance on an existing tether.
 	static bool set_distance(int thing_id, float distance)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		if (!data)
-		{
-			return false;
-		}
-
-		data->distance = distance;
+		if (!data || data->links.empty()) return false;
+		for (auto &link : data->links) link.distance = distance;
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: set_retract_speed
-	// Param: thing_id: integer: The Thing Id whose retract speed to set.
-	// Param: speed: number: New retract speed.
-	// Modifies the tether retraction speed on an existing tether.
 	static bool set_retract_speed(int thing_id, float speed)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		if (!data)
-		{
-			return false;
-		}
-
-		data->retract_speed = speed;
+		if (!data || data->links.empty()) return false;
+		for (auto &link : data->links) link.retract_speed = speed;
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: set_elasticity
-	// Param: thing_id: integer: The Thing Id whose elasticity to set.
-	// Param: elasticity: number: New elasticity value.
-	// Modifies the tether elasticity on an existing tether.
 	static bool set_elasticity(int thing_id, float elasticity)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		if (!data)
-		{
-			return false;
-		}
-
-		data->elasticity = elasticity;
+		if (!data || data->links.empty()) return false;
+		for (auto &link : data->links) link.elasticity = elasticity;
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: set_track_z_ratio
-	// Param: thing_id: integer: The Thing Id whose Z tracking ratio to set.
-	// Param: ratio: number: New Z tracking ratio (0.0-1.0).
-	// Modifies the tether Z tracking ratio on an existing tether.
 	static bool set_track_z_ratio(int thing_id, float ratio)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		if (!data)
-		{
-			return false;
-		}
-
-		data->track_z_ratio = ratio;
+		if (!data || data->links.empty()) return false;
+		for (auto &link : data->links) link.track_z_ratio = ratio;
 		return true;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: get_distance
-	// Param: thing_id: integer: The Thing Id to query.
-	// Returns: number: The current tether distance, or 0 if no tether data.
 	static float get_distance(int thing_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		return data ? data->distance : 0.0f;
+		return (data && !data->links.empty()) ? data->links[0].distance : 0.0f;
 	}
 
-	// Lua API: Function
-	// Table: tethers
-	// Name: has_tether
-	// Param: thing_id: integer: The Thing Id to check.
-	// Returns: boolean: Whether this object has any active tethers.
 	static bool has_tether(int thing_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
 		auto *data = get_tether_data(thing_id);
-		return data && !data->tethered_to.empty();
+		return data && !data->links.empty();
 	}
 
 	// ── Bind ───────────────────────────────────────────────────────────────
