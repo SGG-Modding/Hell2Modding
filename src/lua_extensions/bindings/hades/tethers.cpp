@@ -41,11 +41,14 @@ namespace lua::hades::tethers
 	{
 		char pad_0[0x35];
 		bool mIgnoreGravity;            // 0x35
-		char pad_1[0x12];               // 0x36..0x47
+		char pad_1[0x06];               // 0x36..0x3B
+		float mGravity;                 // 0x3C
+		char pad_2[0x08];               // 0x40..0x47
 		Vectormath::Vector2 mVelocity;  // 0x48
 	};
 
 	static_assert(offsetof(PhysicsComponent_H2_Velocity, mIgnoreGravity) == 0x35, "PhysicsComponent->mIgnoreGravity wrong offset");
+	static_assert(offsetof(PhysicsComponent_H2_Velocity, mGravity) == 0x3C, "PhysicsComponent->mGravity wrong offset");
 	static_assert(offsetof(PhysicsComponent_H2_Velocity, mVelocity) == 0x48, "PhysicsComponent->mVelocity wrong offset");
 
 	static void **g_world_ptr = nullptr;
@@ -148,7 +151,9 @@ namespace lua::hades::tethers
 				{
 					LOG(DEBUG) << "tethers: " << id << " -> " << link.target_id
 					           << " pos=(" << thing->mLocation.mX << "," << thing->mLocation.mY << ")"
+					           << " z=" << thing->mZLocation
 					           << " target=(" << target->mLocation.mX << "," << target->mLocation.mY << ")"
+					           << " tz=" << target->mZLocation
 					           << " dist=" << dist << " max=" << link.distance
 					           << " elast=" << link.elasticity
 					           << " hasPhys=" << (thing->pPhysics ? "Y" : "N");
@@ -267,12 +272,19 @@ namespace lua::hades::tethers
 
 						float dz = from_thing->mZLocation - thing->mZLocation;
 						float abs_dz = (dz >= 0.0f) ? dz : -dz;
-						float speed = abs_dz * my_track_z * 40.0f;
+						float speed = abs_dz * my_track_z * 30.0f;
 						float step = speed * dt;
 						if (abs_dz > 0.001f)
 						{
 							float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
 							thing->mZLocation += move;
+						}
+						// Reduce gravity on neck segments so they float down gently
+						// instead of instantly falling or permanently floating
+						if (thing->pPhysics)
+						{
+							auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
+							pc->mGravity = 200.0f; // reduced from default ~900-1000
 						}
 						break;
 					}
