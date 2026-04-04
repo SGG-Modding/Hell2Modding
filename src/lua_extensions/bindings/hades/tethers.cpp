@@ -207,7 +207,6 @@ namespace lua::hades::tethers
 				else
 				{
 					// ── NON-ELASTIC (CHAIN) TETHER ──
-					// If no retract speed and no trackZ, this is a passive anchor — don't move it
 					if (data.retract_speed <= 0.0f && data.track_z_ratio <= 0.0f)
 					{
 						continue;
@@ -222,64 +221,34 @@ namespace lua::hades::tethers
 					float ny = dy / dist;
 					float overshoot = dist - data.distance;
 
-					if (thing->pPhysics)
-					{
-						auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
-
-						// Hard clamp: snap to tether edge
-						if (g_shift_location)
-						{
-							Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
-							if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
-							{
-								g_shift_location(thing, delta);
-							}
-						}
-
-						// Retraction velocity toward target
-						if (data.retract_speed > 0.0f)
-						{
-							pc->mVelocity.mX += nx * data.retract_speed * dt;
-							pc->mVelocity.mY += ny * data.retract_speed * dt;
-						}
-					}
-					else if (g_shift_location)
+					// Hard clamp + cascade via ShiftLocation (triggers engine rendering updates)
+					if (std::isfinite(overshoot) && g_shift_location)
 					{
 						Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
-						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+						g_shift_location(thing, delta);
+
+						// Cascade: shift target in the opposite direction (following the source)
+						if (data.retract_speed > 0.0f)
 						{
-							g_shift_location(thing, delta);
+							constexpr float CASCADE_FRACTION = 0.95f;
+							Vectormath::Vector2 cascade = {-nx * overshoot * CASCADE_FRACTION,
+							                               -ny * overshoot * CASCADE_FRACTION};
+							g_shift_location(target, cascade);
 						}
 					}
 				}
 
-				// Z tracking (H1: also sets mIgnoreGravity to prevent gravity fighting the Z interpolation)
+				// Z tracking
 				if (data.track_z_ratio > 0.0f)
 				{
 					float dz = target->mZLocation - thing->mZLocation;
 					thing->mZLocation += dz * data.track_z_ratio * dt;
-
-					if (thing->pPhysics)
-					{
-						auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
-						pc->mIgnoreGravity = true;
-					}
 				}
 			}
 		}
 	}
 
-	// Periodic cleanup counter (avoid doing it every frame)
-	static int g_cleanup_counter = 0;
-	static constexpr int CLEANUP_INTERVAL = 60;
-
-	// Frame guard: only run tether update once per frame, not per-thing
-	static float g_last_update_time = -1.0f;
-
 	static void cleanup_stale_tethers();
-
-	// ── Hook: PhysicsSystem::UpdateThing ───────────────────────────────────
-	// Runs once per frame (guarded) to update all tethered things.
 
 	static char hook_PhysicsSystem_UpdateThing(void *this_, Thing_H2 *thing, float elapsedSeconds)
 	{
@@ -288,27 +257,12 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			// Only run tether update once per unique dt value (proxy for once-per-frame)
+			static float g_last_update_time = -1.0f;
 			if (elapsedSeconds != g_last_update_time)
 			{
 				g_last_update_time = elapsedSeconds;
+				cleanup_stale_tethers();
 				update_all_tethers(elapsedSeconds);
-
-				if (++g_cleanup_counter >= CLEANUP_INTERVAL)
-				{
-					g_cleanup_counter = 0;
-					cleanup_stale_tethers();
-				}
-			}
-
-			// If this specific thing is tethered, keep it active
-			if (thing)
-			{
-				auto *data = get_tether_data(thing->mId);
-				if (data && !data->tethered_to.empty())
-				{
-					result = 1;
-				}
 			}
 		}
 
@@ -330,8 +284,10 @@ namespace lua::hades::tethers
 			if (thing)
 			{
 				auto *data = get_tether_data(thing->mId);
-				if (data && !data->tethered_to.empty() && data->elasticity <= 0.0f)
+				if (data && !data->tethered_to.empty() && data->elasticity > 0.0f)
 				{
+					// Only clamp elastic tethers in ApplyShift.
+					// Non-elastic (chain) tethers are handled by the batch update.
 					for (int target_id : data->tethered_to)
 					{
 						auto *target = get_thing(target_id);
