@@ -224,9 +224,13 @@ namespace lua::hades::tethers
 							Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
 							g_shift_location(thing, delta);
 
-							constexpr float CASCADE_FRACTION = 0.95f;
-							Vectormath::Vector2 cascade = {-nx * overshoot * CASCADE_FRACTION,
-							                               -ny * overshoot * CASCADE_FRACTION};
+							// Cascade scales down with overshoot ratio to prevent
+							// amplification through collinear chains (straight dashes).
+							// Small overshoot: ~0.95 cascade. Large overshoot: ~0.5.
+							float ratio = link.distance / dist; // 1.0 at edge, smaller when far
+							float cascade_frac = 0.5f + 0.45f * ratio;
+							Vectormath::Vector2 cascade = {-nx * overshoot * cascade_frac,
+							                               -ny * overshoot * cascade_frac};
 							g_shift_location(target, cascade);
 						}
 					}
@@ -243,11 +247,35 @@ namespace lua::hades::tethers
 					}
 				}
 
-				// Z tracking
-				if (link.track_z_ratio > 0.0f)
+				// Z tracking is handled per-source below (from tethered_from), not per-link
+			}
+
+			// Z tracking from tethered_from (toward head).
+			// Each segment tracks the Z of its predecessor. When the head goes
+			// up during attacks, neck segments follow it up.
+			if (!data.tethered_from.empty() && !data.links.empty())
+			{
+				float my_track_z = data.links[0].track_z_ratio;
+
+				if (my_track_z > 0.0f)
 				{
-					float dz = target->mZLocation - thing->mZLocation;
-					thing->mZLocation += dz * link.track_z_ratio * dt;
+					for (int from_id : data.tethered_from)
+					{
+						auto *from_thing = get_thing(from_id);
+						if (!from_thing)
+							continue;
+
+						float dz = from_thing->mZLocation - thing->mZLocation;
+						float abs_dz = (dz >= 0.0f) ? dz : -dz;
+						float speed = abs_dz * my_track_z * 40.0f;
+						float step = speed * dt;
+						if (abs_dz > 0.001f)
+						{
+							float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
+							thing->mZLocation += move;
+						}
+						break;
+					}
 				}
 			}
 
