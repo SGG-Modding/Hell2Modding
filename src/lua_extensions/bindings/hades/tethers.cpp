@@ -260,7 +260,19 @@ namespace lua::hades::tethers
 			// up during attacks, neck segments follow it up.
 			if (!data.tethered_from.empty() && !data.links.empty())
 			{
-				float my_track_z = data.links[0].track_z_ratio;
+				// Find max track_z_ratio from any link (neck9 has two links,
+				// one with trackZ=0.2 and one with trackZ=0)
+				float my_track_z = 0.0f;
+				float base_z = thing->mZLocation; // fallback
+				for (auto &link : data.links)
+				{
+					if (link.track_z_ratio > my_track_z)
+						my_track_z = link.track_z_ratio;
+					// Find the lowest target Z (the base anchor)
+					auto *link_target = get_thing(link.target_id);
+					if (link_target && link_target->mZLocation < base_z)
+						base_z = link_target->mZLocation;
+				}
 
 				if (my_track_z > 0.0f)
 				{
@@ -270,6 +282,10 @@ namespace lua::hades::tethers
 						if (!from_thing)
 							continue;
 
+						// Track toward predecessor Z directly.
+						// The natural cascade delay + reduced gravity creates the
+						// gradient: segments near head follow closely, segments near
+						// base lag behind and stay lower.
 						float dz = from_thing->mZLocation - thing->mZLocation;
 						float abs_dz = (dz >= 0.0f) ? dz : -dz;
 						float speed = abs_dz * my_track_z * 30.0f;
@@ -279,12 +295,11 @@ namespace lua::hades::tethers
 							float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
 							thing->mZLocation += move;
 						}
-						// Reduce gravity on neck segments so they float down gently
-						// instead of instantly falling or permanently floating
+						// Reduce gravity on neck segments
 						if (thing->pPhysics)
 						{
 							auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
-							pc->mGravity = 200.0f; // reduced from default ~900-1000
+							pc->mGravity = 200.0f;
 						}
 						break;
 					}
