@@ -11,32 +11,25 @@
 
 namespace lua::hades::tethers
 {
-	// ── H2 sgg::Thing field access via raw offsets ──────────────────────────
-	// Offsets verified against Ghidra decompilation of H2 binary:
-	//   mId=0x48, mZLocation=0x54, mLocation=0x70, pPhysics=0xB8.
-	// Cross-checked with existing static_asserts: mName=0x4C, pText=0xF8, pAnim=0x110.
-	// Note: mSpawnTime is double (8 bytes) in H2, pushing mLocation to 0x70.
-
+	// H2 sgg::Thing partial struct for field access via raw offsets.
 	struct Thing_H2
 	{
 		char pad_0[0x48];
-		int mId;                         // 0x48  (verified: thingId matches)
-		char pad_1[0x08];               // 0x4C..0x53 (mName + mAttachOffsetZ)
+		int mId;                        // 0x48
+		char pad_1[0x08];               // 0x4C..0x53
 		float mZLocation;               // 0x54
-		char pad_2[0x18];               // 0x58..0x6F (mTallness, mTimeModifierFraction, mElapsedTimeMultiplier, 4-byte pad, mSpawnTime as double)
-		Vectormath::Vector2 mLocation;  // 0x70  (confirmed by Ghidra: mSpawnTime is double, shifts mLocation to 0x70)
+		char pad_2[0x18];               // 0x58..0x6F
+		Vectormath::Vector2 mLocation;  // 0x70
 		char pad_3[0x40];               // 0x78..0xB7
 		void *pPhysics;                 // 0xB8
 	};
 
-	static_assert(offsetof(Thing_H2, mId) == 0x48, "sgg::Thing->mId wrong offset");
-	static_assert(offsetof(Thing_H2, mZLocation) == 0x54, "sgg::Thing->mZLocation wrong offset");
-	static_assert(offsetof(Thing_H2, mLocation) == 0x70, "sgg::Thing->mLocation wrong offset");
-	static_assert(offsetof(Thing_H2, pPhysics) == 0xB8, "sgg::Thing->pPhysics wrong offset");
+	static_assert(offsetof(Thing_H2, mId) == 0x48);
+	static_assert(offsetof(Thing_H2, mZLocation) == 0x54);
+	static_assert(offsetof(Thing_H2, mLocation) == 0x70);
+	static_assert(offsetof(Thing_H2, pPhysics) == 0xB8);
 
-	// ── H2 PhysicsComponent — minimal struct for velocity access ───────────
-	// H2 PhysicsComponent is 0x58 bytes. mVelocity confirmed at 0x48 by Ghidra.
-
+	// H2 PhysicsComponent partial struct for velocity and gravity access.
 	struct PhysicsComponent_H2_Velocity
 	{
 		char pad_0[0x35];
@@ -47,9 +40,9 @@ namespace lua::hades::tethers
 		Vectormath::Vector2 mVelocity;  // 0x48
 	};
 
-	static_assert(offsetof(PhysicsComponent_H2_Velocity, mIgnoreGravity) == 0x35, "PhysicsComponent->mIgnoreGravity wrong offset");
-	static_assert(offsetof(PhysicsComponent_H2_Velocity, mGravity) == 0x3C, "PhysicsComponent->mGravity wrong offset");
-	static_assert(offsetof(PhysicsComponent_H2_Velocity, mVelocity) == 0x48, "PhysicsComponent->mVelocity wrong offset");
+	static_assert(offsetof(PhysicsComponent_H2_Velocity, mIgnoreGravity) == 0x35);
+	static_assert(offsetof(PhysicsComponent_H2_Velocity, mGravity) == 0x3C);
+	static_assert(offsetof(PhysicsComponent_H2_Velocity, mVelocity) == 0x48);
 
 	static void **g_world_ptr = nullptr;
 
@@ -59,7 +52,7 @@ namespace lua::hades::tethers
 	using ShiftLocationFn = void (*)(void *thing, Vectormath::Vector2 delta);
 	static ShiftLocationFn g_shift_location = nullptr;
 
-	// ── Helper: resolve thing by ID ────────────────────────────────────────
+	// Helper -------------------------------
 
 	static Thing_H2 *get_thing(int id)
 	{
@@ -71,10 +64,8 @@ namespace lua::hades::tethers
 		return g_get_active_thing(*g_world_ptr, id);
 	}
 
-	// ── Tether state ──────────────────────────────────────────────────────
 	// H2's PhysicsComponent has tether fields in the PDB but no engine code
-	// accesses them. We store all tether data in a sidecar map keyed by
-	// Thing ID instead.
+	// accesses them. We store tether data in a sidecar map keyed by Thing ID.
 
 	struct TetherLink
 	{
@@ -105,7 +96,7 @@ namespace lua::hades::tethers
 		return nullptr;
 	}
 
-	// ── Global tether update (runs all tethers on every physics tick) ──────
+	// Global tether update ------------------------
 
 	static void update_all_tethers(float dt)
 	{
@@ -142,7 +133,7 @@ namespace lua::hades::tethers
 
 				if (link.elasticity > 0.0f)
 				{
-					// ── ELASTIC TETHER — critically damped spring ──
+					// Elastic tether: critically damped spring
 					if (!thing->pPhysics)
 					{
 						continue;
@@ -175,10 +166,10 @@ namespace lua::hades::tethers
 				}
 				else
 				{
-					// ── NON-ELASTIC (CHAIN) TETHER ──
+					// Non-elastic (chain) tether
 					if (link.retract_speed <= 0.0f && link.track_z_ratio <= 0.0f)
 					{
-						// Passive anchor — hard clamp only
+						// Passive anchor: hard clamp only
 						if (dist > link.distance && g_shift_location)
 						{
 							float nx = dx / dist;
@@ -198,17 +189,15 @@ namespace lua::hades::tethers
 
 					if (dist > link.distance && g_shift_location)
 					{
-						// H1 CheckTether: hard clamp at Distance + cascade
+						// Hard clamp at distance + cascade to chain target
 						float overshoot = dist - link.distance;
 						if (std::isfinite(overshoot))
 						{
 							Vectormath::Vector2 delta = {nx * overshoot, ny * overshoot};
 							g_shift_location(thing, delta);
 
-							// Cascade scales down with overshoot ratio to prevent
-							// amplification through collinear chains (straight dashes).
-							// Small overshoot: ~0.95 cascade. Large overshoot: ~0.5.
-							float ratio = link.distance / dist; // 1.0 at edge, smaller when far
+							// Cascade scales down with overshoot to prevent amplification
+							float ratio = link.distance / dist;
 							float cascade_frac = 0.5f + 0.45f * ratio;
 							Vectormath::Vector2 cascade = {-nx * overshoot * cascade_frac,
 							                               -ny * overshoot * cascade_frac};
@@ -217,8 +206,7 @@ namespace lua::hades::tethers
 					}
 					else if (dist > link.distance * 0.65f && g_shift_location)
 					{
-						// H1 UpdateTethers: gradual pull when beyond retract threshold
-						// Pull at retract_speed, capped to not overshoot the target
+						// Gradual retraction when beyond resting threshold
 						float pull = std::min(dist, link.retract_speed * dt);
 						Vectormath::Vector2 delta = {nx * pull, ny * pull};
 						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
@@ -228,12 +216,10 @@ namespace lua::hades::tethers
 					}
 				}
 
-				// Z tracking is handled per-source below (from tethered_from), not per-link
+				// Z tracking handled per-source below, not per-link
 			}
 
-			// Z tracking from tethered_from (toward head).
-			// Each segment tracks the Z of its predecessor. When the head goes
-			// up during attacks, neck segments follow it up.
+			// Z tracking: each segment tracks predecessor's Z (toward head)
 			if (!data.tethered_from.empty() && !data.links.empty())
 			{
 				float my_track_z = 0.0f;
@@ -251,10 +237,7 @@ namespace lua::hades::tethers
 						if (!from_thing)
 							continue;
 
-						// Track toward predecessor Z directly.
-						// The natural cascade delay + reduced gravity creates the
-						// gradient: segments near head follow closely, segments near
-						// base lag behind and stay lower.
+						// Track toward predecessor Z
 						float dz = from_thing->mZLocation - thing->mZLocation;
 						float abs_dz = (dz >= 0.0f) ? dz : -dz;
 						float speed = abs_dz * my_track_z * 30.0f;
@@ -275,10 +258,7 @@ namespace lua::hades::tethers
 				}
 			}
 
-			// Pull from tethered_from: segments follow their predecessor (toward head).
-			// When the head moves and cascades through the chain, segments near the
-			// base may still be stacked. This pull spreads them out by following
-			// the segment closer to the head.
+			// Predecessor pull: spread stacked segments by following the head-side neighbor
 			if (!data.tethered_from.empty() && g_shift_location)
 			{
 				for (int from_id : data.tethered_from)
@@ -324,6 +304,42 @@ namespace lua::hades::tethers
 					break;
 				}
 			}
+
+			// Chain straightening: pull toward midpoint of two neighbors
+			if (!data.tethered_from.empty() && !data.links.empty() && g_shift_location)
+			{
+				auto *from_thing = get_thing(data.tethered_from[0]);
+				Thing_H2 *chain_target = nullptr;
+				for (auto &link : data.links)
+				{
+					if (link.retract_speed > 0.0f || link.track_z_ratio > 0.0f)
+					{
+						chain_target = get_thing(link.target_id);
+						break;
+					}
+				}
+
+				if (from_thing && chain_target)
+				{
+					float mid_x = (from_thing->mLocation.mX + chain_target->mLocation.mX) * 0.5f;
+					float mid_y = (from_thing->mLocation.mY + chain_target->mLocation.mY) * 0.5f;
+					float sdx = mid_x - thing->mLocation.mX;
+					float sdy = mid_y - thing->mLocation.mY;
+					float sdist = sqrtf(sdx * sdx + sdy * sdy);
+
+					if (sdist > 1.0f && std::isfinite(sdist))
+					{
+						float snx = sdx / sdist;
+						float sny = sdy / sdist;
+						float pull = std::min(sdist, data.links[0].retract_speed * dt * 0.5f);
+						Vectormath::Vector2 delta = {snx * pull, sny * pull};
+						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+						{
+							g_shift_location(thing, delta);
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -348,10 +364,7 @@ namespace lua::hades::tethers
 		return result;
 	}
 
-	// ── Hook: Unit::ApplyShift ─────────────────────────────────────────────
-	// Clamps elastic tethers during unit movement. Non-elastic (chain)
-	// tethers are handled by the batch update in update_all_tethers.
-
+	// Clamps elastic tethers during unit movement.
 	static bool hook_Unit_ApplyShift(void *this_, Vectormath::Vector2 destination, Vectormath::Vector2 shift, bool checkAnimState)
 	{
 		bool result = big::g_hooking->get_original<hook_Unit_ApplyShift>()(this_, destination, shift, checkAnimState);
@@ -445,6 +458,17 @@ namespace lua::hades::tethers
 		}
 	}
 
+	// Lua API: Function
+	// Table: tethers
+	// Name: add
+	// Param: source_id: integer: The Thing Id of the object to be constrained.
+	// Param: target_id: integer: The Thing Id of the anchor object.
+	// Param: distance: number: Maximum distance before the tether pulls the source back.
+	// Param: retract_speed: number: optional. Retraction speed when beyond distance. Default 0.
+	// Param: elasticity: number: optional. Elasticity coefficient for spring tethers. Default 0.
+	// Param: track_z_ratio: number: optional. Z-axis tracking ratio (0.0-1.0). Default 0.
+	// Returns: boolean: Whether the tether was created successfully.
+	// Creates a tether constraint between two game objects.
 	static bool add_tether(int source_id, int target_id, float distance, sol::optional<float> retract_speed, sol::optional<float> elasticity, sol::optional<float> track_z_ratio)
 	{
 		auto *source = get_thing(source_id);
@@ -499,6 +523,13 @@ namespace lua::hades::tethers
 		return true;
 	}
 
+	// Lua API: Function
+	// Table: tethers
+	// Name: remove
+	// Param: source_id: integer: The Thing Id of the constrained object.
+	// Param: target_id: integer: The Thing Id of the anchor object.
+	// Returns: boolean: Whether the tether was removed.
+	// Removes a specific tether constraint between two game objects.
 	static bool remove_tether(int source_id, int target_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
@@ -519,6 +550,11 @@ namespace lua::hades::tethers
 		return true;
 	}
 
+	// Lua API: Function
+	// Table: tethers
+	// Name: remove_all
+	// Param: thing_id: integer: The Thing Id to remove all tethers from.
+	// Removes all tether constraints involving the specified object.
 	static void remove_all_tethers(int thing_id)
 	{
 		std::scoped_lock l(g_tether_mutex);
@@ -544,8 +580,6 @@ namespace lua::hades::tethers
 
 		g_tether_data.erase(thing_id);
 	}
-
-	// ── Bind ───────────────────────────────────────────────────────────────
 
 	static void clear_all_tether_data()
 	{
