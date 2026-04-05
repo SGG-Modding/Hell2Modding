@@ -26,6 +26,12 @@ namespace big
 			return;
 		}
 
+		// Suppress harmless FMOD error from MarkerCallback when playing GUID-referenced events without a matching .strings.bank entry
+		if (strcmp(result.c_str(), "Error: MarkerCallbackInternal: couldn't get event path: FMOD error 74 - The requested event, parameter, bus or vca could not be found.") == 0)
+		{
+			return;
+		}
+
 		big::g_hooking->get_original<hook_log_write>()(level, filename, line_number, result.c_str());
 
 		if (!result.starts_with("Script er"))
