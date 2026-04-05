@@ -52,8 +52,6 @@ namespace lua::hades::tethers
 	using ShiftLocationFn = void (*)(void *thing, Vectormath::Vector2 delta);
 	static ShiftLocationFn g_shift_location = nullptr;
 
-	// Helper -------------------------------
-
 	static Thing_H2 *get_thing(int id)
 	{
 		if (!g_world_ptr || !*g_world_ptr || !g_get_active_thing)
@@ -64,9 +62,8 @@ namespace lua::hades::tethers
 		return g_get_active_thing(*g_world_ptr, id);
 	}
 
-	// H2's PhysicsComponent has tether fields in the PDB but no engine code
-	// accesses them. We store tether data in a sidecar map keyed by Thing ID.
-
+	// H2's PhysicsComponent has tether fields in the PDB but no engine code accesses them.
+	// We store tether data in a sidecar map keyed by Thing ID.
 	struct TetherLink
 	{
 		int target_id        = 0;
@@ -96,8 +93,7 @@ namespace lua::hades::tethers
 		return nullptr;
 	}
 
-	// Global tether update ------------------------
-
+	// Global tether update
 	static void update_all_tethers(float dt)
 	{
 		for (auto &[id, data] : g_tether_data)
@@ -215,11 +211,9 @@ namespace lua::hades::tethers
 						}
 					}
 				}
-
-				// Z tracking handled per-source below, not per-link
 			}
 
-			// Z tracking: each segment tracks predecessor's Z (toward head)
+			// Z tracking: each segment tracks predecessor's Z (in case of Hydra, toward head)
 			if (!data.tethered_from.empty() && !data.links.empty())
 			{
 				float my_track_z = 0.0f;
@@ -247,7 +241,7 @@ namespace lua::hades::tethers
 							float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
 							thing->mZLocation += move;
 						}
-						// Reduce gravity on neck segments
+						// Reduce gravity on Z-tracked tethers
 						if (thing->pPhysics)
 						{
 							auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
@@ -258,7 +252,7 @@ namespace lua::hades::tethers
 				}
 			}
 
-			// Predecessor pull: spread stacked segments by following the head-side neighbor
+			// Predecessor pull: spread stacked tethers by following the predecessor-side neighbor (in case of Hydra, toward head)
 			if (!data.tethered_from.empty() && g_shift_location)
 			{
 				for (int from_id : data.tethered_from)
@@ -305,7 +299,7 @@ namespace lua::hades::tethers
 				}
 			}
 
-			// Chain straightening: pull toward midpoint of two neighbors
+			// Chain straightening: pull toward midpoint of two neighbors (in case of Hydra, to straighten out curves after movement)
 			if (!data.tethered_from.empty() && !data.links.empty() && g_shift_location)
 			{
 				auto *from_thing = get_thing(data.tethered_from[0]);
@@ -598,7 +592,7 @@ namespace lua::hades::tethers
 		}
 		else
 		{
-			LOG(ERROR) << "tethers: failed to resolve sgg::world";
+			LOG(ERROR) << "Tethers: failed to resolve sgg::world";
 			return;
 		}
 
@@ -609,7 +603,7 @@ namespace lua::hades::tethers
 		}
 		else
 		{
-			LOG(ERROR) << "tethers: failed to resolve sgg::World::GetActiveThing";
+			LOG(ERROR) << "Tethers: failed to resolve sgg::World::GetActiveThing";
 			return;
 		}
 
@@ -617,11 +611,11 @@ namespace lua::hades::tethers
 		if (shift_location_addr)
 		{
 			g_shift_location = shift_location_addr.as_func<void(void *, Vectormath::Vector2)>();
-			LOG(INFO) << "tethers: resolved ShiftLocation";
+			LOG(INFO) << "Tethers: resolved ShiftLocation";
 		}
 		else
 		{
-			LOG(WARNING) << "tethers: failed to resolve sgg::Thing::ShiftLocation - direct position updates disabled";
+			LOG(WARNING) << "Tethers: failed to resolve sgg::Thing::ShiftLocation - direct position updates disabled";
 		}
 
 		// Try hooking PhysicsSystem::UpdateThing for per-frame tether updates
@@ -629,11 +623,11 @@ namespace lua::hades::tethers
 		if (update_thing_addr)
 		{
 			static auto hook_ = big::hooking::detour_hook_helper::add<hook_PhysicsSystem_UpdateThing>("hook_PhysicsSystem_UpdateThing", update_thing_addr);
-			LOG(INFO) << "tethers: hooked PhysicsSystem::UpdateThing";
+			LOG(INFO) << "Tethers: hooked PhysicsSystem::UpdateThing";
 		}
 		else
 		{
-			LOG(WARNING) << "tethers: sgg::PhysicsSystem::UpdateThing not found in PDB - per-frame tether updates unavailable";
+			LOG(WARNING) << "Tethers: sgg::PhysicsSystem::UpdateThing not found in PDB - per-frame tether updates unavailable";
 		}
 
 		// Hook Unit::ApplyShift for position clamping on unit movement
@@ -641,11 +635,11 @@ namespace lua::hades::tethers
 		if (apply_shift_addr)
 		{
 			static auto hook_ = big::hooking::detour_hook_helper::add<hook_Unit_ApplyShift>("hook_Unit_ApplyShift", apply_shift_addr);
-			LOG(INFO) << "tethers: hooked Unit::ApplyShift";
+			LOG(INFO) << "Tethers: hooked Unit::ApplyShift";
 		}
 		else
 		{
-			LOG(WARNING) << "tethers: sgg::Unit::ApplyShift not found - position clamping for units unavailable";
+			LOG(WARNING) << "Tethers: sgg::Unit::ApplyShift not found - position clamping for units unavailable";
 		}
 
 		// Register Lua API
@@ -654,7 +648,6 @@ namespace lua::hades::tethers
 		ns.set_function("remove", remove_tether);
 		ns.set_function("remove_all", remove_all_tethers);
 		ns.set_function("clear_all", clear_all_tether_data);
-
-		LOG(INFO) << "tethers: Lua API registered";
+		LOG(INFO) << "Tethers: Lua API registered";
 	}
 } // namespace lua::hades::tethers
