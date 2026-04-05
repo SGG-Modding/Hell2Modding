@@ -11,6 +11,16 @@
 
 namespace lua::hades::tethers
 {
+	// Constants
+	constexpr float MIN_DISTANCE_THRESHOLD = 0.001f;
+	constexpr float DEG_TO_RAD             = 0.0174533f;
+	constexpr float RESTING_DISTANCE_RATIO = 0.65f;
+	constexpr float CASCADE_BASE           = 0.5f;
+	constexpr float CASCADE_SCALE          = 0.45f;
+	constexpr float Z_TRACKING_SPEED_SCALE = 30.0f;
+	constexpr float REDUCED_GRAVITY        = 200.0f;
+	constexpr float STRAIGHTEN_SPEED_SCALE = 0.5f;
+	constexpr float DEFAULT_RETRACT_SPEED  = 500.0f;
 	// H2 sgg::Thing partial struct for field access via raw offsets.
 	struct Thing_H2
 	{
@@ -62,7 +72,7 @@ namespace lua::hades::tethers
 		return g_get_active_thing(*g_world_ptr, id);
 	}
 
-	// H2's PhysicsComponent has tether fields in the PDB but no engine code accesses them.
+	// Hades II's PhysicsComponent has tether fields in the PDB but no engine code accesses them.
 	// We store tether data in a sidecar map keyed by Thing ID.
 	struct TetherLink
 	{
@@ -137,9 +147,9 @@ namespace lua::hades::tethers
 
 					auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
 
-					if (dist < 0.001f)
+					if (dist < MIN_DISTANCE_THRESHOLD)
 					{
-						float angle = (float)(id % 360) * 0.0174533f;
+						float angle = (float)(id % 360) * DEG_TO_RAD;
 						pc->mVelocity.mX = cosf(angle) * link.distance * 2.0f;
 						pc->mVelocity.mY = sinf(angle) * link.distance * 2.0f;
 						continue;
@@ -180,6 +190,11 @@ namespace lua::hades::tethers
 						continue;
 					}
 
+					if (dist < MIN_DISTANCE_THRESHOLD)
+					{
+						continue;
+					}
+
 					float nx = dx / dist;
 					float ny = dy / dist;
 
@@ -194,13 +209,13 @@ namespace lua::hades::tethers
 
 							// Cascade scales down with overshoot to prevent amplification
 							float ratio = link.distance / dist;
-							float cascade_frac = 0.5f + 0.45f * ratio;
+							float cascade_frac = CASCADE_BASE + CASCADE_SCALE * ratio;
 							Vectormath::Vector2 cascade = {-nx * overshoot * cascade_frac,
 							                               -ny * overshoot * cascade_frac};
 							g_shift_location(target, cascade);
 						}
 					}
-					else if (dist > link.distance * 0.65f && g_shift_location)
+					else if (dist > link.distance * RESTING_DISTANCE_RATIO && g_shift_location)
 					{
 						// Gradual retraction when beyond resting threshold
 						float pull = std::min(dist, link.retract_speed * dt);
@@ -213,8 +228,15 @@ namespace lua::hades::tethers
 				}
 			}
 
-			// Z tracking: each segment tracks predecessor's Z (in case of Hydra, toward head)
-			if (!data.tethered_from.empty() && !data.links.empty())
+			// Cache predecessor (tethered_from) for Z tracking, predecessor pull, and straightening
+			Thing_H2 *predecessor = nullptr;
+			if (!data.tethered_from.empty())
+			{
+				predecessor = get_thing(data.tethered_from[0]);
+			}
+
+			// Z tracking: each segment tracks predecessor's Z
+			if (predecessor && !data.links.empty())
 			{
 				float my_track_z = 0.0f;
 				for (auto &link : data.links)
@@ -225,98 +247,81 @@ namespace lua::hades::tethers
 
 				if (my_track_z > 0.0f)
 				{
-					for (int from_id : data.tethered_from)
+					float dz = predecessor->mZLocation - thing->mZLocation;
+					float abs_dz = (dz >= 0.0f) ? dz : -dz;
+					float speed = abs_dz * my_track_z * Z_TRACKING_SPEED_SCALE;
+					float step = speed * dt;
+					if (abs_dz > MIN_DISTANCE_THRESHOLD)
 					{
-						auto *from_thing = get_thing(from_id);
-						if (!from_thing)
-							continue;
-
-						// Track toward predecessor Z
-						float dz = from_thing->mZLocation - thing->mZLocation;
-						float abs_dz = (dz >= 0.0f) ? dz : -dz;
-						float speed = abs_dz * my_track_z * 30.0f;
-						float step = speed * dt;
-						if (abs_dz > 0.001f)
-						{
-							float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
-							thing->mZLocation += move;
-						}
-						// Reduce gravity on Z-tracked tethers
-						if (thing->pPhysics)
-						{
-							auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
-							pc->mGravity = 200.0f;
-						}
-						break;
+						float move = (abs_dz < step) ? dz : (dz > 0 ? step : -step);
+						thing->mZLocation += move;
+					}
+					if (thing->pPhysics)
+					{
+						auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
+						pc->mGravity = REDUCED_GRAVITY;
 					}
 				}
 			}
 
-			// Predecessor pull: spread stacked tethers by following the predecessor-side neighbor (in case of Hydra, toward head)
-			if (!data.tethered_from.empty() && g_shift_location)
+			// Predecessor pull: spread stacked tethers by following the predecessor-side neighbor
+			if (predecessor && g_shift_location)
 			{
-				for (int from_id : data.tethered_from)
+				float fdx = predecessor->mLocation.mX - thing->mLocation.mX;
+				float fdy = predecessor->mLocation.mY - thing->mLocation.mY;
+				float fdist = sqrtf(fdx * fdx + fdy * fdy);
+
+				if (fdist > 1.0f && std::isfinite(fdist))
 				{
-					auto *from_thing = get_thing(from_id);
-					if (!from_thing)
-						continue;
-
-					float fdx = from_thing->mLocation.mX - thing->mLocation.mX;
-					float fdy = from_thing->mLocation.mY - thing->mLocation.mY;
-					float fdist = sqrtf(fdx * fdx + fdy * fdy);
-
-					if (fdist > 1.0f && std::isfinite(fdist))
+					auto *from_data = get_tether_data(data.tethered_from[0]);
+					float link_dist = 0.0f;
+					float link_retract = DEFAULT_RETRACT_SPEED;
+					if (from_data)
 					{
-						auto *from_data = get_tether_data(from_id);
-						float link_dist = 73.0f;
-						float link_retract = 500.0f;
-						if (from_data)
+						for (auto &fl : from_data->links)
 						{
-							for (auto &fl : from_data->links)
+							if (fl.target_id == id)
 							{
-								if (fl.target_id == id)
-								{
-									link_dist = fl.distance;
-									link_retract = fl.retract_speed;
-									break;
-								}
-							}
-						}
-
-						if (fdist > link_dist * 0.65f && link_retract > 0.0f)
-						{
-							float fnx = fdx / fdist;
-							float fny = fdy / fdist;
-							float pull = std::min(fdist, link_retract * dt);
-							Vectormath::Vector2 delta = {fnx * pull, fny * pull};
-							if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
-							{
-								g_shift_location(thing, delta);
+								link_dist = fl.distance;
+								link_retract = fl.retract_speed;
+								break;
 							}
 						}
 					}
-					break;
+
+					if (link_dist > 0.0f && fdist > link_dist * RESTING_DISTANCE_RATIO && link_retract > 0.0f)
+					{
+						float fnx = fdx / fdist;
+						float fny = fdy / fdist;
+						float pull = std::min(fdist, link_retract * dt);
+						Vectormath::Vector2 delta = {fnx * pull, fny * pull};
+						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
+						{
+							g_shift_location(thing, delta);
+						}
+					}
 				}
 			}
 
-			// Chain straightening: pull toward midpoint of two neighbors (in case of Hydra, to straighten out curves after movement)
-			if (!data.tethered_from.empty() && !data.links.empty() && g_shift_location)
+			// Chain straightening: pull toward midpoint of two neighbors
+			if (predecessor && !data.links.empty() && g_shift_location)
 			{
-				auto *from_thing = get_thing(data.tethered_from[0]);
 				Thing_H2 *chain_target = nullptr;
+				float max_retract = 0.0f;
 				for (auto &link : data.links)
 				{
 					if (link.retract_speed > 0.0f || link.track_z_ratio > 0.0f)
 					{
 						chain_target = get_thing(link.target_id);
+						max_retract = link.retract_speed;
 						break;
 					}
 				}
 
-				if (from_thing && chain_target)
+				if (chain_target && max_retract > 0.0f)
 				{
-					float mid_x = (from_thing->mLocation.mX + chain_target->mLocation.mX) * 0.5f;
-					float mid_y = (from_thing->mLocation.mY + chain_target->mLocation.mY) * 0.5f;
+					float mid_x = (predecessor->mLocation.mX + chain_target->mLocation.mX) * 0.5f;
+					float mid_y = (predecessor->mLocation.mY + chain_target->mLocation.mY) * 0.5f;
 					float sdx = mid_x - thing->mLocation.mX;
 					float sdy = mid_y - thing->mLocation.mY;
 					float sdist = sqrtf(sdx * sdx + sdy * sdy);
@@ -325,7 +330,7 @@ namespace lua::hades::tethers
 					{
 						float snx = sdx / sdist;
 						float sny = sdy / sdist;
-						float pull = std::min(sdist, data.links[0].retract_speed * dt * 0.5f);
+						float pull = std::min(sdist, max_retract * dt * STRAIGHTEN_SPEED_SCALE);
 						Vectormath::Vector2 delta = {snx * pull, sny * pull};
 						if (std::isfinite(delta.mX) && std::isfinite(delta.mY))
 						{
@@ -346,10 +351,12 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			static float g_last_update_time = -1.0f;
-			if (elapsedSeconds != g_last_update_time)
+			// Run once per frame. The engine passes the same dt to every thing in a
+			// single physics tick, so float equality is a reliable frame guard here.
+			static float s_last_dt = -1.0f;
+			if (elapsedSeconds != s_last_dt)
 			{
-				g_last_update_time = elapsedSeconds;
+				s_last_dt = elapsedSeconds;
 				cleanup_stale_tethers();
 				update_all_tethers(elapsedSeconds);
 			}
@@ -500,7 +507,7 @@ namespace lua::hades::tethers
 			if (dx * dx + dy * dy > 0.01f)
 				link->rest_angle = atan2f(dy, dx);
 			else
-				link->rest_angle = (float)(source_id % 360) * 0.0174533f;
+				link->rest_angle = (float)(source_id % 360) * DEG_TO_RAD;
 		}
 
 		link->distance      = distance;
