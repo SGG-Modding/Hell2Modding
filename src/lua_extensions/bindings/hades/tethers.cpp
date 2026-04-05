@@ -107,12 +107,8 @@ namespace lua::hades::tethers
 
 	// ── Global tether update (runs all tethers on every physics tick) ──────
 
-	static int g_debug_log_counter = 0;
-
 	static void update_all_tethers(float dt)
 	{
-		bool should_log = (++g_debug_log_counter % 120 == 0);
-
 		for (auto &[id, data] : g_tether_data)
 		{
 			if (data.links.empty())
@@ -138,18 +134,6 @@ namespace lua::hades::tethers
 				float dy      = target->mLocation.mY - thing->mLocation.mY;
 				float dist_sq = dx * dx + dy * dy;
 				float dist    = (dist_sq > 0.0f) ? sqrtf(dist_sq) : 0.0f;
-
-				if (should_log)
-				{
-					LOG(DEBUG) << "tethers: " << id << " -> " << link.target_id
-					           << " pos=(" << thing->mLocation.mX << "," << thing->mLocation.mY << ")"
-					           << " z=" << thing->mZLocation
-					           << " target=(" << target->mLocation.mX << "," << target->mLocation.mY << ")"
-					           << " tz=" << target->mZLocation
-					           << " dist=" << dist << " max=" << link.distance
-					           << " elast=" << link.elasticity
-					           << " hasPhys=" << (thing->pPhysics ? "Y" : "N");
-				}
 
 				if (!std::isfinite(dist_sq))
 				{
@@ -512,7 +496,6 @@ namespace lua::hades::tethers
 			tgt_data.tethered_from.push_back(source_id);
 		}
 
-		LOG(DEBUG) << "tethers.add: " << source_id << " -> " << target_id << " (dist=" << distance << ")";
 		return true;
 	}
 
@@ -533,7 +516,6 @@ namespace lua::hades::tethers
 			std::erase(tgt_data->tethered_from, source_id);
 		}
 
-		LOG(DEBUG) << "tethers.remove: " << source_id << " -> " << target_id;
 		return true;
 	}
 
@@ -561,85 +543,6 @@ namespace lua::hades::tethers
 		}
 
 		g_tether_data.erase(thing_id);
-		LOG(DEBUG) << "tethers.remove_all: " << thing_id;
-	}
-
-	static sol::table get_tethered_to(int thing_id, sol::this_state state)
-	{
-		sol::table result(state, sol::create);
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (data)
-		{
-			int idx = 1;
-			for (auto &link : data->links)
-				result[idx++] = link.target_id;
-		}
-		return result;
-	}
-
-	static sol::table get_tethered_from(int thing_id, sol::this_state state)
-	{
-		sol::table result(state, sol::create);
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (data)
-		{
-			int idx = 1;
-			for (int sid : data->tethered_from)
-				result[idx++] = sid;
-		}
-		return result;
-	}
-
-	static bool set_distance(int thing_id, float distance)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (!data || data->links.empty()) return false;
-		for (auto &link : data->links) link.distance = distance;
-		return true;
-	}
-
-	static bool set_retract_speed(int thing_id, float speed)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (!data || data->links.empty()) return false;
-		for (auto &link : data->links) link.retract_speed = speed;
-		return true;
-	}
-
-	static bool set_elasticity(int thing_id, float elasticity)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (!data || data->links.empty()) return false;
-		for (auto &link : data->links) link.elasticity = elasticity;
-		return true;
-	}
-
-	static bool set_track_z_ratio(int thing_id, float ratio)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		if (!data || data->links.empty()) return false;
-		for (auto &link : data->links) link.track_z_ratio = ratio;
-		return true;
-	}
-
-	static float get_distance(int thing_id)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		return (data && !data->links.empty()) ? data->links[0].distance : 0.0f;
-	}
-
-	static bool has_tether(int thing_id)
-	{
-		std::scoped_lock l(g_tether_mutex);
-		auto *data = get_tether_data(thing_id);
-		return data && !data->links.empty();
 	}
 
 	// ── Bind ───────────────────────────────────────────────────────────────
@@ -648,7 +551,6 @@ namespace lua::hades::tethers
 	{
 		std::scoped_lock l(g_tether_mutex);
 		g_tether_data.clear();
-		LOG(DEBUG) << "tethers: cleared all tether data";
 	}
 
 	void bind(sol::state_view &state, sol::table &lua_ext)
@@ -717,14 +619,6 @@ namespace lua::hades::tethers
 		ns.set_function("add", add_tether);
 		ns.set_function("remove", remove_tether);
 		ns.set_function("remove_all", remove_all_tethers);
-		ns.set_function("get_tethered_to", get_tethered_to);
-		ns.set_function("get_tethered_from", get_tethered_from);
-		ns.set_function("set_distance", set_distance);
-		ns.set_function("set_retract_speed", set_retract_speed);
-		ns.set_function("set_elasticity", set_elasticity);
-		ns.set_function("set_track_z_ratio", set_track_z_ratio);
-		ns.set_function("get_distance", get_distance);
-		ns.set_function("has_tether", has_tether);
 		ns.set_function("clear_all", clear_all_tether_data);
 
 		LOG(INFO) << "tethers: Lua API registered";
