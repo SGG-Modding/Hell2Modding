@@ -5,6 +5,7 @@
 #include "bindings/hades/data.hpp"
 #include "bindings/hades/inputs.hpp"
 #include "bindings/hades/gpk.hpp"
+#include "bindings/hades/tethers.hpp"
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
@@ -320,6 +321,7 @@ namespace big::lua_manager_extension
 		lua::hades::data::bind(state, lua_ext);
 		lua::hades::inputs::bind(state, lua_ext);
 		lua::hades::gpk::bind(lua_ext);
+		lua::hades::tethers::bind(state, lua_ext);
 		lua::luasocket::bind(lua_ext);
 		lua::tolk::bind(lua_ext);
 		lua::gui_ext::bind(lua_ext);
