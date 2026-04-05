@@ -56,12 +56,6 @@ namespace lua::hades::tethers
 	using GetActiveThingFn = Thing_H2 *(*)(void *world, int id);
 	static GetActiveThingFn g_get_active_thing = nullptr;
 
-	// ApplyForce signature confirmed from H2 Ghidra decompilation:
-	//   void ApplyForce(PhysicsComponent* this, Vector2 direction, float magnitude, bool isSelfApplied, float zForce)
-	using ApplyForceFn = void (*)(void *physics, Vectormath::Vector2 direction, float magnitude, bool isSelfApplied, float zForce);
-	static ApplyForceFn g_apply_force = nullptr;
-
-	// sgg::Thing::ShiftLocation(Thing*, Vector2 delta) — moves obstacle by delta, updates engine state
 	using ShiftLocationFn = void (*)(void *thing, Vectormath::Vector2 delta);
 	static ShiftLocationFn g_shift_location = nullptr;
 
@@ -77,12 +71,10 @@ namespace lua::hades::tethers
 		return g_get_active_thing(*g_world_ptr, id);
 	}
 
-	// ── Tether state: sidecar data structure ───────────────────────────────
-	// The H2 PhysicsComponent may or may not have tether fields in memory
-	// (they exist in the PDB-defined struct but no engine code accesses them,
-	// so Ghidra reports a smaller struct). For safety, we store all tether
-	// data in our own sidecar map keyed by Thing ID, and use the engine's
-	// ApplyForce function to apply forces (avoiding mVelocity offset issues).
+	// ── Tether state ──────────────────────────────────────────────────────
+	// H2's PhysicsComponent has tether fields in the PDB but no engine code
+	// accesses them. We store all tether data in a sidecar map keyed by
+	// Thing ID instead.
 
 	struct TetherLink
 	{
@@ -260,18 +252,11 @@ namespace lua::hades::tethers
 			// up during attacks, neck segments follow it up.
 			if (!data.tethered_from.empty() && !data.links.empty())
 			{
-				// Find max track_z_ratio from any link (neck9 has two links,
-				// one with trackZ=0.2 and one with trackZ=0)
 				float my_track_z = 0.0f;
-				float base_z = thing->mZLocation; // fallback
 				for (auto &link : data.links)
 				{
 					if (link.track_z_ratio > my_track_z)
 						my_track_z = link.track_z_ratio;
-					// Find the lowest target Z (the base anchor)
-					auto *link_target = get_thing(link.target_id);
-					if (link_target && link_target->mZLocation < base_z)
-						base_z = link_target->mZLocation;
 				}
 
 				if (my_track_z > 0.0f)
@@ -380,7 +365,8 @@ namespace lua::hades::tethers
 	}
 
 	// ── Hook: Unit::ApplyShift ─────────────────────────────────────────────
-	// Also runs global tether update as a fallback tick if UpdateThing isn't available.
+	// Clamps elastic tethers during unit movement. Non-elastic (chain)
+	// tethers are handled by the batch update in update_all_tethers.
 
 	static bool hook_Unit_ApplyShift(void *this_, Vectormath::Vector2 destination, Vectormath::Vector2 shift, bool checkAnimState)
 	{
@@ -691,17 +677,6 @@ namespace lua::hades::tethers
 			return;
 		}
 
-		auto apply_force_addr = big::hades2_symbol_to_address["sgg::PhysicsComponent::ApplyForce"];
-		if (apply_force_addr)
-		{
-			g_apply_force = apply_force_addr.as_func<void(void *, Vectormath::Vector2, float, bool, float)>();
-			LOG(INFO) << "tethers: resolved ApplyForce";
-		}
-		else
-		{
-			LOG(WARNING) << "tethers: failed to resolve sgg::PhysicsComponent::ApplyForce - retraction forces disabled";
-		}
-
 		auto shift_location_addr = big::hades2_symbol_to_address["sgg::Thing::ShiftLocation"];
 		if (shift_location_addr)
 		{
@@ -752,6 +727,6 @@ namespace lua::hades::tethers
 		ns.set_function("has_tether", has_tether);
 		ns.set_function("clear_all", clear_all_tether_data);
 
-		LOG(INFO) << "tethers: Lua API registered (mLocation offset=0x70)";
+		LOG(INFO) << "tethers: Lua API registered";
 	}
 } // namespace lua::hades::tethers
