@@ -20,6 +20,10 @@ namespace sgg
 	};
 } // namespace sgg
 
+// Defined in main.cpp — file redirect maps for custom GPK/PKG assets
+extern std::unordered_map<std::string, std::string> additional_granny_files;
+extern std::unordered_map<std::string, std::string> additional_package_files;
+
 namespace lua::hades::data
 {
 	static std::recursive_mutex g_load_packages_overrides_mutex;
@@ -143,6 +147,41 @@ namespace lua::hades::data
 		}
 
 		LOG(INFO) << ss.str();
+	}
+
+	// Lua API: Function
+	// Table: data
+	// Name: add_granny_file
+	// Param: filename: string: The GPK filename (e.g. "Melinoe.gpk").
+	// Param: full_path: string: The full filesystem path to the GPK file.
+	// Registers a custom GPK file for file-redirection at runtime, allowing
+	// hot-loading of GPK assets that were not present during initial scan.
+	//
+	// **Example Usage:**
+	// ```lua
+	// rom.data.add_granny_file("Melinoe.gpk", "C:/path/to/plugins_data/CG3HBuilder/Melinoe.gpk")
+	// ```
+	static void add_granny_file(const std::string& filename, const std::string& full_path)
+	{
+		additional_granny_files[filename] = full_path;
+		LOG(INFO) << "Adding to granny files (runtime): " << full_path;
+	}
+
+	// Lua API: Function
+	// Table: data
+	// Name: add_package_file
+	// Param: filename: string: The PKG or PKG_MANIFEST filename.
+	// Param: full_path: string: The full filesystem path to the file.
+	// Registers a custom PKG/PKG_MANIFEST file for file-redirection at runtime.
+	//
+	// **Example Usage:**
+	// ```lua
+	// rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.pkg")
+	// ```
+	static void add_package_file(const std::string& filename, const std::string& full_path)
+	{
+		additional_package_files[filename] = full_path;
+		LOG(INFO) << "Adding to package files (runtime): " << full_path;
 	}
 
 	static std::unordered_map<void*, std::filesystem::path> g_sjson_FileStream_to_filepath;
@@ -444,6 +483,8 @@ namespace lua::hades::data
 
 		ns.set_function("load_package_overrides_get", load_package_overrides_get);
 		ns.set_function("load_package_overrides_set", load_package_overrides_set);
+		ns.set_function("add_granny_file", add_granny_file);
+		ns.set_function("add_package_file", add_package_file);
 
 		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
 		// Lua API: Function
