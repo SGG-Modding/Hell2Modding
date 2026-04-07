@@ -1692,7 +1692,7 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 
 		for (const auto &[filename, full_file_path] : additional_granny_files)
 		{
-			if (strstr(pathComponent, filename.c_str()))
+			if (strcmp(pathComponent, filename.c_str()) == 0)
 			{
 				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 
