@@ -579,8 +579,8 @@ bool extend_sgg_sBufferLen_max_size()
 	// .text:000000014019ECF9 8B 3D 69 C5 9C 03		mov     edi, cs:sgg__sBufferLen
 	// .text:000000014019ECFF 8D 47 01				lea     eax, [rdi+1]
 	// .text:000000014019ED02 41 03 C7				add     eax, r15d
-	// .text:000000014019ED05 3D 00 00 80 00		cmp     eax, 0C00000h <---- max_size
-	static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr = gmAddress::scan("41 03 C7 3D 00 00 C0 00");
+	// .text:000000014019ED05 3D 00 00 80 00		cmp     eax, 0C00001h <---- max_size
+	static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr = gmAddress::scan("41 03 C7 3D 01 00 C0 00");
 	if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr)
 	{
 		const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size =
@@ -588,7 +588,7 @@ bool extend_sgg_sBufferLen_max_size()
 
 		memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size, extended_sgg_sBuffer_size)->apply();
 
-		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 = gmAddress::scan("81 FB 00 00 C0 00");
+		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 = gmAddress::scan("81 F9 00 00 C0 00");
 		if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2)
 		{
 			const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2 =
