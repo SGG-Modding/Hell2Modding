@@ -59,11 +59,11 @@ struct /*VFT*/ GUIComponentTextBox_vtbl
 	bool(__fastcall* HasText)(void* this_);
 };
 
-// 00000000 struct __cppobj sgg::GUIComponentTextBox : sgg::GUIComponentBox // sizeof=0x6E8
+// 00000000 struct __cppobj sgg::GUIComponentTextBox : sgg::GUIComponentBox // sizeof=0x6C0
 struct GUIComponentTextBox
 {
 	GUIComponentTextBox_vtbl* vtbl;
-	char m_pad[0x5'B0];
+	char m_pad[0x5'A0];
 	eastl::string mStringBuilder;
 	char m_pad2[70];
 	eastl_vector<GUIComponentTextBox_Line> mLines;
@@ -71,21 +71,19 @@ struct GUIComponentTextBox
 
 //constexpr size_t verify_offset_manually_hover  = offsetof(GUIComponentTextBox, mStringBuilder);
 //constexpr size_t verify_offset_manually_hover2 = 0x5'd0;
-#ifndef _DEBUG
-static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x5'B8);
-static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'18);
-#endif
+static_assert(offsetof(GUIComponentTextBox, mStringBuilder) == 0x5'A8);
+static_assert(offsetof(GUIComponentTextBox, mLines) == 0x6'08);
 
 inline std::mutex g_GUIComponentTextBoxes_mutex;
 inline std::unordered_set<GUIComponentTextBox*> g_GUIComponentTextBoxes;
 
 struct GUIComponentButton
 {
-	char m_pad[0x5'90];
+	char m_pad[0x5'80];
 	GUIComponentTextBox* mTextBox;
 };
 
-static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'90);
+static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'80);
 
 inline GUIComponentButton* g_currently_selected_gui_comp = nullptr;
 
