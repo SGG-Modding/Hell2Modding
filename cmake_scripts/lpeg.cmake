@@ -4,7 +4,8 @@ project(lpeg LANGUAGES C VERSION 5.2.1)
 
 FetchContent_Declare(
 	lpeg
-	URL https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-1.1.0.tar.gz
+    GIT_REPOSITORY https://github.com/xiaoxiao921/lpeg-1.1.0.git
+	GIT_TAG 27fb17657b9529cd430f99fc21318183f53c1741
 )
 FetchContent_MakeAvailable(lpeg)
 
