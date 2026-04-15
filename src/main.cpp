@@ -33,6 +33,9 @@
 #include <PDB_RawFile.h>
 #include <PDB_TPIStream.h>
 
+// TODO: Make Debug builds work.
+static_assert(sizeof(eastl::string) == 0x18, "eastl::string size is not matching the game eastl::basic_string<char, eastl::allocator_forge> size. Are you trying to compile as debug?");
+
 //#include "debug/debug.hpp"
 
 std::vector<SafetyHookMid> g_sgg_sBuffer_mid_hooks;
