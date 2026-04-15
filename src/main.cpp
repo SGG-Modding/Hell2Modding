@@ -2310,23 +2310,6 @@ extern "C" __declspec(dllexport) void my_main()
 
 		extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
 
-		static auto ptr = gmAddress::scan("3D 00 00 90 00", "cmp     eax, 900000h | silencing String intern table running low on space message spam");
-		if (ptr)
-		{
-			auto e8_call_ptr = ptr.offset(45).as<uint8_t *>();
-			if (*e8_call_ptr != 0xE8)
-			{
-				LOG(ERROR) << "Failed silencing String intern table running low on space message spam - unexpected "
-				              "instruction at call site";
-			}
-			else
-			{
-				for (size_t i = 0; i < 5; i++)
-				{
-					ForceWrite<uint8_t>(*(e8_call_ptr + i), 0x90);
-				}
-			}
-		}
 
 		sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
 		XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
