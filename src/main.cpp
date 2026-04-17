@@ -1666,6 +1666,24 @@ std::unordered_map<std::string, std::string> additional_package_files;
 
 std::unordered_map<std::string, std::string> additional_granny_files;
 
+std::unordered_map<std::string, std::string> additional_map_files;
+
+// Simple glob match supporting a single '*' wildcard (e.g. "F_*.map_text")
+static bool glob_match(const std::string& pattern, const std::string& str)
+{
+	auto star = pattern.find('*');
+	if (star == std::string::npos)
+	{
+		return pattern == str;
+	}
+
+	auto prefix = pattern.substr(0, star);
+	auto suffix = pattern.substr(star + 1);
+	return str.size() >= prefix.size() + suffix.size()
+	    && str.compare(0, prefix.size(), prefix) == 0
+	    && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 //static std::string g_current_custom_package_stem;
 
 static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
@@ -1705,27 +1723,30 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 			}
 		}
 
-		// SJSON overlay: Redirect file paths to the mod's SJSON data directory.
+		for (const auto &[filename, full_file_path] : additional_map_files)
 		{
-			std::string normalized_output = sjson_overlay::normalize_path(output);
-			std::string lower_output = big::string::to_lower(normalized_output);
-			auto content_pos = lower_output.rfind("content/");
-			if (content_pos != std::string::npos)
+			if (strcmp(filename.c_str(), pathComponent) == 0)
 			{
-				std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
-				std::string overlay_abspath = sjson_overlay::lookup_overlay_path(logical_path);
-				if (!overlay_abspath.empty())
-				{
-					if (overlay_abspath.size() < 512)
-					{
-						LOG(DEBUG) << "[SJSON] Redirecting '" << logical_path << "' -> '" << overlay_abspath << "'";
-						strcpy(output, overlay_abspath.c_str());
-					}
-					else
-					{
-						LOG(WARNING) << "[SJSON] Overlay path too long (>511 bytes), skipping: " << overlay_abspath;
-					}
-				}
+				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+
+				strcpy(output, full_file_path.c_str());
+				break;
+			}
+		}
+
+		// SJSON overlay: Redirect file paths to the mod's SJSON data directory.
+		std::string normalized_output = sjson_overlay::normalize_path(output);
+		std::string lower_output = big::string::to_lower(normalized_output);
+		auto content_pos = lower_output.rfind("content/");
+		if (content_pos != std::string::npos)
+		{
+			std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
+			std::string redirect_abspath = sjson_overlay::lookup_overlay_path(logical_path);
+			if (!redirect_abspath.empty())
+			{
+				LOG(DEBUG) << pathComponent << " | " << logical_path << " | " << redirect_abspath;
+
+				strcpy(output, redirect_abspath.c_str());
 			}
 		}
 	}
@@ -1797,6 +1818,33 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 		}
 	}
 
+	// Map file injection: inject additional map files when engine enumerates .map_text files
+	// The engine uses glob patterns (e.g. "X_*.map_text", "RoomOpening.map_text") to find maps per MapGroup
+	if (extension)
+	{
+		const char* ext_as_char_maps = reinterpret_cast<const char*>(extension);
+		if (ext_as_char_maps && strstr(ext_as_char_maps, ".map_text"))
+		{
+			std::string pattern(ext_as_char_maps);
+			std::unordered_set<std::string> existing;
+			for (const auto& f : *out)
+			{
+				existing.insert(f.c_str());
+			}
+
+			for (const auto& [filename, filepath] : additional_map_files)
+			{
+				if (ends_with(filename.c_str(), ".map_text")
+				    && glob_match(pattern, filename)
+				    && existing.find(filename) == existing.end())
+				{
+					out->push_back(filename.c_str());
+					existing.insert(filename);
+				}
+			}
+		}
+	}
+
 	// SJSON overlay: inject additional .sjson files into the engine's enumeration
 	if (subDirectory && extension)
 	{
@@ -1815,7 +1863,6 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 
 		std::string normalized_subdir = sjson_overlay::normalize_path(subDirectory);
 
-		// Only process .sjson file enumerations
 		if (ext_clean != ".sjson")
 		{
 			return;
@@ -2810,6 +2857,13 @@ extern "C" __declspec(dllexport) void my_main()
 			                                (char *)entry.path().u8string().c_str());
 
 			LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
+		}
+		else if (entry.path().extension() == ".map_text" || entry.path().extension() == ".thing_bin")
+		{
+			additional_map_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                             (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to map files: " << (char *)entry.path().u8string().c_str();
 		}
 	}
 

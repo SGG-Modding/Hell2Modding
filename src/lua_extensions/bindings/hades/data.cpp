@@ -511,6 +511,28 @@ namespace lua::hades::data
 			sjson_overlay::scan_content_directory(std::filesystem::path(absolute_base_path));
 		});
 
+		// Lua API: Function
+		// Table: data
+		// Name: register_file_redirect
+		// Param: content_relative_path: string: The path relative to Content/, e.g. "Maps/D_Hub.map_text" or "Maps/bin/D_Hub.thing_bin"
+		// Param: absolute_path: string: The absolute filesystem path to the actual file
+		// Returns: boolean: true if registered, false if duplicate
+		// Registers a file redirect so the engine loads it from an external location instead of Content/.
+		// Unlike register_content_file (SJSON-only), this works for any file type that the engine loads via fsAppendPathComponent (maps, etc.).
+		// No directory convention is enforced - the caller provides both paths.
+		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
+			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
+
+			std::unique_lock lock(sjson_overlay::g_overlay_mutex);
+			if (sjson_overlay::g_path_index.count(normalized))
+			{
+				return false;
+			}
+			sjson_overlay::g_path_index[normalized] = absolute_path;
+			LOG(INFO) << "Adding file redirect: " << normalized << " -> " << absolute_path;
+			return true;
+		});
+
 		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
 		// Lua API: Function
 		// Table: game
