@@ -1,7 +1,10 @@
 #pragma once
 
 #include "bindings/hades/inputs.hpp"
+#include "sjson_overlay.hpp"
 #include "lua/lua_module.hpp"
+
+#include <paths/paths.hpp>
 
 namespace big
 {
@@ -32,11 +35,13 @@ namespace big
 		lua_module_ext(const module_info& module_info, sol::environment& env) :
 		    lua_module(module_info, env)
 		{
+			set_sjson_data_path();
 		}
 
 		lua_module_ext(const module_info& module_info, sol::state_view& state) :
 		    lua_module(module_info, state)
 		{
+			set_sjson_data_path();
 		}
 
 		inline void cleanup() override
@@ -44,6 +49,19 @@ namespace big
 			lua_module::cleanup();
 
 			m_data_ext = {};
+		}
+
+	private:
+		void set_sjson_data_path()
+		{
+			auto sjson_data_path = g_file_manager.get_project_folder("plugins_data").get_path() / m_info.m_guid / sjson_overlay::SJSON_DATA_DIR_NAME;
+			auto sjson_data_path_string = std::string(reinterpret_cast<const char*>(sjson_data_path.u8string().c_str()));
+
+			sol::table ns = m_env["_PLUGIN"];
+			if (ns.valid())
+			{
+				ns["sjson_data_path"] = sjson_data_path_string;
+			}
 		}
 	};
 } // namespace big

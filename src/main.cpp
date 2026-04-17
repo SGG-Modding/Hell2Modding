@@ -16,6 +16,7 @@
 #include "threads/thread_pool.hpp"
 #include "threads/util.hpp"
 #include "version.hpp"
+#include "sjson_overlay.hpp"
 
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
@@ -1703,12 +1704,51 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 				break;
 			}
 		}
+
+		// SJSON overlay: Redirect file paths to the mod's SJSON data directory.
+		{
+			std::string normalized_output = sjson_overlay::normalize_path(output);
+			std::string lower_output = big::string::to_lower(normalized_output);
+			auto content_pos = lower_output.rfind("content/");
+			if (content_pos != std::string::npos)
+			{
+				std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
+				std::string overlay_abspath = sjson_overlay::lookup_overlay_path(logical_path);
+				if (!overlay_abspath.empty())
+				{
+					if (overlay_abspath.size() < 512)
+					{
+						LOG(DEBUG) << "[SJSON] Redirecting '" << logical_path << "' -> '" << overlay_abspath << "'";
+						strcpy(output, overlay_abspath.c_str());
+					}
+					else
+					{
+						LOG(WARNING) << "[SJSON] Overlay path too long (>511 bytes), skipping: " << overlay_abspath;
+					}
+				}
+			}
+		}
 	}
 }
 
 static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
 {
 	big::g_hooking->get_original<hook_fsGetFilesWithExtension_packages>()(resourceDir, subDirectory, extension, out);
+
+	// Resolve the ResourceDirectory to its physical path so we can match the correct sjson files (and not include those that belong to a different group)
+	std::string resolved_base_dir;
+	{
+		static auto fsGetResourceDirectory_ptr = big::hades2_symbol_to_address["fsGetResourceDirectory"];
+		if (fsGetResourceDirectory_ptr)
+		{
+			static auto fsGetResourceDirectory = fsGetResourceDirectory_ptr.as_func<const char*(PVOID)>();
+			const char* base = fsGetResourceDirectory(resourceDir);
+			if (base)
+			{
+				resolved_base_dir = sjson_overlay::normalize_path(base);
+			}
+		}
+	}
 
 	bool has_pkg_manifest = false;
 	bool has_pkg          = false;
@@ -1754,6 +1794,133 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 		for (const auto &[filename, full_file_path] : additional_granny_files)
 		{
 			out->push_back(filename.c_str());
+		}
+	}
+
+	// SJSON overlay: inject additional .sjson files into the engine's enumeration
+	if (subDirectory && extension)
+	{
+		// The extension parameter is char* despite the wchar_t* in the hook signature
+		const char* ext_as_char = reinterpret_cast<const char*>(extension);
+		if (!ext_as_char || ext_as_char[0] == '\0')
+		{
+			return;
+		}
+
+		std::string ext_clean(ext_as_char);
+		if (ext_clean.size() > 1 && ext_clean[0] == '*')
+		{
+			ext_clean = ext_clean.substr(1);
+		}
+
+		std::string normalized_subdir = sjson_overlay::normalize_path(subDirectory);
+
+		// Only process .sjson file enumerations
+		if (ext_clean != ".sjson")
+		{
+			return;
+		}
+
+		// Mark this directory as enumerated so late registrations get a warning
+		sjson_overlay::mark_directory_enumerated(normalized_subdir, ext_clean);
+
+		// Determine the engine's target directory relative to Content/Game/ so we can match overlay files.
+		// resolved_base_dir is the physical path the engine is scanning (e.g. "C:/.../Content/Game/Animations").
+		// We extract the part after "Content/Game/" to get e.g. "Animations".
+		std::string engine_game_subdir;
+		if (!resolved_base_dir.empty())
+		{
+			std::string lower_base = big::string::to_lower(resolved_base_dir);
+
+			auto game_pos = lower_base.find("content/game/");
+			if (game_pos != std::string::npos)
+			{
+				engine_game_subdir = resolved_base_dir.substr(game_pos + 13);
+			}
+		}
+
+		// Combine engine base subdir with the subDirectory parameter for nested scans (e.g. Text/{lang})
+		std::string full_engine_subdir = engine_game_subdir;
+		if (!normalized_subdir.empty())
+		{
+			if (!full_engine_subdir.empty())
+			{
+				full_engine_subdir += "/" + normalized_subdir;
+			}
+			else
+			{
+				full_engine_subdir = normalized_subdir;
+			}
+		}
+
+		// Match overlay files whose directory matches the engine's target
+		{
+			std::unordered_set<std::string> existing;
+			for (const auto& existing_file : *out)
+			{
+				existing.insert(existing_file.c_str());
+			}
+
+			std::shared_lock lock(sjson_overlay::g_overlay_mutex);
+			for (const auto& [relpath, abspath] : sjson_overlay::g_path_index)
+			{
+				// relpath is like "Game/Animations/Foo.sjson" - strip "Game/" prefix
+				std::string normalized_relpath = sjson_overlay::normalize_path(relpath);
+				if (normalized_relpath.size() <= 5 || normalized_relpath.substr(0, 5) != "Game/")
+				{
+					continue;
+				}
+				std::string game_relative = normalized_relpath.substr(5); // e.g. "Animations/Foo.sjson"
+
+				// Check extension
+				auto dot_pos = game_relative.rfind('.');
+				if (dot_pos == std::string::npos || game_relative.substr(dot_pos) != ext_clean)
+				{
+					continue;
+				}
+
+				// Extract file's directory and filename
+				auto slash_pos = game_relative.rfind('/');
+				std::string file_subdir;
+				std::string filename;
+				if (slash_pos != std::string::npos)
+				{
+					file_subdir = game_relative.substr(0, slash_pos);
+					filename = game_relative.substr(slash_pos + 1);
+				}
+				else
+				{
+					file_subdir = "";
+					filename = game_relative;
+				}
+
+				// Case-insensitive directory comparison
+				std::string lower_file_subdir = big::string::to_lower(file_subdir);
+				std::string lower_full_engine_subdir = big::string::to_lower(full_engine_subdir);
+
+				if (lower_file_subdir != lower_full_engine_subdir)
+				{
+					continue;
+				}
+
+				// Build the entry in the format the engine expects
+				std::string entry_to_inject;
+				if (!normalized_subdir.empty())
+				{
+					entry_to_inject = normalized_subdir + "\\" + filename;
+				}
+				else
+				{
+					entry_to_inject = filename;
+				}
+
+				if (existing.find(entry_to_inject) == existing.end())
+				{
+					out->push_back(entry_to_inject.c_str());
+					existing.insert(entry_to_inject);
+					LOG(DEBUG) << "[SJSON] Injected '" << entry_to_inject << "' into " << full_engine_subdir;
+				}
+			}
 		}
 	}
 }
@@ -2645,6 +2812,9 @@ extern "C" __declspec(dllexport) void my_main()
 			LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
 		}
 	}
+
+	// Scan for SJSON overlay files (plugins_data/*/<SJSON_DATA_DIR_NAME>/)
+	sjson_overlay::scan_all_plugin_content_directories(g_file_manager.get_project_folder("plugins_data").get_path());
 
 	const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
 	LOG(INFO) << "lovely_init returned " << (int32_t)res;
