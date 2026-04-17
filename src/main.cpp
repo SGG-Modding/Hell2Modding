@@ -1864,13 +1864,13 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			std::shared_lock lock(sjson_overlay::g_overlay_mutex);
 			for (const auto& [relpath, abspath] : sjson_overlay::g_path_index)
 			{
-				// relpath keys are lowercase, e.g. "game/animations/foo.sjson" - strip "game/" prefix
+				// relpath is like "Game/Animations/Foo.sjson" - strip "Game/" prefix
 				std::string normalized_relpath = sjson_overlay::normalize_path(relpath);
-				if (normalized_relpath.size() <= 5 || normalized_relpath.substr(0, 5) != "game/")
+				if (normalized_relpath.size() <= 5 || normalized_relpath.substr(0, 5) != "Game/")
 				{
 					continue;
 				}
-				std::string game_relative = normalized_relpath.substr(5); // e.g. "animations/foo.sjson"
+				std::string game_relative = normalized_relpath.substr(5); // e.g. "Animations/Foo.sjson"
 
 				// Check extension
 				auto dot_pos = game_relative.rfind('.');

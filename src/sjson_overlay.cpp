@@ -46,21 +46,20 @@ namespace sjson_overlay
 
 	bool register_content_file(const std::string& logical_relpath, const std::string& absolute_path)
 	{
-		// Canonical lowercase key for case-insensitive matching on Windows
-		std::string key = big::string::to_lower(normalize_path(logical_relpath));
+		std::string normalized = normalize_path(logical_relpath);
 
 		// Extract directory and extension
 		std::string subdir;
 		std::string filename;
-		auto last_slash = key.rfind('/');
+		auto last_slash = normalized.rfind('/');
 		if (last_slash != std::string::npos)
 		{
-			subdir   = key.substr(0, last_slash);
-			filename = key.substr(last_slash + 1);
+			subdir   = normalized.substr(0, last_slash);
+			filename = normalized.substr(last_slash + 1);
 		}
 		else
 		{
-			filename = key;
+			filename = normalized;
 		}
 
 		std::string extension;
@@ -70,15 +69,15 @@ namespace sjson_overlay
 			extension = filename.substr(dot_pos);
 		}
 
-		if (extension != ".sjson")
+		if (big::string::to_lower(extension) != ".sjson")
 		{
-			LOG(WARNING) << "[SJSON] Only .sjson files are supported. Ignoring: " << key;
+			LOG(WARNING) << "[SJSON] Only .sjson files are supported. Ignoring: " << normalized;
 			return false;
 		}
 
 		if (!is_known_engine_directory(subdir))
 		{
-			LOG(WARNING) << "[SJSON] SJSON file '" << key
+			LOG(WARNING) << "[SJSON] SJSON file '" << normalized
 			             << "' is in a directory not known to be scanned by the engine. "
 			             << "Known directories: Game/, Game/Animations/, Game/GUI/, Game/Obstacles/, "
 			             << "Game/Units/, Game/Weapons/, Game/Projectiles/, Game/Text/{lang}/";
@@ -86,19 +85,21 @@ namespace sjson_overlay
 
 		std::unique_lock lock(g_overlay_mutex);
 
-		if (g_path_index.count(key))
+		if (g_path_index.count(normalized))
 		{
-			LOG(WARNING) << "[SJSON] Duplicate: '" << key << "' already registered from '"
-			             << g_path_index[key] << "', ignoring '" << absolute_path << "'";
+			if (g_path_index[normalized] != absolute_path)
+			{
+				LOG(WARNING) << "[SJSON] File '" << normalized << "' already registered from '" << g_path_index[normalized] << "', ignoring '" << absolute_path << "'";
+			}
 			return false;
 		}
 
-		g_path_index[key] = absolute_path;
+		g_path_index[normalized] = absolute_path;
 
-		std::string enum_key = subdir + "|" + extension;
+		std::string enum_key = big::string::to_lower(subdir) + "|" + big::string::to_lower(extension);
 		if (g_enumerated_directories.count(enum_key))
 		{
-			LOG(WARNING) << "[SJSON] File '" << key
+			LOG(WARNING) << "[SJSON] File '" << normalized
 			             << "' registered after engine enumerated '" << subdir
 			             << "'. Will not be loaded until next launch.";
 		}
@@ -165,7 +166,7 @@ namespace sjson_overlay
 	std::string lookup_overlay_path(const std::string& normalized_relpath)
 	{
 		std::shared_lock lock(g_overlay_mutex);
-		auto it = g_path_index.find(big::string::to_lower(normalized_relpath));
+		auto it = g_path_index.find(normalized_relpath);
 		if (it != g_path_index.end())
 		{
 			return it->second;
