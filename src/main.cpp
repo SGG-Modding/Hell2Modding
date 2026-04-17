@@ -1821,9 +1821,6 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 			return;
 		}
 
-		// Mark this directory as enumerated so late registrations get a warning
-		sjson_overlay::mark_directory_enumerated(normalized_subdir, ext_clean);
-
 		// Determine the engine's target directory relative to Content/Game/ so we can match overlay files.
 		// resolved_base_dir is the physical path the engine is scanning (e.g. "C:/.../Content/Game/Animations").
 		// We extract the part after "Content/Game/" to get e.g. "Animations".
@@ -1852,6 +1849,9 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 				full_engine_subdir = normalized_subdir;
 			}
 		}
+
+		// Mark using the full logical directory (game/<subdir>) so it matches the keys used by register_content_file for late-registration warnings
+		sjson_overlay::mark_directory_enumerated("game/" + full_engine_subdir, ext_clean);
 
 		// Match overlay files whose directory matches the engine's target
 		{
