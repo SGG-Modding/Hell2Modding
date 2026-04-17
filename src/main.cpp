@@ -1706,26 +1706,18 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 		}
 
 		// SJSON overlay: Redirect file paths to the mod's SJSON data directory.
+		std::string normalized_output = sjson_overlay::normalize_path(output);
+		std::string lower_output = big::string::to_lower(normalized_output);
+		auto content_pos = lower_output.rfind("content/");
+		if (content_pos != std::string::npos)
 		{
-			std::string normalized_output = sjson_overlay::normalize_path(output);
-			std::string lower_output = big::string::to_lower(normalized_output);
-			auto content_pos = lower_output.rfind("content/");
-			if (content_pos != std::string::npos)
+			std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
+			std::string redirect_abspath = sjson_overlay::lookup_overlay_path(logical_path);
+			if (!redirect_abspath.empty())
 			{
-				std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
-				std::string overlay_abspath = sjson_overlay::lookup_overlay_path(logical_path);
-				if (!overlay_abspath.empty())
-				{
-					if (overlay_abspath.size() < 512)
-					{
-						LOG(DEBUG) << "[SJSON] Redirecting '" << logical_path << "' -> '" << overlay_abspath << "'";
-						strcpy(output, overlay_abspath.c_str());
-					}
-					else
-					{
-						LOG(WARNING) << "[SJSON] Overlay path too long (>511 bytes), skipping: " << overlay_abspath;
-					}
-				}
+				LOG(DEBUG) << pathComponent << " | " << logical_path << " | " << redirect_abspath;
+
+				strcpy(output, redirect_abspath.c_str());
 			}
 		}
 	}
@@ -1815,7 +1807,6 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 
 		std::string normalized_subdir = sjson_overlay::normalize_path(subDirectory);
 
-		// Only process .sjson file enumerations
 		if (ext_clean != ".sjson")
 		{
 			return;
