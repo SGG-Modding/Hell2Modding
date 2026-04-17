@@ -88,6 +88,8 @@ namespace sjson_overlay
 
 		if (g_path_index.count(key))
 		{
+			LOG(WARNING) << "[SJSON] Duplicate: '" << key << "' already registered from '"
+			             << g_path_index[key] << "', ignoring '" << absolute_path << "'";
 			return false;
 		}
 
