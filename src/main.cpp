@@ -1668,6 +1668,14 @@ std::unordered_map<std::string, std::string> additional_granny_files;
 
 std::unordered_map<std::string, std::string> additional_map_files;
 
+struct vo_file_registry
+{
+	std::unordered_map<std::string, std::string> fsb_files;
+	std::unordered_map<std::string, std::string> txt_files;
+};
+
+vo_file_registry additional_vo_files;
+
 // Simple glob match supporting a single '*' wildcard (e.g. "F_*.map_text")
 static bool glob_match(const std::string& pattern, const std::string& str)
 {
@@ -1686,11 +1694,11 @@ static bool glob_match(const std::string& pattern, const std::string& str)
 
 //static std::string g_current_custom_package_stem;
 
-static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
+static void hook_fsAppendPathComponent(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
 	//g_current_custom_package_stem = "";
 
-	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
+	big::g_hooking->get_original<hook_fsAppendPathComponent>()(basePath, pathComponent, output);
 
 	if (strlen(pathComponent) > 0)
 	{
@@ -1723,14 +1731,42 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 			}
 		}
 
-		for (const auto &[filename, full_file_path] : additional_map_files)
 		{
-			if (strcmp(filename.c_str(), pathComponent) == 0)
+			auto it = additional_map_files.find(pathComponent);
+			if (it != additional_map_files.end())
 			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+				LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
 
-				strcpy(output, full_file_path.c_str());
-				break;
+				strcpy(output, it->second.c_str());
+			}
+		}
+
+		// VO files: pathComponent includes subdir prefix (e.g. "VO\Zagreus.fsb"), match by filename
+		{
+			const char* vo_filename = strrchr(pathComponent, '\\');
+			if (!vo_filename)
+			{
+				vo_filename = strrchr(pathComponent, '/');
+			}
+			vo_filename = vo_filename ? vo_filename + 1 : pathComponent;
+
+			if (ends_with(vo_filename, ".fsb"))
+			{
+				auto it = additional_vo_files.fsb_files.find(vo_filename);
+				if (it != additional_vo_files.fsb_files.end())
+				{
+					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+					strcpy(output, it->second.c_str());
+				}
+			}
+			else if (ends_with(vo_filename, ".txt"))
+			{
+				auto it = additional_vo_files.txt_files.find(vo_filename);
+				if (it != additional_vo_files.txt_files.end())
+				{
+					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+					strcpy(output, it->second.c_str());
+				}
 			}
 		}
 
@@ -1752,9 +1788,9 @@ static void hook_fsAppendPathComponent_packages(const char *basePath, const char
 	}
 }
 
-static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
+static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
 {
-	big::g_hooking->get_original<hook_fsGetFilesWithExtension_packages>()(resourceDir, subDirectory, extension, out);
+	big::g_hooking->get_original<hook_fsGetFilesWithExtension>()(resourceDir, subDirectory, extension, out);
 
 	// Resolve the ResourceDirectory to its physical path so we can match the correct sjson files (and not include those that belong to a different group)
 	std::string resolved_base_dir;
@@ -1840,6 +1876,35 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 				{
 					out->push_back(filename.c_str());
 					existing.insert(filename);
+				}
+			}
+		}
+	}
+
+	// VO file injection: inject additional .fsb files when engine enumerates voiceover files
+	// The engine scans Audio/Desktop/ with subDirectory="VO" and extension="*.fsb"
+	if (extension)
+	{
+		const char* ext_as_char_vo = reinterpret_cast<const char*>(extension);
+		if (ext_as_char_vo && strstr(ext_as_char_vo, ".fsb"))
+		{
+			std::string subdir_str = subDirectory ? subDirectory : "";
+			std::unordered_set<std::string> existing;
+			for (const auto& f : *out)
+			{
+				existing.insert(f.c_str());
+			}
+
+			for (const auto& [filename, filepath] : additional_vo_files.fsb_files)
+			{
+
+				// Build entry with subdir prefix if present (engine expects "VO\\filename.fsb")
+				std::string entry = subdir_str.empty() ? filename : subdir_str + "\\" + filename;
+
+				if (existing.find(entry) == existing.end())
+				{
+					out->push_back(entry.c_str());
+					existing.insert(entry);
 				}
 			}
 		}
@@ -1965,7 +2030,6 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 				{
 					out->push_back(entry_to_inject.c_str());
 					existing.insert(entry_to_inject);
-					LOG(DEBUG) << "[SJSON] Injected '" << entry_to_inject << "' into " << full_engine_subdir;
 				}
 			}
 		}
@@ -2760,8 +2824,8 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto ptr_func = ptr;
 
-			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension_packages>(
-			    "fsGetFilesWithExtension for packages and models",
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension>(
+			    "fsGetFilesWithExtension for mod plugin_data files",
 			    ptr_func);
 		}
 	}
@@ -2805,13 +2869,13 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char *, const char *, char *)>();
 
-			static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
-			    "hook_fsAppendPathComponent for packages and models",
+			static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent>(
+			    "hook_fsAppendPathComponent for mod plugin_data files",
 			    fsAppendPathComponent);
 		}
 		else
 		{
-			LOG(ERROR) << "hook_fsAppendPathComponent for packages and models failure";
+			LOG(ERROR) << "hook_fsAppendPathComponent for mod plugin_data files failure";
 		}
 	}
 
@@ -2865,7 +2929,71 @@ extern "C" __declspec(dllexport) void my_main()
 
 			LOG(INFO) << "Adding to map files: " << (char *)entry.path().u8string().c_str();
 		}
+		else if (entry.path().extension() == ".fsb")
+		{
+			additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                                      (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+		}
 	}
+
+	// Register .txt companions for each discovered .fsb.
+	// The .txt must be co-located with its .fsb (same directory, same stem).
+	// We don't register all .txt files as they may be unrelated to a voiceover.
+	{
+		for (const auto& [filename, abspath] : additional_vo_files.fsb_files)
+		{
+			auto txt_path = std::filesystem::path(abspath);
+			txt_path.replace_extension(".txt");
+			if (std::filesystem::exists(txt_path))
+			{
+				additional_vo_files.txt_files.emplace((char *)txt_path.filename().u8string().c_str(),
+				                                      (char *)txt_path.u8string().c_str());
+			}
+		}
+	}
+
+	// Validate file pairs: warn if either half of a required pair is missing
+	auto validate_file_pairs = [](const std::unordered_map<std::string, std::string>& files_a,
+	                              const char* ext_a,
+	                              const std::unordered_map<std::string, std::string>& files_b,
+	                              const char* ext_b)
+	{
+		std::unordered_set<std::string> stems_a, stems_b;
+		for (const auto& [filename, _] : files_a)
+		{
+			if (ends_with(filename.c_str(), ext_a))
+			{
+				stems_a.insert(std::filesystem::path(filename).stem().string());
+			}
+		}
+		for (const auto& [filename, _] : files_b)
+		{
+			if (ends_with(filename.c_str(), ext_b))
+			{
+				stems_b.insert(std::filesystem::path(filename).stem().string());
+			}
+		}
+		for (const auto& stem : stems_a)
+		{
+			if (!stems_b.count(stem))
+			{
+				LOG(WARNING) << "File '" << stem << ext_a << "' has no matching " << ext_b << " pair";
+			}
+		}
+		for (const auto& stem : stems_b)
+		{
+			if (!stems_a.count(stem))
+			{
+				LOG(WARNING) << "File '" << stem << ext_b << "' has no matching " << ext_a << " pair";
+			}
+		}
+	};
+
+	validate_file_pairs(additional_package_files, ".pkg", additional_package_files, ".pkg_manifest");
+	validate_file_pairs(additional_map_files, ".map_text", additional_map_files, ".thing_bin");
+	validate_file_pairs(additional_vo_files.fsb_files, ".fsb", additional_vo_files.txt_files, ".txt");
 
 	// Scan for SJSON overlay files (plugins_data/*/<SJSON_DATA_DIR_NAME>/)
 	sjson_overlay::scan_all_plugin_content_directories(g_file_manager.get_project_folder("plugins_data").get_path());
