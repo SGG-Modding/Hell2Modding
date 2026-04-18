@@ -1506,7 +1506,7 @@ static void hook_disable_f10_launch(void *bugInfo)
 	}
 }
 
-static int ends_with(const char *str, const char *suffix)
+int ends_with(const char *str, const char *suffix)
 {
 	if (!str || !suffix)
 	{
@@ -1676,6 +1676,11 @@ struct vo_file_registry
 
 vo_file_registry additional_vo_files;
 
+std::unordered_map<std::string, std::string> additional_bik_files;
+
+// Guards runtime writes (register_plugin_file from Lua) against concurrent reads in hooks.
+std::shared_mutex g_plugin_files_mutex;
+
 // Simple glob match supporting a single '*' wildcard (e.g. "F_*.map_text")
 static bool glob_match(const std::string& pattern, const std::string& str)
 {
@@ -1692,6 +1697,39 @@ static bool glob_match(const std::string& pattern, const std::string& str)
 	    && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
+// Hook for Bink video loading: OpenBinkUtf8 internally strips the directory from the path and calls
+// BinkOpen with just the filename after SetCurrentDirectoryW. This doesn't work for cross-drive redirects.
+// Instead, we resolve BinkOpen's address from bink2w64.dll and call it directly with the absolute path.
+static void* (*g_BinkOpen)(const char* filename, unsigned int flags) = nullptr;
+
+static void* hook_OpenBinkUtf8(char* filename, unsigned int flags)
+{
+	if (filename && g_BinkOpen)
+	{
+		const char* bik_filename = strrchr(filename, '/');
+		if (!bik_filename)
+		{
+			bik_filename = strrchr(filename, '\\');
+		}
+		bik_filename = bik_filename ? bik_filename + 1 : filename;
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		auto it = additional_bik_files.find(bik_filename);
+		if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
+		{
+			LOG(DEBUG) << filename << " | " << it->first << " | " << it->second;
+
+			void* result = g_BinkOpen(it->second.c_str(), flags);
+			if (result)
+			{
+				return result;
+			}
+		}
+	}
+
+	return big::g_hooking->get_original<hook_OpenBinkUtf8>()(filename, flags);
+}
+
 //static std::string g_current_custom_package_stem;
 
 static void hook_fsAppendPathComponent(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
@@ -1702,36 +1740,43 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 
 	if (strlen(pathComponent) > 0)
 	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
 		{
-			if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
+			std::shared_lock lock(g_plugin_files_mutex);
+			for (const auto &[filename, full_file_path] : additional_package_files)
 			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
-				strcpy(output, full_file_path.c_str());
-				break;
-			}
-			else if (strcmp(filename.c_str(), pathComponent) == 0 && extension_matches(pathComponent, filename.c_str()))
-			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
-				strcpy(output, full_file_path.c_str());
-				break;
-			}
-		}
-
-		for (const auto &[filename, full_file_path] : additional_granny_files)
-		{
-			if (strstr(pathComponent, filename.c_str()))
-			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-
-				strcpy(output, full_file_path.c_str());
-				break;
+				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
+				{
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+					//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
+					strcpy(output, full_file_path.c_str());
+					break;
+				}
+				else if (strcmp(filename.c_str(), pathComponent) == 0 && extension_matches(pathComponent, filename.c_str()))
+				{
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+					//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
+					strcpy(output, full_file_path.c_str());
+					break;
+				}
 			}
 		}
 
 		{
+			std::shared_lock lock(g_plugin_files_mutex);
+			for (const auto &[filename, full_file_path] : additional_granny_files)
+			{
+				if (strstr(pathComponent, filename.c_str()))
+				{
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+
+					strcpy(output, full_file_path.c_str());
+					break;
+				}
+			}
+		}
+
+		{
+			std::shared_lock lock(g_plugin_files_mutex);
 			auto it = additional_map_files.find(pathComponent);
 			if (it != additional_map_files.end())
 			{
@@ -1743,6 +1788,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 
 		// VO files: pathComponent includes subdir prefix (e.g. "VO\Zagreus.fsb"), match by filename
 		{
+			std::shared_lock lock(g_plugin_files_mutex);
 			const char* vo_filename = strrchr(pathComponent, '\\');
 			if (!vo_filename)
 			{
@@ -1767,6 +1813,19 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
 					strcpy(output, it->second.c_str());
 				}
+			}
+		}
+
+		// Bik files: match by filename for both .bik_atlas (engine I/O) and .bik (path stored in BinkFile::mFile via ReadBink)
+		{
+			std::shared_lock lock(g_plugin_files_mutex);
+			auto it = additional_bik_files.find(pathComponent);
+			if (it != additional_bik_files.end())
+			{
+				LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+
+				strcpy(output, it->second.c_str());
+				return;
 			}
 		}
 
@@ -1829,28 +1888,31 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 	}
 
 	bool is_pkg_manifest_only = has_pkg_manifest && !has_pkg;
-	if (is_pkg_manifest_only)
 	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
+		std::shared_lock lock(g_plugin_files_mutex);
+		if (is_pkg_manifest_only)
 		{
-			if (ends_with(filename.c_str(), ".pkg_manifest"))
+			for (const auto &[filename, full_file_path] : additional_package_files)
+			{
+				if (ends_with(filename.c_str(), ".pkg_manifest"))
+				{
+					out->push_back(filename.c_str());
+				}
+			}
+		}
+		else if (has_pkg && has_pkg_manifest)
+		{
+			for (const auto &[filename, full_file_path] : additional_package_files)
 			{
 				out->push_back(filename.c_str());
 			}
 		}
-	}
-	else if (has_pkg && has_pkg_manifest)
-	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
+		else if (has_gpk)
 		{
-			out->push_back(filename.c_str());
-		}
-	}
-	else if (has_gpk)
-	{
-		for (const auto &[filename, full_file_path] : additional_granny_files)
-		{
-			out->push_back(filename.c_str());
+			for (const auto &[filename, full_file_path] : additional_granny_files)
+			{
+				out->push_back(filename.c_str());
+			}
 		}
 	}
 
@@ -1868,6 +1930,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				existing.insert(f.c_str());
 			}
 
+			std::shared_lock lock(g_plugin_files_mutex);
 			for (const auto& [filename, filepath] : additional_map_files)
 			{
 				if (ends_with(filename.c_str(), ".map_text")
@@ -1895,6 +1958,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				existing.insert(f.c_str());
 			}
 
+			std::shared_lock lock(g_plugin_files_mutex);
 			for (const auto& [filename, filepath] : additional_vo_files.fsb_files)
 			{
 
@@ -1905,6 +1969,31 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				{
 					out->push_back(entry.c_str());
 					existing.insert(entry);
+				}
+			}
+		}
+	}
+
+	// Bik atlas injection: inject additional .bik_atlas files when engine enumerates movie manifests
+	// The engine scans Content/Movies/{resolution}/ with extension "*.bik_atlas"
+	if (extension)
+	{
+		const char* ext_as_char_bik = reinterpret_cast<const char*>(extension);
+		if (ext_as_char_bik && strstr(ext_as_char_bik, ".bik_atlas"))
+		{
+			std::unordered_set<std::string> existing;
+			for (const auto& f : *out)
+			{
+				existing.insert(f.c_str());
+			}
+
+			std::shared_lock lock(g_plugin_files_mutex);
+			for (const auto& [filename, filepath] : additional_bik_files)
+			{
+				if (ends_with(filename.c_str(), ".bik_atlas") && existing.find(filename) == existing.end())
+				{
+					out->push_back(filename.c_str());
+					existing.insert(filename);
 				}
 			}
 		}
@@ -2843,6 +2932,38 @@ extern "C" __declspec(dllexport) void my_main()
 	}
 
 	{
+		static auto ptr = big::hades2_symbol_to_address["sgg::OpenBinkUtf8"];
+		if (ptr)
+		{
+			static auto ptr_func = ptr;
+
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_OpenBinkUtf8>(
+			    "OpenBinkUtf8 for bik file redirect",
+			    ptr_func);
+
+			// Resolve BinkOpen from the Bink SDK DLL so we can call it directly with absolute paths
+			HMODULE binkModule = GetModuleHandleA("bink2w64.dll");
+			if (binkModule)
+			{
+				g_BinkOpen = reinterpret_cast<decltype(g_BinkOpen)>(GetProcAddress(binkModule, "BinkOpen"));
+			}
+
+			if (g_BinkOpen)
+			{
+				LOG(INFO) << "Resolved BinkOpen from Bink SDK DLL";
+			}
+			else
+			{
+				LOG(WARNING) << "Could not resolve BinkOpen, .bik file redirect will fall through to OpenBinkUtf8";
+			}
+		}
+		else
+		{
+			LOG(WARNING) << "sgg::OpenBinkUtf8 symbol not found, .bik file redirect will not work";
+		}
+	}
+
+	{
 		static auto ptr = big::hades2_symbol_to_address["sgg::Obstacle::IsObscuring"];
 		if (ptr)
 		{
@@ -2936,6 +3057,13 @@ extern "C" __declspec(dllexport) void my_main()
 
 			LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
 		}
+		else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
+		{
+			additional_bik_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                             (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to bik files: " << (char *)entry.path().u8string().c_str();
+		}
 	}
 
 	// Register .txt companions for each discovered .fsb.
@@ -2994,6 +3122,7 @@ extern "C" __declspec(dllexport) void my_main()
 	validate_file_pairs(additional_package_files, ".pkg", additional_package_files, ".pkg_manifest");
 	validate_file_pairs(additional_map_files, ".map_text", additional_map_files, ".thing_bin");
 	validate_file_pairs(additional_vo_files.fsb_files, ".fsb", additional_vo_files.txt_files, ".txt");
+	validate_file_pairs(additional_bik_files, ".bik", additional_bik_files, ".bik_atlas");
 
 	// Scan for SJSON overlay files (plugins_data/*/<SJSON_DATA_DIR_NAME>/)
 	sjson_overlay::scan_all_plugin_content_directories(g_file_manager.get_project_folder("plugins_data").get_path());
