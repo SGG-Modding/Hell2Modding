@@ -8,6 +8,7 @@
 #include <lua_extensions/lua_manager_extension.hpp>
 #include <lua_extensions/lua_module_ext.hpp>
 #include <memory/gm_address.hpp>
+#include <mutex>
 #include <string/string.hpp>
 
 namespace sgg
