@@ -6,6 +6,9 @@
 ///   rom.data.set_draw_visible(entry, visible)
 ///     Show/hide an entire entry across all draw passes.
 ///
+///   rom.data.set_mesh_visible(entry, mesh_name, visible)
+///     Show/hide a single mesh inside an entry.
+///
 ///   rom.data.dump_pool_stats()
 ///     Diagnostic: log vertex/index pool cursor + capacity per
 ///     shader effect.
@@ -23,10 +26,12 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
+#include <map>
 #include <memory/gm_address.hpp>
 #include <mutex>
 #include <shared_mutex>
 #include <string/string.hpp>
+#include <tuple>
 
 namespace lua::hades::draw
 {
@@ -370,6 +375,157 @@ namespace lua::hades::draw
 				          << (imsize / (1024.0 * 1024.0)) << " MB (" << ipct << "%)";
 			}
 			return logged;
+		});
+		// Lua API: Function
+		// Table: data
+		// Name: set_mesh_visible
+		// Param: entry_name: string: Model entry (e.g. "HecateHub_Mesh").
+		// Param: mesh_name: string: Mesh name inside that entry (e.g. "TorusHubMesh").
+		// Param: visible: boolean: true to show, false to hide.
+		// Returns: boolean — true on success.
+		//
+		// Finer-grained than set_draw_visible (which hides the whole entry):
+		// walks the entry's GrannyMeshData vector, finds the mesh whose
+		// mesh-name hash at GMD+0x48 matches `mesh_name`, and flips its
+		// texture-name hash at GMD+0x40 between 0 (hide) and the original
+		// value (show).
+		//
+		// Hide path uses DoDraw3D's OWN mesh-type switch: setting
+		// GMD+0x4C = 2 makes the main-draw function skip to
+		// next-iteration at 0x1401ebd25 — no cmdDrawIndexed is issued,
+		// no texture lookup attempted.  This is the same branch the
+		// engine takes for its own shadow meshes (they're drawn via
+		// DoDrawShadow3D instead, which our accessory meshes don't
+		// have a shadow entry in, so they stay hidden everywhere).
+		// No DX12 validation errors, no command-list poisoning.
+		//
+		// Used for instant accessory toggle: mesh_add mods merge their
+		// meshes INTO stock entries, so the entry-level draw-gate would
+		// hide the body alongside the accessory.  Per-mesh visibility
+		// keeps the body on and only suppresses the accessory meshes.
+		ns.set_function("set_mesh_visible", [](const std::string& entry,
+		                                        const std::string& mesh_name,
+		                                        bool visible) -> bool {
+			// Saved mesh_type keyed by (entry_hash, mesh_hash, idx).  Index
+			// distinguishes multiple GMDs sharing the same name hash
+			// (e.g. main+outline+shadow variants under a shared name, or
+			// duplicate GLB meshes split by material).  Using raw GMD
+			// pointer would be invalidated if the GMD vector ever
+			// reallocates — unlikely in Hades II's static-load model but
+			// not guaranteed by the engine contract.  std::map so we
+			// don't have to write a tuple hasher.
+			using SavedKey = std::tuple<uint32_t, uint32_t, size_t>;
+			static std::map<SavedKey, uint8_t> g_saved_mesh_type;
+			static std::mutex g_saved_mutex;
+
+			static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"]
+			    .as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
+			auto mdata_addr = big::hades2_symbol_to_address["sgg::Granny3D::mModelData"];
+			if (!Lookup || !mdata_addr)
+			{
+				LOG(ERROR) << "set_mesh_visible: required symbols missing";
+				return false;
+			}
+
+			sgg::HashGuid entry_guid{};
+			Lookup(&entry_guid, entry.c_str(), entry.size());
+			if (!entry_guid.mId)
+			{
+				LOG(WARNING) << "set_mesh_visible: entry hash=0 for '" << entry << "'";
+				return false;
+			}
+			sgg::HashGuid mesh_guid{};
+			Lookup(&mesh_guid, mesh_name.c_str(), mesh_name.size());
+			if (!mesh_guid.mId)
+			{
+				LOG(WARNING) << "set_mesh_visible: mesh hash=0 for '" << mesh_name << "'";
+				return false;
+			}
+
+			uint8_t* mdata = mdata_addr.as<uint8_t*>();
+			void* buckets_ptr = nullptr;
+			uint64_t bucket_count = 0;
+			if (!safe_read_ptr(mdata + 0x08, &buckets_ptr)) return false;
+			if (!safe_read_u64(mdata + 0x10, &bucket_count)) return false;
+			if (!buckets_ptr || !bucket_count || bucket_count > 0x100000) return false;
+
+			uint32_t h = entry_guid.mId;
+			h = ((h >> 16) ^ h) * 0x7feb352d;
+			h = ((h >> 15) ^ h) * 0x846ca68b;
+			h = (h >> 16) ^ h;
+			uint8_t* node = (uint8_t*)((void**)buckets_ptr)[h % bucket_count];
+			int walk_guard = 0;
+			while (node && walk_guard++ < 32)
+			{
+				uint32_t id = 0;
+				if (!safe_read_u32(node, &id)) return false;
+				if (id == entry_guid.mId) break;
+				void* nxt = nullptr;
+				if (!safe_read_ptr(node + 0xC0, &nxt)) return false;
+				node = (uint8_t*)nxt;
+			}
+			if (!node || walk_guard >= 32)
+			{
+				LOG(WARNING) << "set_mesh_visible: entry '" << entry << "' not in mModelData";
+				return false;
+			}
+
+			void* vb_p = nullptr; void* ve_p = nullptr;
+			if (!safe_read_ptr(node + 0x10, &vb_p)) return false;
+			if (!safe_read_ptr(node + 0x18, &ve_p)) return false;
+			uint8_t* vec_begin = (uint8_t*)vb_p;
+			uint8_t* vec_end   = (uint8_t*)ve_p;
+			size_t mesh_count = (vec_end >= vec_begin) ? (size_t)(vec_end - vec_begin) / 0x50 : 0;
+			if (mesh_count == 0 || mesh_count > 128) return false;
+
+			// Sentinel byte used for hidden state (= shadow mesh type,
+			// which DoDraw3D skips to next-iteration).
+			constexpr uint8_t HIDE_TYPE = 2;
+			int matched = 0;
+			std::lock_guard lk(g_saved_mutex);
+			for (size_t i = 0; i < mesh_count; i++)
+			{
+				uint8_t* gmd = vec_begin + i * 0x50;
+				uint32_t gmd_mesh_hash = 0;
+				if (!safe_read_u32(gmd + 0x48, &gmd_mesh_hash)) continue;
+				if (gmd_mesh_hash != mesh_guid.mId) continue;
+
+				uint8_t current_type = *(uint8_t*)(gmd + 0x4C);
+				SavedKey key{entry_guid.mId, mesh_guid.mId, i};
+
+				if (visible)
+				{
+					auto it = g_saved_mesh_type.find(key);
+					if (it != g_saved_mesh_type.end())
+					{
+						*(uint8_t*)(gmd + 0x4C) = it->second;
+						g_saved_mesh_type.erase(it);
+					}
+					// else: already visible — no-op
+				}
+				else
+				{
+					if (current_type != HIDE_TYPE && !g_saved_mesh_type.count(key))
+					{
+						g_saved_mesh_type[key] = current_type;
+						*(uint8_t*)(gmd + 0x4C) = HIDE_TYPE;
+					}
+					// else: already hidden — no-op
+				}
+				matched++;
+				// Don't break: continue so main+outline+shadow variants
+				// with the same mesh-name hash all get toggled together.
+			}
+			if (matched == 0)
+			{
+				LOG(WARNING) << "set_mesh_visible: mesh '" << mesh_name
+				             << "' not in entry '" << entry << "'";
+				return false;
+			}
+			LOG(INFO) << "set_mesh_visible: " << entry << "/" << mesh_name
+			          << " -> " << (visible ? "show" : "hide")
+			          << " (" << matched << " mesh" << (matched > 1 ? "es" : "") << ")";
+			return true;
 		});
 
 		// NOTE: No hook on LoadAllModelAndAnimationData — a second detour
