@@ -1,13 +1,24 @@
 /// @file draw.cpp
 /// @brief Draw-call control for 3D model entries.
 ///
-/// Lua-driven draw-path control.  Current bindings:
+/// Provides Lua APIs for controlling 3D model rendering at runtime:
 ///
 ///   rom.data.set_draw_visible(entry, visible)
 ///     Show/hide an entire entry across all draw passes.
 ///
 ///   rom.data.set_mesh_visible(entry, mesh_name, visible)
 ///     Show/hide a single mesh inside an entry.
+///
+///   rom.data.swap_to_variant(stock, variant)
+///   rom.data.restore_stock(stock)
+///     Redirect a stock entry's draw calls to a variant entry.
+///     Enables outfit switching without reload.  swap_to_variant
+///     pre-populates the variant's texture handles before installing
+///     the remap so the first swapped frame renders correctly.
+///
+///   rom.data.populate_entry_textures(entry)
+///     Pre-populate an entry's texture handles without remapping.
+///     Useful for variant entries the scene isn't actively rendering.
 ///
 ///   rom.data.dump_pool_stats()
 ///     Diagnostic: log vertex/index pool cursor + capacity per
@@ -16,8 +27,9 @@
 /// Hooks DoDraw3D / DoDrawShadow3D / DoDraw3DThumbnail (share the
 /// `static void(const vector<RenderMesh*>&, uint, int, HashGuid)`
 /// signature) with standard detours.  DoDrawShadowCast3D has a
-/// different signature (no HashGuid); it's handled via a code cave
-/// below.
+/// different signature (no HashGuid) so its remap would need a
+/// code-cave approach not included here — it participates in the
+/// hidden-set but not in hash remap.
 
 #include "draw.hpp"
 
@@ -26,12 +38,14 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
+#include <atomic>
 #include <map>
 #include <memory/gm_address.hpp>
 #include <mutex>
 #include <shared_mutex>
 #include <string/string.hpp>
 #include <tuple>
+#include <unordered_map>
 
 namespace lua::hades::draw
 {
@@ -39,43 +53,63 @@ namespace lua::hades::draw
 
 	static std::shared_mutex g_mutex;
 	static std::unordered_set<unsigned int> g_hidden_entries;
+	static std::unordered_map<unsigned int, unsigned int> g_remap; // original → variant
 
 	// Fast-path flag for the code cave — avoids the function-call overhead
-	// on every draw entry when nothing is hidden.
+	// on every draw entry when nothing is active (hidden or remapped).
 	static volatile uint8_t g_any_active = 0;
 
 	static void update_active_flag()
 	{
-		g_any_active = g_hidden_entries.empty() ? 0 : 1;
+		g_any_active = (g_hidden_entries.empty() && g_remap.empty()) ? 0 : 1;
 	}
 
 	// Called from the code cave via function pointer.
-	// Returns: 0 = pass through, 1 = hidden (skip).  The *out_hash
-	// parameter is reserved so the cave's ABI stays stable if a later
-	// change adds a remap path (return 2 + *out_hash set).
-	static int check_draw_entry(uint32_t hash, uint32_t* /*out_hash*/)
+	// Returns: 0 = pass through, 1 = hidden (skip), 2 = remapped (*out_hash set)
+	static int check_draw_entry(uint32_t hash, uint32_t* out_hash)
 	{
 		std::shared_lock l(g_mutex);
+		auto it = g_remap.find(hash);
+		if (it != g_remap.end())
+		{
+			*out_hash = it->second;
+			return 2;
+		}
 		if (g_hidden_entries.count(hash))
 			return 1;
 		return 0;
 	}
 
 	// ─── Detour hooks (DoDraw3D, DoDrawShadow3D, DoDraw3DThumbnail) ──
-	// Each hook checks the hidden-set and skips the iteration if its
-	// entry is hidden.  DoDrawShadowCast3D has a different signature
-	// (no HashGuid parameter), so it's handled via a code cave below.
+	// Each hook inlines its own remap + hidden-set check.  Main-pass
+	// DoDraw3D participates in both; shadow and thumbnail paths honour
+	// the hidden-set for visibility-gate parity but skip the remap —
+	// DoDrawShadowCast3D has a different signature (no HashGuid
+	// parameter), so its remap would need a code-cave approach not
+	// included here.
 
 	static void hook_DoDraw3D(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
 	{
 		{
 			std::shared_lock l(g_mutex);
+			auto it = g_remap.find(hash.mId);
+			if (it != g_remap.end())
+				hash.mId = it->second;
 			if (g_hidden_entries.count(hash.mId))
 				return;
 		}
 		big::g_hooking->get_original<hook_DoDraw3D>()(vec_ref, index, param, hash);
 	}
 
+	// Shadow + thumbnail paths honour the hidden-set but do NOT
+	// participate in hash remap.  Reason: DoDrawShadowCast3D has a
+	// different signature (no HashGuid param) so its remap would need
+	// a code-cave approach we don't ship here.  Remapping the other
+	// shadow paths while ShadowCast stays stock leaves the engine with
+	// inconsistent per-entry state (main=variant, shadow_cast=stock,
+	// shadow3D=variant) that appears to wedge the render thread.
+	// Keeping shadow/thumbnail on stock is the safe subset — the main
+	// DoDraw3D swap carries the visual change on its own.
 	static void hook_DoDrawShadow3D(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
 	{
 		{
@@ -376,6 +410,106 @@ namespace lua::hades::draw
 			}
 			return logged;
 		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: populate_entry_textures
+		// Param: entry_name: string
+		// Returns: integer — number of textures populated.
+		//
+		// Walks the entry's GrannyMeshData vector and, for each type=0 mesh whose
+		// GMD+0x40 (texture name hash) is non-zero, calls the game's own
+		// sgg::GameAssetManager::GetTexture(hash, &out_handle) and writes the
+		// result into GMD+0x44.  This mimics what ModelAnimation::PrepDraw does
+		// for stock meshes — variants live alongside stock in mModelData but are
+		// never walked by PrepDraw, so their GMD+0x44 stays 0 (→ white rendering
+		// under hash remap).  Calling this once after loading a variant populates
+		// its texture handles so DoDraw3D's fallback path can resolve them.
+		ns.set_function("populate_entry_textures", [](const std::string& entry) -> int {
+			static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"]
+			    .as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
+			static auto GetTexture = big::hades2_symbol_to_address["sgg::GameAssetManager::GetTexture"]
+			    .as_func<void(void*, uint32_t*, uint32_t)>();
+			auto mdata_addr = big::hades2_symbol_to_address["sgg::Granny3D::mModelData"];
+			if (!Lookup || !GetTexture || !mdata_addr)
+			{
+				LOG(ERROR) << "populate_entry_textures: required symbols missing";
+				return 0;
+			}
+
+			sgg::HashGuid guid{};
+			Lookup(&guid, entry.c_str(), entry.size());
+			if (!guid.mId)
+			{
+				LOG(WARNING) << "populate_entry_textures: hash=0 for '" << entry << "'";
+				return 0;
+			}
+
+			uint8_t* mdata = mdata_addr.as<uint8_t*>();
+			void* buckets_ptr = nullptr;
+			uint64_t bucket_count = 0;
+			if (!safe_read_ptr(mdata + 0x08, &buckets_ptr)) return 0;
+			if (!safe_read_u64(mdata + 0x10, &bucket_count)) return 0;
+			if (!buckets_ptr || !bucket_count || bucket_count > 0x100000) return 0;
+
+			uint32_t h = guid.mId;
+			h = ((h >> 16) ^ h) * 0x7feb352d;
+			h = ((h >> 15) ^ h) * 0x846ca68b;
+			h = (h >> 16) ^ h;
+			uint8_t* node = (uint8_t*)((void**)buckets_ptr)[h % bucket_count];
+			int walk_guard = 0;
+			while (node && walk_guard++ < 32)
+			{
+				uint32_t id = 0;
+				if (!safe_read_u32(node, &id)) return 0;
+				if (id == guid.mId) break;
+				void* nxt = nullptr;
+				if (!safe_read_ptr(node + 0xC0, &nxt)) return 0;
+				node = (uint8_t*)nxt;
+			}
+			if (!node || walk_guard >= 32)
+			{
+				LOG(WARNING) << "populate_entry_textures: entry '" << entry << "' not found";
+				return 0;
+			}
+
+			void* vb_p = nullptr; void* ve_p = nullptr;
+			if (!safe_read_ptr(node + 0x10, &vb_p)) return 0;
+			if (!safe_read_ptr(node + 0x18, &ve_p)) return 0;
+			uint8_t* vec_begin = (uint8_t*)vb_p;
+			uint8_t* vec_end   = (uint8_t*)ve_p;
+			size_t mesh_count = (vec_end >= vec_begin) ? (size_t)(vec_end - vec_begin) / 0x50 : 0;
+			if (mesh_count == 0 || mesh_count > 128) return 0;
+
+			int populated = 0;
+			for (size_t i = 0; i < mesh_count; i++)
+			{
+				uint8_t* gmd = vec_begin + i * 0x50;
+
+				uint32_t mesh_type=0, name_hash=0, old_handle=0;
+				safe_read_u32(gmd + 0x4C, &mesh_type);
+				safe_read_u32(gmd + 0x40, &name_hash);
+				safe_read_u32(gmd + 0x44, &old_handle);
+
+				// Game's PrepDraw path only fills GMD+0x44 for type=0 meshes.
+				// Mirror that guard; outlines (type=1) and shadows (type=2)
+				// use different resolution paths and we don't want to touch them.
+				if (mesh_type != 0) continue;
+				if (name_hash == 0) continue;
+
+				uint32_t new_handle = 0;
+				GetTexture(nullptr, &new_handle, name_hash);
+				*(uint32_t*)(gmd + 0x44) = new_handle;
+
+				LOG(INFO) << "populate_entry_textures: '" << entry << "' mesh[" << i << "]"
+				          << " name_hash=" << name_hash
+				          << " handle 0x" << std::hex << old_handle << " -> 0x" << new_handle << std::dec;
+				populated++;
+			}
+			LOG(INFO) << "populate_entry_textures: '" << entry << "' populated " << populated << " handle(s)";
+			return populated;
+		});
+
 		// Lua API: Function
 		// Table: data
 		// Name: set_mesh_visible
@@ -525,6 +659,96 @@ namespace lua::hades::draw
 			LOG(INFO) << "set_mesh_visible: " << entry << "/" << mesh_name
 			          << " -> " << (visible ? "show" : "hide")
 			          << " (" << matched << " mesh" << (matched > 1 ? "es" : "") << ")";
+			return true;
+		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: swap_to_variant
+		// Param: stock_entry: string: Stock entry name (e.g. "HecateHub_Mesh").
+		// Param: variant_entry: string: Variant entry name loaded in mModelData.
+		// Returns: boolean — true on success.
+		//
+		// One-call atomic outfit switch, matching the engine's own rendering
+		// architecture:
+		//   1. Populate the variant's GMD+0x44 via sgg::GameAssetManager::GetTexture
+		//      (mirrors what ModelAnimation::PrepDraw does for stock entries).
+		//   2. Install a hash remap so draw commands using `stock_entry` get
+		//      redirected to the variant entry at dispatch time.
+		//
+		// Variant textures resolve through the variant's own `GMD+0x40`
+		// (texture name hashes written by AddModelData).  No vcount/topology
+		// constraints; stock state is never mutated.
+		//
+		// **Example Usage:**
+		// ```lua
+		// rom.data.swap_to_variant("HecateHub_Mesh", "HecateHub_Variant_Mesh")
+		// -- later:
+		// rom.data.restore_stock("HecateHub_Mesh")
+		// ```
+		ns.set_function("swap_to_variant", [](const std::string& stock_entry,
+		                                       const std::string& variant_entry) -> bool {
+			// Just install the hash remap.  Texture handles (GMD+0x44) must be
+			// populated ahead of time via populate_entry_textures at a known-safe
+			// window (first ImGui frame, after LoadAllModelAndAnimationData).
+			// Calling GetTexture from the render-thread ImGui callback while the
+			// game thread is actively rendering the target entry deadlocks the
+			// render pipeline (observed: "Waiting for RenderCommands to be ready
+			// to write").  Keeping this path to a single atomic map write makes
+			// swaps cheap and thread-safe.
+			static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"]
+			    .as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
+			if (!Lookup) { LOG(ERROR) << "swap_to_variant: Lookup missing"; return false; }
+
+			sgg::HashGuid variant_guid{};
+			Lookup(&variant_guid, variant_entry.c_str(), variant_entry.size());
+			if (!variant_guid.mId)
+			{
+				LOG(WARNING) << "swap_to_variant: variant hash=0 ('" << variant_entry << "')";
+				return false;
+			}
+			sgg::HashGuid stock_guid{};
+			Lookup(&stock_guid, stock_entry.c_str(), stock_entry.size());
+			if (!stock_guid.mId)
+			{
+				LOG(WARNING) << "swap_to_variant: stock hash=0 ('" << stock_entry << "')";
+				return false;
+			}
+
+			{
+				std::unique_lock l(g_mutex);
+				g_remap[stock_guid.mId] = variant_guid.mId;
+			}
+			update_active_flag();
+
+			LOG(INFO) << "swap_to_variant: '" << stock_entry << "' -> '" << variant_entry << "'";
+			return true;
+		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: restore_stock
+		// Param: stock_entry: string: Stock entry name to revert to.
+		// Returns: boolean — true on success.
+		// Clears any active hash remap for the given stock entry.  No-op if no
+		// remap is active.  Populated variant GMD+0x44 handles are left in place
+		// (they're harmless — only used when a remap is active).
+		ns.set_function("restore_stock", [](const std::string& stock_entry) -> bool {
+			static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"]
+			    .as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
+			sgg::HashGuid stock{};
+			Lookup(&stock, stock_entry.c_str(), stock_entry.size());
+			if (!stock.mId)
+			{
+				LOG(WARNING) << "restore_stock: hash=0 ('" << stock_entry << "')";
+				return false;
+			}
+			{
+				std::unique_lock l(g_mutex);
+				g_remap.erase(stock.mId);
+			}
+			update_active_flag();
+			LOG(INFO) << "restore_stock: '" << stock_entry << "' remap cleared";
 			return true;
 		});
 
