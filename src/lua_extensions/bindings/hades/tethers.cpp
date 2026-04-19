@@ -21,6 +21,8 @@ namespace lua::hades::tethers
 	constexpr float REDUCED_GRAVITY        = 200.0f;
 	constexpr float STRAIGHTEN_SPEED_SCALE = 0.5f;
 	constexpr float DEFAULT_RETRACT_SPEED  = 500.0f;
+	constexpr float MAX_TETHER_DT          = 1.0f / 30.0f;
+
 	// H2 sgg::Thing partial struct for field access via raw offsets.
 	struct Thing_H2
 	{
@@ -106,6 +108,8 @@ namespace lua::hades::tethers
 	// Global tether update
 	static void update_all_tethers(float dt)
 	{
+		dt = std::min(dt, MAX_TETHER_DT);
+
 		for (auto &[id, data] : g_tether_data)
 		{
 			if (data.links.empty())
@@ -351,12 +355,26 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			// Run once per frame. The engine passes the same dt to every thing in a
-			// single physics tick, so float equality is a reliable frame guard here.
+			// Run once per physics tick. The engine passes the same dt to every Thing in a tick, so a dt change means a new tick.
+			// With Vsync consecutive ticks can share identical dt values, so we also track the first Thing ID.
+			// When it reappears with the same dt, a new tick has begun.
 			static float s_last_dt = -1.0f;
+			static int s_first_thing_id = -1;
+
+			bool new_tick = false;
 			if (elapsedSeconds != s_last_dt)
 			{
+				new_tick = true;
 				s_last_dt = elapsedSeconds;
+				s_first_thing_id = thing->mId;
+			}
+			else if (thing->mId == s_first_thing_id)
+			{
+				new_tick = true;
+			}
+
+			if (new_tick)
+			{
 				cleanup_stale_tethers();
 				update_all_tethers(elapsedSeconds);
 			}
