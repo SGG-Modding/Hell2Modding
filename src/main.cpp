@@ -1717,7 +1717,8 @@ static void* hook_OpenBinkUtf8(char* filename, unsigned int flags)
 		auto it = additional_bik_files.find(bik_filename);
 		if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
 		{
-			LOG(DEBUG) << filename << " | " << it->first << " | " << it->second;
+			// Bink files are requested again on every use, this clutters the log
+			// LOG(DEBUG) << filename << " | " << it->first << " | " << it->second;
 
 			void* result = g_BinkOpen(it->second.c_str(), flags);
 			if (result)
@@ -1814,7 +1815,8 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 			auto it = additional_bik_files.find(pathComponent);
 			if (it != additional_bik_files.end())
 			{
-				LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+				// Bink files are requested again on every use, this clutters the log
+				// LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
 
 				strcpy(output, it->second.c_str());
 				return;
