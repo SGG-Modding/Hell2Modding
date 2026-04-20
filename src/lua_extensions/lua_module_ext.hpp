@@ -54,15 +54,15 @@ namespace big
 	private:
 		void set_sjson_data_path()
 		{
-			auto sjson_data_path = g_file_manager.get_project_folder("plugins_data").get_path() / m_info.m_guid / sjson_overlay::SJSON_DATA_DIR_NAME;
-			auto sjson_data_path_string = std::string(reinterpret_cast<const char*>(sjson_data_path.u8string().c_str()));
-
 			sol::table ns = m_env["_PLUGIN"];
 			if (ns.valid())
 			{
+				auto sjson_data_path = g_file_manager.get_project_folder("plugins_data").get_path() / m_info.m_guid / sjson_overlay::SJSON_DATA_DIR_NAME;
+				auto sjson_data_path_string = std::string(reinterpret_cast<const char*>(sjson_data_path.u8string().c_str()));
+				
 				// Lua API: Field
-				// Table: _PLUGIN
-				// Name: sjson_data_path
+				// Table: _ENV - Plugin Specific Global Table
+				// Field: _PLUGIN.sjson_data_path: string
 				// The absolute path to the plugin's SJSON data directory (plugins_data/<mod-guid>/Hell2Modding-SJSON/).
 				// Mod authors can use this to discover or create .sjson files at runtime.
 				ns["sjson_data_path"] = sjson_data_path_string;
