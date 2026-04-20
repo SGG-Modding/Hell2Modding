@@ -1910,7 +1910,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 
 	// Map file injection: inject additional map files when engine enumerates .map_text files
 	// The engine uses glob patterns (e.g. "X_*.map_text", "RoomOpening.map_text") to find maps per MapGroup
-	if (extension && strstr(extension, ".map_text"))
+	if (extension && ends_with(extension, ".map_text"))
 	{
 		std::string pattern(extension);
 		std::unordered_set<std::string> existing;
@@ -1934,7 +1934,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 
 	// VO file injection: inject additional .fsb files when engine enumerates voiceover files
 	// The engine scans Audio/Desktop/ with subDirectory="VO" and extension="*.fsb"
-	if (extension && strstr(extension, ".fsb"))
+	if (extension && ends_with(extension, ".fsb"))
 	{
 		std::string subdir_str = subDirectory ? subDirectory : "";
 		std::unordered_set<std::string> existing;
@@ -1960,7 +1960,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 
 	// Bik atlas injection: inject additional .bik_atlas files when engine enumerates movie manifests
 	// The engine scans Content/Movies/{resolution}/ with extension "*.bik_atlas"
-	if (extension && strstr(extension, ".bik_atlas"))
+	if (extension && ends_with(extension, ".bik_atlas"))
 	{
 		std::unordered_set<std::string> existing;
 		for (const auto& f : *out)
