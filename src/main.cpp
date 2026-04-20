@@ -1747,14 +1747,6 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 				{
 					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-					//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
-					strcpy(output, full_file_path.c_str());
-					break;
-				}
-				else if (strcmp(filename.c_str(), pathComponent) == 0 && extension_matches(pathComponent, filename.c_str()))
-				{
-					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-					//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
 					strcpy(output, full_file_path.c_str());
 					break;
 				}
@@ -1847,7 +1839,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 	}
 }
 
-static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
+static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirectory, const char *extension, eastl::vector<eastl::string> *out)
 {
 	big::g_hooking->get_original<hook_fsGetFilesWithExtension>()(resourceDir, subDirectory, extension, out);
 
@@ -1918,83 +1910,71 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 
 	// Map file injection: inject additional map files when engine enumerates .map_text files
 	// The engine uses glob patterns (e.g. "X_*.map_text", "RoomOpening.map_text") to find maps per MapGroup
-	if (extension)
+	if (extension && strstr(extension, ".map_text"))
 	{
-		const char* ext_as_char_maps = reinterpret_cast<const char*>(extension);
-		if (ext_as_char_maps && strstr(ext_as_char_maps, ".map_text"))
+		std::string pattern(extension);
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
 		{
-			std::string pattern(ext_as_char_maps);
-			std::unordered_set<std::string> existing;
-			for (const auto& f : *out)
-			{
-				existing.insert(f.c_str());
-			}
+			existing.insert(f.c_str());
+		}
 
-			std::shared_lock lock(g_plugin_files_mutex);
-			for (const auto& [filename, filepath] : additional_map_files)
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_map_files)
+		{
+			if (ends_with(filename.c_str(), ".map_text")
+			    && glob_match(pattern, filename)
+			    && existing.find(filename) == existing.end())
 			{
-				if (ends_with(filename.c_str(), ".map_text")
-				    && glob_match(pattern, filename)
-				    && existing.find(filename) == existing.end())
-				{
-					out->push_back(filename.c_str());
-					existing.insert(filename);
-				}
+				out->push_back(filename.c_str());
+				existing.insert(filename);
 			}
 		}
 	}
 
 	// VO file injection: inject additional .fsb files when engine enumerates voiceover files
 	// The engine scans Audio/Desktop/ with subDirectory="VO" and extension="*.fsb"
-	if (extension)
+	if (extension && strstr(extension, ".fsb"))
 	{
-		const char* ext_as_char_vo = reinterpret_cast<const char*>(extension);
-		if (ext_as_char_vo && strstr(ext_as_char_vo, ".fsb"))
+		std::string subdir_str = subDirectory ? subDirectory : "";
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
 		{
-			std::string subdir_str = subDirectory ? subDirectory : "";
-			std::unordered_set<std::string> existing;
-			for (const auto& f : *out)
+			existing.insert(f.c_str());
+		}
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_vo_files.fsb_files)
+		{
+
+			// Build entry with subdir prefix if present (engine expects "VO\\filename.fsb")
+			std::string entry = subdir_str.empty() ? filename : subdir_str + "\\" + filename;
+
+			if (existing.find(entry) == existing.end())
 			{
-				existing.insert(f.c_str());
-			}
-
-			std::shared_lock lock(g_plugin_files_mutex);
-			for (const auto& [filename, filepath] : additional_vo_files.fsb_files)
-			{
-
-				// Build entry with subdir prefix if present (engine expects "VO\\filename.fsb")
-				std::string entry = subdir_str.empty() ? filename : subdir_str + "\\" + filename;
-
-				if (existing.find(entry) == existing.end())
-				{
-					out->push_back(entry.c_str());
-					existing.insert(entry);
-				}
+				out->push_back(entry.c_str());
+				existing.insert(entry);
 			}
 		}
 	}
 
 	// Bik atlas injection: inject additional .bik_atlas files when engine enumerates movie manifests
 	// The engine scans Content/Movies/{resolution}/ with extension "*.bik_atlas"
-	if (extension)
+	if (extension && strstr(extension, ".bik_atlas"))
 	{
-		const char* ext_as_char_bik = reinterpret_cast<const char*>(extension);
-		if (ext_as_char_bik && strstr(ext_as_char_bik, ".bik_atlas"))
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
 		{
-			std::unordered_set<std::string> existing;
-			for (const auto& f : *out)
-			{
-				existing.insert(f.c_str());
-			}
+			existing.insert(f.c_str());
+		}
 
-			std::shared_lock lock(g_plugin_files_mutex);
-			for (const auto& [filename, filepath] : additional_bik_files)
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_bik_files)
+		{
+			if (ends_with(filename.c_str(), ".bik_atlas") && existing.find(filename) == existing.end())
 			{
-				if (ends_with(filename.c_str(), ".bik_atlas") && existing.find(filename) == existing.end())
-				{
-					out->push_back(filename.c_str());
-					existing.insert(filename);
-				}
+				out->push_back(filename.c_str());
+				existing.insert(filename);
 			}
 		}
 	}
@@ -2002,14 +1982,12 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 	// SJSON overlay: inject additional .sjson files into the engine's enumeration
 	if (subDirectory && extension)
 	{
-		// The extension parameter is char* despite the wchar_t* in the hook signature
-		const char* ext_as_char = reinterpret_cast<const char*>(extension);
-		if (!ext_as_char || ext_as_char[0] == '\0')
+		if (extension[0] == '\0')
 		{
 			return;
 		}
 
-		std::string ext_clean(ext_as_char);
+		std::string ext_clean(extension);
 		if (ext_clean.size() > 1 && ext_clean[0] == '*')
 		{
 			ext_clean = ext_clean.substr(1);
@@ -2067,7 +2045,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 			{
 				// relpath is like "Game/Animations/Foo.sjson" - strip "Game/" prefix
 				std::string normalized_relpath = sjson_overlay::normalize_path(relpath);
-				if (normalized_relpath.size() <= 5 || normalized_relpath.substr(0, 5) != "Game/")
+				if (!normalized_relpath.starts_with("Game/"))
 				{
 					continue;
 				}

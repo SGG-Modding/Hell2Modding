@@ -60,6 +60,11 @@ namespace big
 			sol::table ns = m_env["_PLUGIN"];
 			if (ns.valid())
 			{
+				// Lua API: Field
+				// Table: _PLUGIN
+				// Name: sjson_data_path
+				// The absolute path to the plugin's SJSON data directory (plugins_data/<mod-guid>/Hell2Modding-SJSON/).
+				// Mod authors can use this to discover or create .sjson files at runtime.
 				ns["sjson_data_path"] = sjson_data_path_string;
 			}
 		}
