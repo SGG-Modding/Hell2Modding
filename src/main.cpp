@@ -3181,7 +3181,6 @@ extern "C" __declspec(dllexport) void my_main()
 		}
 	};
 
-	validate_file_pairs(additional_package_files, ".pkg", additional_package_files, ".pkg_manifest");
 	validate_file_pairs(additional_map_files, ".map_text", additional_map_files, ".thing_bin");
 	validate_file_pairs(additional_vo_files.fsb_files, ".fsb", additional_vo_files.txt_files, ".txt");
 	validate_file_pairs(additional_bik_files, ".bik", additional_bik_files, ".bik_atlas");
