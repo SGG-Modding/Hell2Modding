@@ -16,6 +16,7 @@
 #include "threads/thread_pool.hpp"
 #include "threads/util.hpp"
 #include "version.hpp"
+#include "sjson_overlay.hpp"
 
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
@@ -1505,7 +1506,7 @@ static void hook_disable_f10_launch(void *bugInfo)
 	}
 }
 
-static int ends_with(const char *str, const char *suffix)
+int ends_with(const char *str, const char *suffix)
 {
 	if (!str || !suffix)
 	{
@@ -1665,50 +1666,199 @@ std::unordered_map<std::string, std::string> additional_package_files;
 
 std::unordered_map<std::string, std::string> additional_granny_files;
 
+std::unordered_map<std::string, std::string> additional_map_files;
+
+struct vo_file_registry
+{
+	std::unordered_map<std::string, std::string> fsb_files;
+	std::unordered_map<std::string, std::string> txt_files;
+};
+
+vo_file_registry additional_vo_files;
+
+std::unordered_map<std::string, std::string> additional_bik_files;
+
+// Guards runtime writes (register_plugin_file from Lua) against concurrent reads in hooks.
+std::shared_mutex g_plugin_files_mutex;
+
+// Simple glob match supporting a single '*' wildcard (e.g. "F_*.map_text")
+static bool glob_match(const std::string& pattern, const std::string& str)
+{
+	auto star = pattern.find('*');
+	if (star == std::string::npos)
+	{
+		return pattern == str;
+	}
+
+	auto prefix = pattern.substr(0, star);
+	auto suffix = pattern.substr(star + 1);
+	return str.size() >= prefix.size() + suffix.size()
+	    && str.compare(0, prefix.size(), prefix) == 0
+	    && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Hook for Bink video loading: OpenBinkUtf8 internally strips the directory from the path and calls
+// BinkOpen with just the filename after SetCurrentDirectoryW. This doesn't work for cross-drive redirects.
+// Instead, we resolve BinkOpen's address from bink2w64.dll and call it directly with the absolute path.
+static void* (*g_BinkOpen)(const char* filename, unsigned int flags) = nullptr;
+
+static void* hook_OpenBinkUtf8(char* filename, unsigned int flags)
+{
+	if (filename && g_BinkOpen)
+	{
+		const char* bik_filename = strrchr(filename, '/');
+		if (!bik_filename)
+		{
+			bik_filename = strrchr(filename, '\\');
+		}
+		bik_filename = bik_filename ? bik_filename + 1 : filename;
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		auto it = additional_bik_files.find(bik_filename);
+		if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
+		{
+			// Bink files are requested again on every use, this clutters the log
+			// LOG(DEBUG) << filename << " | " << it->first << " | " << it->second;
+
+			void* result = g_BinkOpen(it->second.c_str(), flags);
+			if (result)
+			{
+				return result;
+			}
+		}
+	}
+
+	return big::g_hooking->get_original<hook_OpenBinkUtf8>()(filename, flags);
+}
+
 //static std::string g_current_custom_package_stem;
 
-static void hook_fsAppendPathComponent_packages(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
+static void hook_fsAppendPathComponent(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
 	//g_current_custom_package_stem = "";
 
-	big::g_hooking->get_original<hook_fsAppendPathComponent_packages>()(basePath, pathComponent, output);
+	big::g_hooking->get_original<hook_fsAppendPathComponent>()(basePath, pathComponent, output);
 
 	if (strlen(pathComponent) > 0)
 	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
 		{
-			if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
+			std::shared_lock lock(g_plugin_files_mutex);
+			for (const auto &[filename, full_file_path] : additional_package_files)
 			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
-				strcpy(output, full_file_path.c_str());
-				break;
-			}
-			else if (strcmp(filename.c_str(), pathComponent) == 0 && extension_matches(pathComponent, filename.c_str()))
-			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-				//g_current_custom_package_stem = (char *)std::filesystem::path(filename).stem().u8string().c_str();
-				strcpy(output, full_file_path.c_str());
-				break;
+				if (strcmp(pathComponent, filename.c_str()) == 0)
+				{
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+					strcpy(output, full_file_path.c_str());
+					break;
+				}
 			}
 		}
 
-		for (const auto &[filename, full_file_path] : additional_granny_files)
 		{
-			if (strstr(pathComponent, filename.c_str()))
+			std::shared_lock lock(g_plugin_files_mutex);
+			for (const auto &[filename, full_file_path] : additional_granny_files)
 			{
-				LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
+				if (strcmp(pathComponent, filename.c_str()) == 0)
+				{
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 
-				strcpy(output, full_file_path.c_str());
-				break;
+					strcpy(output, full_file_path.c_str());
+					break;
+				}
+			}
+		}
+
+		{
+			std::shared_lock lock(g_plugin_files_mutex);
+			auto it = additional_map_files.find(pathComponent);
+			if (it != additional_map_files.end())
+			{
+				LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+
+				strcpy(output, it->second.c_str());
+			}
+		}
+
+		// VO files: pathComponent includes subdir prefix (e.g. "VO\Zagreus.fsb"), match by filename
+		{
+			std::shared_lock lock(g_plugin_files_mutex);
+			const char* vo_filename = strrchr(pathComponent, '\\');
+			if (!vo_filename)
+			{
+				vo_filename = strrchr(pathComponent, '/');
+			}
+			vo_filename = vo_filename ? vo_filename + 1 : pathComponent;
+
+			if (ends_with(vo_filename, ".fsb"))
+			{
+				auto it = additional_vo_files.fsb_files.find(vo_filename);
+				if (it != additional_vo_files.fsb_files.end())
+				{
+					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+					strcpy(output, it->second.c_str());
+				}
+			}
+			else if (ends_with(vo_filename, ".txt"))
+			{
+				auto it = additional_vo_files.txt_files.find(vo_filename);
+				if (it != additional_vo_files.txt_files.end())
+				{
+					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+					strcpy(output, it->second.c_str());
+				}
+			}
+		}
+
+		// Bik files: match by filename for both .bik_atlas (engine I/O) and .bik (path stored in BinkFile::mFile via ReadBink)
+		{
+			std::shared_lock lock(g_plugin_files_mutex);
+			auto it = additional_bik_files.find(pathComponent);
+			if (it != additional_bik_files.end())
+			{
+				// Bink files are requested again on every use, this clutters the log
+				// LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
+
+				strcpy(output, it->second.c_str());
+				return;
+			}
+		}
+
+		// SJSON overlay: Redirect file paths to the mod's SJSON data directory.
+		std::string normalized_output = sjson_overlay::normalize_path(output);
+		std::string lower_output = big::string::to_lower(normalized_output);
+		auto content_pos = lower_output.rfind("content/");
+		if (content_pos != std::string::npos)
+		{
+			std::string logical_path = normalized_output.substr(content_pos + 8); // len("content/") = 8
+			std::string redirect_abspath = sjson_overlay::lookup_overlay_path(logical_path);
+			if (!redirect_abspath.empty())
+			{
+				LOG(DEBUG) << pathComponent << " | " << logical_path << " | " << redirect_abspath;
+
+				strcpy(output, redirect_abspath.c_str());
 			}
 		}
 	}
 }
 
-static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char *subDirectory, wchar_t *extension, eastl::vector<eastl::string> *out)
+static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirectory, const char *extension, eastl::vector<eastl::string> *out)
 {
-	big::g_hooking->get_original<hook_fsGetFilesWithExtension_packages>()(resourceDir, subDirectory, extension, out);
+	big::g_hooking->get_original<hook_fsGetFilesWithExtension>()(resourceDir, subDirectory, extension, out);
+
+	// Resolve the ResourceDirectory to its physical path so we can match the correct sjson files (and not include those that belong to a different group)
+	std::string resolved_base_dir;
+	{
+		static auto fsGetResourceDirectory_ptr = big::hades2_symbol_to_address["fsGetResourceDirectory"];
+		if (fsGetResourceDirectory_ptr)
+		{
+			static auto fsGetResourceDirectory = fsGetResourceDirectory_ptr.as_func<const char*(PVOID)>();
+			const char* base = fsGetResourceDirectory(resourceDir);
+			if (base)
+			{
+				resolved_base_dir = sjson_overlay::normalize_path(base);
+			}
+		}
+	}
 
 	bool has_pkg_manifest = false;
 	bool has_pkg          = false;
@@ -1732,28 +1882,225 @@ static void hook_fsGetFilesWithExtension_packages(PVOID resourceDir, const char 
 	}
 
 	bool is_pkg_manifest_only = has_pkg_manifest && !has_pkg;
-	if (is_pkg_manifest_only)
 	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
+		std::shared_lock lock(g_plugin_files_mutex);
+		if (is_pkg_manifest_only)
 		{
-			if (ends_with(filename.c_str(), ".pkg_manifest"))
+			for (const auto &[filename, full_file_path] : additional_package_files)
+			{
+				if (ends_with(filename.c_str(), ".pkg_manifest"))
+				{
+					out->push_back(filename.c_str());
+				}
+			}
+		}
+		else if (has_pkg && has_pkg_manifest)
+		{
+			for (const auto &[filename, full_file_path] : additional_package_files)
+			{
+				out->push_back(filename.c_str());
+			}
+		}
+		else if (has_gpk)
+		{
+			for (const auto &[filename, full_file_path] : additional_granny_files)
 			{
 				out->push_back(filename.c_str());
 			}
 		}
 	}
-	else if (has_pkg && has_pkg_manifest)
+
+	// Map file injection: inject additional map files when engine enumerates .map_text files
+	// The engine uses glob patterns (e.g. "X_*.map_text", "RoomOpening.map_text") to find maps per MapGroup
+	if (extension && ends_with(extension, ".map_text"))
 	{
-		for (const auto &[filename, full_file_path] : additional_package_files)
+		std::string pattern(extension);
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
 		{
-			out->push_back(filename.c_str());
+			existing.insert(f.c_str());
+		}
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_map_files)
+		{
+			if (ends_with(filename.c_str(), ".map_text")
+			    && glob_match(pattern, filename)
+			    && existing.find(filename) == existing.end())
+			{
+				out->push_back(filename.c_str());
+				existing.insert(filename);
+			}
 		}
 	}
-	else if (has_gpk)
+
+	// VO file injection: inject additional .fsb files when engine enumerates voiceover files
+	// The engine scans Audio/Desktop/ with subDirectory="VO" and extension="*.fsb"
+	if (extension && ends_with(extension, ".fsb"))
 	{
-		for (const auto &[filename, full_file_path] : additional_granny_files)
+		std::string subdir_str = subDirectory ? subDirectory : "";
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
 		{
-			out->push_back(filename.c_str());
+			existing.insert(f.c_str());
+		}
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_vo_files.fsb_files)
+		{
+
+			// Build entry with subdir prefix if present (engine expects "VO\\filename.fsb")
+			std::string entry = subdir_str.empty() ? filename : subdir_str + "\\" + filename;
+
+			if (existing.find(entry) == existing.end())
+			{
+				out->push_back(entry.c_str());
+				existing.insert(entry);
+			}
+		}
+	}
+
+	// Bik atlas injection: inject additional .bik_atlas files when engine enumerates movie manifests
+	// The engine scans Content/Movies/{resolution}/ with extension "*.bik_atlas"
+	if (extension && ends_with(extension, ".bik_atlas"))
+	{
+		std::unordered_set<std::string> existing;
+		for (const auto& f : *out)
+		{
+			existing.insert(f.c_str());
+		}
+
+		std::shared_lock lock(g_plugin_files_mutex);
+		for (const auto& [filename, filepath] : additional_bik_files)
+		{
+			if (ends_with(filename.c_str(), ".bik_atlas") && existing.find(filename) == existing.end())
+			{
+				out->push_back(filename.c_str());
+				existing.insert(filename);
+			}
+		}
+	}
+
+	// SJSON overlay: inject additional .sjson files into the engine's enumeration
+	if (subDirectory && extension)
+	{
+		if (extension[0] == '\0')
+		{
+			return;
+		}
+
+		std::string ext_clean(extension);
+		if (ext_clean.size() > 1 && ext_clean[0] == '*')
+		{
+			ext_clean = ext_clean.substr(1);
+		}
+
+		std::string normalized_subdir = sjson_overlay::normalize_path(subDirectory);
+
+		if (ext_clean != ".sjson")
+		{
+			return;
+		}
+
+		// Determine the engine's target directory relative to Content/Game/ so we can match overlay files.
+		// resolved_base_dir is the physical path the engine is scanning (e.g. "C:/.../Content/Game/Animations").
+		// We extract the part after "Content/Game/" to get e.g. "Animations".
+		std::string engine_game_subdir;
+		if (!resolved_base_dir.empty())
+		{
+			std::string lower_base = big::string::to_lower(resolved_base_dir);
+
+			auto game_pos = lower_base.find("content/game/");
+			if (game_pos != std::string::npos)
+			{
+				engine_game_subdir = resolved_base_dir.substr(game_pos + 13);
+			}
+		}
+
+		// Combine engine base subdir with the subDirectory parameter for nested scans (e.g. Text/{lang})
+		std::string full_engine_subdir = engine_game_subdir;
+		if (!normalized_subdir.empty())
+		{
+			if (!full_engine_subdir.empty())
+			{
+				full_engine_subdir += "/" + normalized_subdir;
+			}
+			else
+			{
+				full_engine_subdir = normalized_subdir;
+			}
+		}
+
+		// Mark using the full logical directory (game/<subdir>) so it matches the keys used by register_content_file for late-registration warnings
+		sjson_overlay::mark_directory_enumerated("game/" + full_engine_subdir, ext_clean);
+
+		// Match overlay files whose directory matches the engine's target
+		{
+			std::unordered_set<std::string> existing;
+			for (const auto& existing_file : *out)
+			{
+				existing.insert(existing_file.c_str());
+			}
+
+			std::shared_lock lock(sjson_overlay::g_overlay_mutex);
+			for (const auto& [relpath, abspath] : sjson_overlay::g_path_index)
+			{
+				// relpath is like "Game/Animations/Foo.sjson" - strip "Game/" prefix
+				std::string normalized_relpath = sjson_overlay::normalize_path(relpath);
+				if (!normalized_relpath.starts_with("Game/"))
+				{
+					continue;
+				}
+				std::string game_relative = normalized_relpath.substr(5); // e.g. "Animations/Foo.sjson"
+
+				// Check extension
+				auto dot_pos = game_relative.rfind('.');
+				if (dot_pos == std::string::npos || game_relative.substr(dot_pos) != ext_clean)
+				{
+					continue;
+				}
+
+				// Extract file's directory and filename
+				auto slash_pos = game_relative.rfind('/');
+				std::string file_subdir;
+				std::string filename;
+				if (slash_pos != std::string::npos)
+				{
+					file_subdir = game_relative.substr(0, slash_pos);
+					filename = game_relative.substr(slash_pos + 1);
+				}
+				else
+				{
+					file_subdir = "";
+					filename = game_relative;
+				}
+
+				// Case-insensitive directory comparison
+				std::string lower_file_subdir = big::string::to_lower(file_subdir);
+				std::string lower_full_engine_subdir = big::string::to_lower(full_engine_subdir);
+
+				if (lower_file_subdir != lower_full_engine_subdir)
+				{
+					continue;
+				}
+
+				// Build the entry in the format the engine expects
+				std::string entry_to_inject;
+				if (!normalized_subdir.empty())
+				{
+					entry_to_inject = normalized_subdir + "\\" + filename;
+				}
+				else
+				{
+					entry_to_inject = filename;
+				}
+
+				if (existing.find(entry_to_inject) == existing.end())
+				{
+					out->push_back(entry_to_inject.c_str());
+					existing.insert(entry_to_inject);
+				}
+			}
 		}
 	}
 }
@@ -2629,8 +2976,8 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto ptr_func = ptr;
 
-			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension_packages>(
-			    "fsGetFilesWithExtension for packages and models",
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_fsGetFilesWithExtension>(
+			    "fsGetFilesWithExtension for mod plugin_data files",
 			    ptr_func);
 		}
 	}
@@ -2644,6 +2991,38 @@ extern "C" __declspec(dllexport) void my_main()
 			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_ParseLuaErrorMessageAndAssert>(
 			    "ParseLuaErrorMessageAndAssert for better lua stack traces",
 			    ptr_func);
+		}
+	}
+
+	{
+		static auto ptr = big::hades2_symbol_to_address["sgg::OpenBinkUtf8"];
+		if (ptr)
+		{
+			static auto ptr_func = ptr;
+
+			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_OpenBinkUtf8>(
+			    "OpenBinkUtf8 for bik file redirect",
+			    ptr_func);
+
+			// Resolve BinkOpen from the Bink SDK DLL so we can call it directly with absolute paths
+			HMODULE binkModule = GetModuleHandleA("bink2w64.dll");
+			if (binkModule)
+			{
+				g_BinkOpen = reinterpret_cast<decltype(g_BinkOpen)>(GetProcAddress(binkModule, "BinkOpen"));
+			}
+
+			if (g_BinkOpen)
+			{
+				LOG(INFO) << "Resolved BinkOpen from Bink SDK DLL";
+			}
+			else
+			{
+				LOG(WARNING) << "Could not resolve BinkOpen, .bik file redirect will fall through to OpenBinkUtf8";
+			}
+		}
+		else
+		{
+			LOG(WARNING) << "sgg::OpenBinkUtf8 symbol not found, .bik file redirect will not work";
 		}
 	}
 
@@ -2674,13 +3053,13 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto fsAppendPathComponent = fsAppendPathComponent_ptr.as_func<void(const char *, const char *, char *)>();
 
-			static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent_packages>(
-			    "hook_fsAppendPathComponent for packages and models",
+			static auto hook_once = big::hooking::detour_hook_helper::add_queue<hook_fsAppendPathComponent>(
+			    "hook_fsAppendPathComponent for mod plugin_data files",
 			    fsAppendPathComponent);
 		}
 		else
 		{
-			LOG(ERROR) << "hook_fsAppendPathComponent for packages and models failure";
+			LOG(ERROR) << "hook_fsAppendPathComponent for mod plugin_data files failure";
 		}
 	}
 
@@ -2727,7 +3106,89 @@ extern "C" __declspec(dllexport) void my_main()
 
 			LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
 		}
+		else if (entry.path().extension() == ".map_text" || entry.path().extension() == ".thing_bin")
+		{
+			additional_map_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                             (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to map files: " << (char *)entry.path().u8string().c_str();
+		}
+		else if (entry.path().extension() == ".fsb")
+		{
+			additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                                      (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+		}
+		else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
+		{
+			additional_bik_files.emplace((char *)entry.path().filename().u8string().c_str(),
+			                             (char *)entry.path().u8string().c_str());
+
+			LOG(INFO) << "Adding to bik files: " << (char *)entry.path().u8string().c_str();
+		}
 	}
+
+	// Register .txt companions for each discovered .fsb.
+	// The .txt must be co-located with its .fsb (same directory, same stem).
+	// We don't register all .txt files as they may be unrelated to a voiceover.
+	{
+		for (const auto& [filename, abspath] : additional_vo_files.fsb_files)
+		{
+			auto txt_path = std::filesystem::path(abspath);
+			txt_path.replace_extension(".txt");
+			if (std::filesystem::exists(txt_path))
+			{
+				additional_vo_files.txt_files.emplace((char *)txt_path.filename().u8string().c_str(),
+				                                      (char *)txt_path.u8string().c_str());
+			}
+		}
+	}
+
+	// Validate file pairs: warn if either half of a required pair is missing
+	auto validate_file_pairs = [](const std::unordered_map<std::string, std::string>& files_a,
+	                              const char* ext_a,
+	                              const std::unordered_map<std::string, std::string>& files_b,
+	                              const char* ext_b)
+	{
+		std::unordered_set<std::string> stems_a, stems_b;
+		for (const auto& [filename, _] : files_a)
+		{
+			if (ends_with(filename.c_str(), ext_a))
+			{
+				stems_a.insert(std::filesystem::path(filename).stem().string());
+			}
+		}
+		for (const auto& [filename, _] : files_b)
+		{
+			if (ends_with(filename.c_str(), ext_b))
+			{
+				stems_b.insert(std::filesystem::path(filename).stem().string());
+			}
+		}
+		for (const auto& stem : stems_a)
+		{
+			if (!stems_b.count(stem))
+			{
+				LOG(WARNING) << "File '" << stem << ext_a << "' has no matching " << ext_b << " pair";
+			}
+		}
+		for (const auto& stem : stems_b)
+		{
+			if (!stems_a.count(stem))
+			{
+				LOG(WARNING) << "File '" << stem << ext_b << "' has no matching " << ext_a << " pair";
+			}
+		}
+	};
+
+	validate_file_pairs(additional_package_files, ".pkg", additional_package_files, ".pkg_manifest");
+	validate_file_pairs(additional_map_files, ".map_text", additional_map_files, ".thing_bin");
+	validate_file_pairs(additional_vo_files.fsb_files, ".fsb", additional_vo_files.txt_files, ".txt");
+	validate_file_pairs(additional_bik_files, ".bik", additional_bik_files, ".bik_atlas");
+
+	// Scan for SJSON overlay files (plugins_data/*/<SJSON_DATA_DIR_NAME>/)
+	sjson_overlay::scan_all_plugin_content_directories(g_file_manager.get_project_folder("plugins_data").get_path());
 
 	const auto res = lovely_init((const char *)g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
 	LOG(INFO) << "lovely_init returned " << (int32_t)res;

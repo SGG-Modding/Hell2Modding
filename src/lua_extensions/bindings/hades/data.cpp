@@ -1,6 +1,7 @@
 #include "data.hpp"
 
 #include "hades_ida.hpp"
+#include "sjson_overlay.hpp"
 
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
@@ -20,6 +21,19 @@ namespace sgg
 		Base    = 0x2,
 	};
 } // namespace sgg
+
+extern std::unordered_map<std::string, std::string> additional_map_files;
+
+struct vo_file_registry
+{
+	std::unordered_map<std::string, std::string> fsb_files;
+	std::unordered_map<std::string, std::string> txt_files;
+};
+extern vo_file_registry additional_vo_files;
+
+extern std::unordered_map<std::string, std::string> additional_bik_files;
+extern std::shared_mutex g_plugin_files_mutex;
+extern int ends_with(const char* str, const char* suffix);
 
 // Defined in main.cpp — file redirect maps for custom GPK/PKG assets
 extern std::unordered_map<std::string, std::string> additional_granny_files;
@@ -267,7 +281,29 @@ namespace lua::hades::data
 			{
 				std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
 
-				g_sjson_FileStream_to_filepath[g_current_file_stream] = output_;
+				// If the output was redirected to an SJSON overlay path, it won't match sjson.hook filters
+				// sjson.hook filters use Content/ paths, which we need to reconstruct
+				// The base path is the ResourceDirectory root (e.g. "C:\...\Content\Game\Animations"), and pathComponent is the filename
+				// We check if the output contains the overlay marker and fall back to the original path
+				std::string output_str = (char*)output_.u8string().c_str();
+				if (output_str.find(sjson_overlay::SJSON_DATA_DIR_NAME) != std::string::npos)
+				{
+					// Output was redirected to overlay - build the original Content/ path instead
+					char original_path[512];
+					strncpy(original_path, basePath, sizeof(original_path) - 1);
+					original_path[sizeof(original_path) - 1] = '\0';
+					size_t base_len = strlen(original_path);
+					if (base_len > 0 && original_path[base_len - 1] != '\\' && original_path[base_len - 1] != '/')
+					{
+						strncat(original_path, "\\", sizeof(original_path) - base_len - 1);
+					}
+					strncat(original_path, pathComponent, sizeof(original_path) - strlen(original_path) - 1);
+					g_sjson_FileStream_to_filepath[g_current_file_stream] = original_path;
+				}
+				else
+				{
+					g_sjson_FileStream_to_filepath[g_current_file_stream] = output_;
+				}
 			}
 		}
 	}
@@ -486,6 +522,121 @@ namespace lua::hades::data
 		ns.set_function("load_package_overrides_set", load_package_overrides_set);
 		ns.set_function("add_granny_file", add_granny_file);
 		ns.set_function("add_package_file", add_package_file);
+
+		// Lua API: Field
+		// Table: data
+		// Name: SJSON_DATA_DIR_NAME
+		// Value: "Hell2Modding-SJSON"
+		// The canonical directory name for the SJSON data overlay.
+		// Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.
+		// Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
+		ns["SJSON_DATA_DIR_NAME"] = sjson_overlay::SJSON_DATA_DIR_NAME;
+
+		// Lua API: Function
+		// Table: data
+		// Name: register_sjson_file
+		// Param: absolute_path: string: The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
+		// Returns: boolean: true if registered successfully, false if the file is a duplicate, not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+		// Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
+		// The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
+		// For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
+		// At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
+		// Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
+		ns.set_function("register_sjson_file", [](const std::string& absolute_path) -> bool {
+			std::string normalized = sjson_overlay::normalize_path(absolute_path);
+			const std::string marker = std::string(sjson_overlay::SJSON_DATA_DIR_NAME) + "/";
+			auto pos = normalized.find(marker);
+			if (pos == std::string::npos)
+			{
+				LOG(WARNING) << "[SJSON] register_sjson_file: aborting, path does not contain '" << sjson_overlay::SJSON_DATA_DIR_NAME << "/' directory: " << absolute_path;
+				return false;
+			}
+			// Convention: <SJSON_DATA_DIR_NAME> implicitly maps to Game/ in Content
+			std::string logical_relpath = "Game/" + normalized.substr(pos + marker.size());
+			return sjson_overlay::register_content_file(logical_relpath, absolute_path);
+		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: register_content_directory
+		// Param: absolute_base_path: string: Absolute path to a directory whose structure mirrors `Content/Game/` (e.g. containing `Animations/`, `Text/en/`, etc.)
+		// Scans the directory recursively and registers all .sjson files found. Each file's engine path is derived from its position in the directory tree.
+		// This is the same scan that Hell2Modding performs automatically at startup for `plugins_data/*/<SJSON_DATA_DIR_NAME>/`.
+		ns.set_function("register_content_directory", [](const std::string& absolute_base_path) {
+			sjson_overlay::scan_content_directory(std::filesystem::path(absolute_base_path));
+		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: register_file_redirect
+		// Param: content_relative_path: string: The path relative to Content/, e.g. "Maps/D_Hub.map_text" or "Maps/bin/D_Hub.thing_bin"
+		// Param: absolute_path: string: The absolute filesystem path to the actual file
+		// Returns: boolean: true if registered, false if duplicate
+		// Registers a file redirect so the engine loads it from an external location instead of Content/.
+		// Unlike register_content_file (SJSON-only), this works for any file type that the engine loads via fsAppendPathComponent (maps, etc.).
+		// No directory convention is enforced - the caller provides both paths.
+		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
+			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
+
+			std::unique_lock lock(sjson_overlay::g_overlay_mutex);
+			if (sjson_overlay::g_path_index.count(normalized))
+			{
+				return false;
+			}
+			sjson_overlay::g_path_index[normalized] = absolute_path;
+			LOG(INFO) << "Adding file redirect: " << normalized << " -> " << absolute_path;
+			return true;
+		});
+
+		// Lua API: Function
+		// Table: data
+		// Name: register_plugin_file
+		// Param: filename: string: The filename (e.g. "D_Boss01.map_text", "HadesBattleIdle.bik", "Zagreus.fsb")
+		// Param: absolute_path: string: The absolute filesystem path to the file
+		// Returns: boolean: true if registered, false if already registered or unsupported extension
+		// Registers a file for engine injection and redirect. Routes to the appropriate internal registry.
+		// Supported extensions: .map_text, .thing_bin, .bik, .bik_atlas, .fsb, .txt.
+		// SJSON files should use `register_sjson_file` instead.
+		ns.set_function("register_plugin_file", [](const std::string& filename, const std::string& absolute_path) -> bool {
+			std::unordered_map<std::string, std::string>* target = nullptr;
+			const char* label = nullptr;
+
+			if (ends_with(filename.c_str(), ".map_text") || ends_with(filename.c_str(), ".thing_bin"))
+			{
+				target = &additional_map_files;
+				label = "map";
+			}
+			else if (ends_with(filename.c_str(), ".bik") || ends_with(filename.c_str(), ".bik_atlas"))
+			{
+				target = &additional_bik_files;
+				label = "bik";
+			}
+			else if (ends_with(filename.c_str(), ".fsb"))
+			{
+				target = &additional_vo_files.fsb_files;
+				label = "VO (fsb)";
+			}
+			else if (ends_with(filename.c_str(), ".txt"))
+			{
+				target = &additional_vo_files.txt_files;
+				label = "VO (txt)";
+			}
+
+			if (!target)
+			{
+				LOG(WARNING) << "register_plugin_file: unsupported extension for '" << filename << "'";
+				return false;
+			}
+
+			std::unique_lock lock(g_plugin_files_mutex);
+			if (target->count(filename))
+			{
+				return false;
+			}
+			(*target)[filename] = absolute_path;
+			LOG(INFO) << "Adding to " << label << " files: " << absolute_path;
+			return true;
+		});
 
 		state["sol.__h2m_LoadPackages__"] = state["LoadPackages"];
 		// Lua API: Function
