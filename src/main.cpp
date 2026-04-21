@@ -2689,6 +2689,89 @@ extern "C" __declspec(dllexport) void my_main()
 		}
 	}
 
+	// Raise the static vertex + index pool sizes.  Mods that add extra
+	// character mesh entries blow through the default budgets, causing
+	// RequestBufferUpdate to fail on later-loaded meshes (weapons,
+	// enemies) — they fall back to the placeholder "blank mesh" prop.
+	//
+	// Both buffers live in the DX12 upload heap (system RAM, not VRAM),
+	// so the extra capacity costs a few dozen MB of RAM.
+	//
+	// Must run before ForgeRenderer init fires at game startup.
+	// my_main() runs at DLL attach, safely before that.  The config
+	// values are read here once; changing them in the UI requires a
+	// game restart.
+	static auto vertex_pool_mb = big::config::general->bind(
+	    "Pool Sizes", "Static Vertex Pool (MB)", 128,
+	    "Static vertex buffer pool allocated per shader effect.  Game "
+	    "default is 64 MB.  Raise if mods adding many character mesh "
+	    "entries cause weapons or enemies to render as the placeholder "
+	    "'blank mesh' prop.  Lives in the DX12 upload heap (system RAM, "
+	    "not VRAM).  Applied at DLL attach — restart to change.");
+
+	static auto index_pool_mb = big::config::general->bind(
+	    "Pool Sizes", "Static Index Pool (MB)", 64,
+	    "Static index buffer pool allocated once globally.  Game default "
+	    "is 32 MB.  Raise together with the vertex pool.");
+
+	// Patch site: `mov qword [rsp+X], imm32`.  Bytes 0-4 = opcode + SIB +
+	// disp8; bytes 5-8 = the imm32 operand (sign-extended to 64 bits).
+	// Writing the full imm32 lets us reach any size up to 2 GB, not just
+	// the 16 MB-aligned values a single-byte patch allows.
+	auto patch_pool_size = [](const char* label, const char* sig,
+	                          const char* scan_name,
+	                          uint32_t game_default_bytes,
+	                          uint32_t target_bytes) -> bool
+	{
+		if (target_bytes == game_default_bytes)
+		{
+			LOG(INFO) << "Pool patch: [SKIP] " << label
+			          << " (matches game default)";
+			return false;
+		}
+		if (target_bytes < game_default_bytes)
+		{
+			LOG(WARNING) << "Pool patch: [SKIP] " << label
+			             << " (configured " << (target_bytes >> 20)
+			             << " MB < game default " << (game_default_bytes >> 20)
+			             << " MB — refusing to shrink)";
+			return false;
+		}
+		auto scan = gmAddress::scan(sig, scan_name);
+		if (!scan)
+		{
+			LOG(WARNING) << "Pool patch: [SKIP] " << label
+			             << " (pattern not found — game update?)";
+			return false;
+		}
+		auto imm32 = scan.offset(5).as<uint32_t*>();
+		if (*imm32 != game_default_bytes)
+		{
+			LOG(WARNING) << "Pool patch: [SKIP] " << label
+			             << " (expected imm32=" << HEX_TO_UPPER(game_default_bytes)
+			             << ", got " << HEX_TO_UPPER(*imm32) << ")";
+			return false;
+		}
+		ForceWrite<uint32_t>(*imm32, target_bytes);
+		LOG(INFO) << "Pool patch: [OK  ] " << label << " "
+		          << (game_default_bytes >> 20) << " MB -> "
+		          << (target_bytes >> 20) << " MB";
+		return true;
+	};
+
+	const uint32_t vertex_target = (uint32_t)vertex_pool_mb->get_value() << 20;
+	const uint32_t index_target  = (uint32_t)index_pool_mb->get_value()  << 20;
+
+	patch_pool_size("Vertex Pool",
+	    "48 C7 44 24 20 00 00 00 04 E8",
+	    "mov [rsp+0x20], 64MB (vertex pool size in sgg::addShaderEffect)",
+	    0x04000000u, vertex_target);
+
+	patch_pool_size("Index Pool",
+	    "48 C7 44 24 40 00 00 00 02 48",
+	    "mov [rsp+0x40], 32MB (index pool size in sgg::addStaticVertexBuffers)",
+	    0x02000000u, index_target);
+
 	const auto initRenderer_ptr = big::hades2_symbol_to_address["initRenderer"];
 	if (initRenderer_ptr)
 	{
