@@ -1745,7 +1745,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 			std::shared_lock lock(g_plugin_files_mutex);
 			for (const auto &[filename, full_file_path] : additional_package_files)
 			{
-				if (strcmp(pathComponent, filename.c_str()) == 0)
+				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 				{
 					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 					strcpy(output, full_file_path.c_str());
