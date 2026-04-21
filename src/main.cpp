@@ -1745,7 +1745,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 			std::shared_lock lock(g_plugin_files_mutex);
 			for (const auto &[filename, full_file_path] : additional_package_files)
 			{
-				if (strcmp(pathComponent, filename.c_str()) == 0)
+				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 				{
 					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 					strcpy(output, full_file_path.c_str());
@@ -3181,7 +3181,6 @@ extern "C" __declspec(dllexport) void my_main()
 		}
 	};
 
-	validate_file_pairs(additional_package_files, ".pkg", additional_package_files, ".pkg_manifest");
 	validate_file_pairs(additional_map_files, ".map_text", additional_map_files, ".thing_bin");
 	validate_file_pairs(additional_vo_files.fsb_files, ".fsb", additional_vo_files.txt_files, ".txt");
 	validate_file_pairs(additional_bik_files, ".bik", additional_bik_files, ".bik_atlas");
