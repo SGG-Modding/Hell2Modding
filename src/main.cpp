@@ -2692,7 +2692,7 @@ extern "C" __declspec(dllexport) void my_main()
 	// Raise the static vertex + index pool sizes.  Mods that add extra
 	// character mesh entries blow through the default budgets, causing
 	// RequestBufferUpdate to fail on later-loaded meshes (weapons,
-	// enemies) — they fall back to the placeholder "blank mesh" prop.
+	// enemies): they fall back to the placeholder "blank mesh" prop.
 	//
 	// Both buffers live in the DX12 upload heap (system RAM, not VRAM),
 	// so the extra capacity costs a few dozen MB of RAM.
@@ -2707,7 +2707,7 @@ extern "C" __declspec(dllexport) void my_main()
 	    "default is 64 MB.  Raise if mods adding many character mesh "
 	    "entries cause weapons or enemies to render as the placeholder "
 	    "'blank mesh' prop.  Lives in the DX12 upload heap (system RAM, "
-	    "not VRAM).  Applied at DLL attach — restart to change.");
+	    "not VRAM).  Applied at DLL attach: restart to change.");
 
 	static auto index_pool_mb = big::config::general->bind(
 	    "Pool Sizes", "Static Index Pool (MB)", 64,
@@ -2734,14 +2734,14 @@ extern "C" __declspec(dllexport) void my_main()
 			LOG(WARNING) << "Pool patch: [SKIP] " << label
 			             << " (configured " << (target_bytes >> 20)
 			             << " MB < game default " << (game_default_bytes >> 20)
-			             << " MB — refusing to shrink)";
+			             << " MB: refusing to shrink)";
 			return false;
 		}
 		auto scan = gmAddress::scan(sig, scan_name);
 		if (!scan)
 		{
 			LOG(WARNING) << "Pool patch: [SKIP] " << label
-			             << " (pattern not found — game update?)";
+			             << " (pattern not found, game updated?)";
 			return false;
 		}
 		auto imm32 = scan.offset(5).as<uint32_t*>();

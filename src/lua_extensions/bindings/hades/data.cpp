@@ -35,7 +35,7 @@ extern std::unordered_map<std::string, std::string> additional_bik_files;
 extern std::shared_mutex g_plugin_files_mutex;
 extern int ends_with(const char* str, const char* suffix);
 
-// Defined in main.cpp — file redirect maps for custom GPK/PKG assets
+// Defined in main.cpp: file redirect maps for custom GPK/PKG assets
 extern std::unordered_map<std::string, std::string> additional_granny_files;
 extern std::unordered_map<std::string, std::string> additional_package_files;
 
@@ -525,7 +525,7 @@ namespace lua::hades::data
 
 		// Lua API: Field
 		// Table: data
-		// Name: SJSON_DATA_DIR_NAME
+		// Field: SJSON_DATA_DIR_NAME: string
 		// Value: "Hell2Modding-SJSON"
 		// The canonical directory name for the SJSON data overlay.
 		// Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.

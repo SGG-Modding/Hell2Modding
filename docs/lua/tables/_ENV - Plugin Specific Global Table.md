@@ -21,7 +21,7 @@ for n in pairs(rom.mods[_ENV._PLUGIN.guid]) do
 end
 ```
 
-## Fields (8)
+## Fields (9)
 
 ### `_PLUGIN.guid`
 
@@ -68,4 +68,11 @@ Path to the mod folder inside `plugins`
 ### `_PLUGIN.this`
 
 - Type: `lua_module*`
+
+### `_PLUGIN.sjson_data_path`
+
+The absolute path to the plugin's SJSON data directory (plugins_data/<mod-guid>/Hell2Modding-SJSON/).
+Mod authors can use this to discover or create .sjson files at runtime.
+
+- Type: `string`
 

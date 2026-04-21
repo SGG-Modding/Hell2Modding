@@ -29,4 +29,5 @@
 ---@field _PLUGIN.plugins_data_mod_folder_path string # Path to the mod folder inside `plugins_data`
 ---@field _PLUGIN.plugins_mod_folder_path string # Path to the mod folder inside `plugins`
 ---@field _PLUGIN.this lua_module*
+---@field _PLUGIN.sjson_data_path string # The absolute path to the plugin's SJSON data directory (plugins_data/<mod-guid>/Hell2Modding-SJSON/).Mod authors can use this to discover or create .sjson files at runtime.
 

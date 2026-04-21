@@ -38,10 +38,10 @@ namespace lua::hades::draw
 	struct GrannyMeshData
 	{
 		char pad_00[0x40];
-		uint32_t texture_name_hash; // +0x40 — feeds GetTexture
-		uint32_t texture_handle;    // +0x44 — resolved bindless handle
-		uint32_t mesh_name_hash;    // +0x48 — sgg::HashGuid of the mesh's name
-		uint8_t mesh_type;          // +0x4C — 0 main, 1 outline, 2 shadow/hidden
+		uint32_t texture_name_hash; // +0x40: feeds GetTexture
+		uint32_t texture_handle;    // +0x44: resolved bindless handle
+		uint32_t mesh_name_hash;    // +0x48: sgg::HashGuid of the mesh's name
+		uint8_t mesh_type;          // +0x4C: 0 main, 1 outline, 2 shadow/hidden
 		char pad_4D[3];
 	};
 	static_assert(offsetof(GrannyMeshData, texture_name_hash) == 0x40);
@@ -52,12 +52,12 @@ namespace lua::hades::draw
 
 	struct ModelDataNode
 	{
-		uint32_t id;                       // +0x00 — HashGuid.mId of the entry
+		uint32_t id;                       // +0x00: HashGuid.mId of the entry
 		char pad_04[0x0C];
-		GrannyMeshData* mesh_vec_begin;    // +0x10 — eastl::vector<GrannyMeshData>::mpBegin
-		GrannyMeshData* mesh_vec_end;      // +0x18 — ::mpEnd
+		GrannyMeshData* mesh_vec_begin;    // +0x10: eastl::vector<GrannyMeshData>::mpBegin
+		GrannyMeshData* mesh_vec_end;      // +0x18: ::mpEnd
 		char pad_20[0xA0];
-		ModelDataNode* next;               // +0xC0 — EASTL hashtable chain
+		ModelDataNode* next;               // +0xC0: EASTL hashtable chain
 	};
 	static_assert(offsetof(ModelDataNode, id) == 0x00);
 	static_assert(offsetof(ModelDataNode, mesh_vec_begin) == 0x10);
@@ -68,7 +68,7 @@ namespace lua::hades::draw
 	struct ForgeBuffer
 	{
 		char pad_00[0x38];
-		uint64_t size_raw; // +0x38 — low dword = byte size, high dword = flags
+		uint64_t size_raw; // +0x38: low dword = byte size, high dword = flags
 	};
 	static_assert(offsetof(ForgeBuffer, size_raw) == 0x38);
 
@@ -77,7 +77,7 @@ namespace lua::hades::draw
 		char pad_00[0x20];
 		ForgeBuffer* buffer;     // +0x20
 		char pad_28[0x18];
-		uint32_t vertex_cursor;  // +0x40 — next free vertex slot
+		uint32_t vertex_cursor;  // +0x40: next free vertex slot
 		char pad_44[0x04];
 	};
 	static_assert(offsetof(ForgeGeometryBuffers, buffer) == 0x20);
@@ -97,16 +97,16 @@ namespace lua::hades::draw
 	// Mixing constants pulled from the game's integer-key hashtable
 	// (multiply-xor-shift finalizer).  We have to match them exactly to
 	// reproduce the same bucket index the game assigns to a given entry
-	// hash — otherwise our bucket walk finds the wrong chain.
+	// hash: otherwise our bucket walk finds the wrong chain.
 	constexpr uint32_t kEastlHashMix1 = 0x7feb352d;
 	constexpr uint32_t kEastlHashMix2 = 0x846ca68b;
 
-	// Sanity bounds — a live mModelData never exceeds these.
+	// Sanity bounds: a live mModelData never exceeds these.
 	constexpr uint64_t kMaxBucketCount  = 0x100000;
 	constexpr int      kBucketWalkGuard = 32;
 	constexpr size_t   kMaxMeshesPerEntry = 128;
 
-	// Sentinel mesh_type used to hide a single mesh inside an entry —
+	// Sentinel mesh_type used to hide a single mesh inside an entry:
 	// DoDraw3D's own mesh-type switch skips meshes with this value.
 	constexpr uint8_t kMeshTypeHidden = 2;
 
@@ -136,7 +136,7 @@ namespace lua::hades::draw
 	//
 	// Returns the ModelDataNode for `entry_hash`, or nullptr if not
 	// found / any read faults.  Every binding that reads per-mesh state
-	// uses this — before extraction, each one inlined the same EASTL
+	// uses this: before extraction, each one inlined the same EASTL
 	// mix + bucket walk.
 
 	static ModelDataNode* find_model_data_node(uint32_t entry_hash)
@@ -196,7 +196,7 @@ namespace lua::hades::draw
 	static std::unordered_set<unsigned int> g_hidden_entries;
 	static std::unordered_map<unsigned int, unsigned int> g_remap; // original → variant
 
-	// Fast-path flag for the code cave — avoids the function-call overhead
+	// Fast-path flag for the code cave: avoids the function-call overhead
 	// on every draw entry when nothing is active (hidden or remapped).
 	static volatile uint8_t g_any_active = 0;
 
@@ -233,7 +233,7 @@ namespace lua::hades::draw
 	// ─── Detour hooks (DoDraw3D, DoDrawShadow3D, DoDraw3DThumbnail) ──
 	// Each hook inlines its own remap + hidden-set check.  Main-pass
 	// DoDraw3D participates in both; shadow and thumbnail paths honour
-	// the hidden-set for visibility-gate parity but skip the remap —
+	// the hidden-set for visibility-gate parity but skip the remap:
 	// DoDrawShadowCast3D has a different signature (no HashGuid
 	// parameter), so its remap would need a code-cave approach not
 	// included here.
@@ -258,7 +258,7 @@ namespace lua::hades::draw
 	// shadow paths while ShadowCast stays stock leaves the engine with
 	// inconsistent per-entry state (main=variant, shadow_cast=stock,
 	// shadow3D=variant) that appears to wedge the render thread.
-	// Keeping shadow/thumbnail on stock is the safe subset — the main
+	// Keeping shadow/thumbnail on stock is the safe subset: the main
 	// DoDraw3D swap carries the visual change on its own.
 	static void hook_DoDrawShadow3D(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
 	{
@@ -306,7 +306,7 @@ namespace lua::hades::draw
 		if (memcmp((void*)patch_site, expected, 7) != 0)
 		{
 			LOG(ERROR) << "draw: shadow patch byte mismatch at "
-			           << HEX_TO_UPPER(patch_site) << " — skipping";
+			           << HEX_TO_UPPER(patch_site) << ": skipping";
 			return;
 		}
 
@@ -338,7 +338,7 @@ namespace lua::hades::draw
 		*(uintptr_t*)(data_base + 0x18) = main_continue;
 		*(uintptr_t*)(data_base + 0x20) = loop_next;
 
-		// Code section — hand-assembled x86-64
+		// Code section: hand-assembled x86-64
 		uint8_t* p = (uint8_t*)cave;
 		auto emit = [&](std::initializer_list<uint8_t> bytes) {
 			for (auto b : bytes) *p++ = b;
@@ -373,7 +373,7 @@ namespace lua::hades::draw
 		emit({0x5A, 0x59});                                         // pop rdx; pop rcx
 		emit({0xEB}); size_t jmp_not_hidden = cur(); emit({0x00});   // jmp .not_hidden
 
-		// .remap — rewrite [r10+0x28] with remapped hash, then pass through
+		// .remap: rewrite [r10+0x28] with remapped hash, then pass through
 		size_t remap_off = cur();
 		*((uint8_t*)cave + je_remap) = (uint8_t)(remap_off - je_remap - 1);
 		emit({0x8B, 0x44, 0x24, 0x28});                             // mov eax, [rsp+0x28] (out_hash)
@@ -382,7 +382,7 @@ namespace lua::hades::draw
 		emit({0x5A, 0x59});                                         // pop rdx; pop rcx
 		emit({0xEB}); size_t jmp_not_hidden2 = cur(); emit({0x00});  // jmp .not_hidden
 
-		// .not_hidden — replay original instructions
+		// .not_hidden: replay original instructions
 		size_t not_hidden = cur();
 		*((uint8_t*)cave + je_fast) = (uint8_t)(not_hidden - je_fast - 1);
 		*((uint8_t*)cave + jmp_not_hidden) = (uint8_t)(not_hidden - jmp_not_hidden - 1);
@@ -391,12 +391,12 @@ namespace lua::hades::draw
 		emit({0x74}); size_t je_main = cur(); emit({0x00});          // je .main
 		emit({0xFF, 0x25}); emit_rel32(rip_data(0x10, 4));          // jmp [shadow_continue]
 
-		// .main — non-shadow path
+		// .main: non-shadow path
 		size_t main_off = cur();
 		*((uint8_t*)cave + je_main) = (uint8_t)(main_off - je_main - 1);
 		emit({0xFF, 0x25}); emit_rel32(rip_data(0x18, 4));          // jmp [main_continue]
 
-		// .skip — entry is hidden, advance loop
+		// .skip: entry is hidden, advance loop
 		size_t skip_off = cur();
 		*((uint8_t*)cave + je_skip) = (uint8_t)(skip_off - je_skip - 1);
 		emit({0x48, 0x83, 0xC4, 0x30});                             // add rsp, 0x30
@@ -449,7 +449,7 @@ namespace lua::hades::draw
 			// this call is a no-op; try again after the first scene loads
 			// or double-check the name.
 			LOG(WARNING) << "draw_set_visible: '" << entry_name
-			             << "' — no HashGuid found (engine hash table not yet "
+			             << "': no HashGuid found (engine hash table not yet "
 			                "populated, or entry name isn't registered); skipping";
 			return;
 		}
@@ -483,9 +483,9 @@ namespace lua::hades::draw
 		// Lua API: Function
 		// Table: data
 		// Name: draw_dump_pool_stats
-		// Returns: integer — number of per-shader vertex buffers dumped.
+		// Returns: number: number of per-shader vertex buffers dumped.
 		// Logs vertex-pool and index-pool capacity and cursor usage.
-		// Diagnostic only — useful when tuning the pool size config
+		// Diagnostic only: useful when tuning the pool size config
 		// against a mod load-out.
 		ns.set_function("draw_dump_pool_stats", []() -> int {
 			constexpr size_t kCharacterVertexStride = 40;
@@ -544,7 +544,7 @@ namespace lua::hades::draw
 		// Table: data
 		// Name: draw_populate_entry_textures
 		// Param: entry_name: string
-		// Returns: integer — number of textures populated.
+		// Returns: integer: number of textures populated.
 		// Resolves the entry's mesh textures up-front.  Useful for
 		// entries that aren't in the active scene (loaded-but-not-drawn
 		// variants) so their first drawn frame doesn't render white.
@@ -610,14 +610,14 @@ namespace lua::hades::draw
 		// Param: entry_name: string: Model entry (e.g. "HecateHub_Mesh").
 		// Param: mesh_name: string: Mesh name inside that entry (e.g. "TorusHubMesh").
 		// Param: visible: boolean: true to show, false to hide.
-		// Returns: boolean — true on success.
-		// Finer-grained than draw_set_visible — toggles a single named
+		// Returns: boolean: true on success.
+		// Finer-grained than draw_set_visible: toggles a single named
 		// mesh inside an entry instead of the whole entry.
 		ns.set_function("draw_set_mesh_visible", [](const std::string& entry,
 		                                             const std::string& mesh_name,
 		                                             bool visible) -> bool {
 			// Saved original mesh_type, keyed by (entry_hash, mesh_hash,
-			// idx).  The tuple key survives GMD vector reallocations —
+			// idx).  The tuple key survives GMD vector reallocations:
 			// unlikely in Hades II's static-load model, but free to guard.
 			using SavedKey = std::tuple<uint32_t, uint32_t, size_t>;
 			static std::map<SavedKey, uint8_t> g_saved_mesh_type;
@@ -677,7 +677,7 @@ namespace lua::hades::draw
 						gmd.mesh_type = it->second;
 						g_saved_mesh_type.erase(it);
 					}
-					// else: already visible — no-op
+					// else: already visible: no-op
 				}
 				else
 				{
@@ -686,7 +686,7 @@ namespace lua::hades::draw
 						g_saved_mesh_type[key] = current_type;
 						gmd.mesh_type = kMeshTypeHidden;
 					}
-					// else: already hidden — no-op
+					// else: already hidden: no-op
 				}
 				matched++;
 				// Don't break: toggle main+outline+shadow variants sharing
@@ -709,10 +709,10 @@ namespace lua::hades::draw
 		// Name: draw_swap_to_variant
 		// Param: stock_entry: string: Stock entry name (e.g. "HecateHub_Mesh").
 		// Param: variant_entry: string: Variant entry name loaded in mModelData.
-		// Returns: boolean — true on success.
+		// Returns: boolean: true on success.
 		// Redirects draw calls for `stock_entry` to `variant_entry`.
 		// Use draw_populate_entry_textures on the variant first (ideally
-		// from a safe window like the first ImGui frame) — this call is a
+		// from a safe window like the first ImGui frame): this call is a
 		// cheap map write and is not safe to call GetTexture from.
 		//
 		// **Example Usage:**
@@ -757,7 +757,7 @@ namespace lua::hades::draw
 		// Table: data
 		// Name: draw_restore_stock
 		// Param: stock_entry: string: Stock entry name to revert to.
-		// Returns: boolean — true on success.
+		// Returns: boolean: true on success.
 		// Clears any active hash remap for the given stock entry.
 		ns.set_function("draw_restore_stock", [](const std::string& stock_entry) -> bool {
 			static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"]
@@ -778,7 +778,7 @@ namespace lua::hades::draw
 			return true;
 		});
 
-		// NOTE: No hook on LoadAllModelAndAnimationData — a second detour
+		// NOTE: No hook on LoadAllModelAndAnimationData: a second detour
 		// are loaded automatically by the game when add_granny_file exposes
 		// them.  The double-hook was causing weapon model corruption.
 
