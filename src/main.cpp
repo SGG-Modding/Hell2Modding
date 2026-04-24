@@ -21,6 +21,8 @@
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/bindings/hades/data.hpp>
+#include "hades2/plugin_file_registry.hpp"
+#include <lua_extensions/bindings/hades/audio.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/bindings/hades/inputs.hpp>
 #include <lua_extensions/bindings/paths_ext.hpp>
@@ -1668,12 +1670,6 @@ std::unordered_map<std::string, std::string> additional_granny_files;
 
 std::unordered_map<std::string, std::string> additional_map_files;
 
-struct vo_file_registry
-{
-	std::unordered_map<std::string, std::string> fsb_files;
-	std::unordered_map<std::string, std::string> txt_files;
-};
-
 vo_file_registry additional_vo_files;
 
 std::unordered_map<std::string, std::string> additional_bik_files;
@@ -2876,6 +2872,10 @@ extern "C" __declspec(dllexport) void my_main()
 	}
 
 	{
+		lua::hades::audio::init();
+	}
+
+	{
 		static auto ptr = big::hades2_symbol_to_address["sgg::LaunchBugReporter"];
 		if (ptr)
 		{
@@ -3114,10 +3114,21 @@ extern "C" __declspec(dllexport) void my_main()
 		}
 		else if (entry.path().extension() == ".fsb")
 		{
-			additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
-			                                      (char *)entry.path().u8string().c_str());
+			const auto stem = std::string((char*)entry.path().stem().u8string().c_str());
+			if (!validate_vo_bank_name(stem))
+			{
+				LOG(WARNING) << "Custom voice banks may only have the first letter capitalized, "
+				                "except when containing \"Field\" or \"Keepsake\" which must always be capitalized. "
+				                "Otherwise the engine will not be able to resolve your cues. "
+				                "The voice bank that failed validation and will not be added: \"" << stem << "\"";
+			}
+			else
+			{
+				additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
+				                                      (char *)entry.path().u8string().c_str());
 
-			LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+				LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+			}
 		}
 		else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
 		{
