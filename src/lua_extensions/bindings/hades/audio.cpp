@@ -3,11 +3,77 @@
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua_extensions/bindings/tolk/tolk.hpp>
+#include <memory/byte_patch.hpp>
 #include <memory/gm_address.hpp>
 #include <string/string.hpp>
 
 namespace lua::hades::audio
 {
+	// Bypasses the AudioData::Data.mActors membership check in LoadVoiceBank,
+	// allowing voice banks with any name to be loaded (not just registered actors).
+	// The check is purely a validation gate - no data from the found mActors entry
+	// is used after the check, and invalid bank names fail gracefully at the FMOD
+	// file-loading stage (FMOD_ERR_FILE_NOTFOUND is silently ignored).
+	static void patch_LoadVoiceBank_actor_check()
+	{
+		static auto LoadVoiceBank_ptr = big::hades2_symbol_to_address["sgg::AudioManager::LoadVoiceBank"];
+		if (!LoadVoiceBank_ptr)
+		{
+			LOG(WARNING) << "sgg::AudioManager::LoadVoiceBank not found in PDB; custom voice banks disabled";
+			return;
+		}
+
+		// The mActors search loop ends with:
+		//   cmp rbx, rdi          ; puVar27 != mActors end?
+		//   je  <exit>            ; skip loading if actor not found (6-byte je near: 0F 84 xx xx xx xx)
+		//   call getUSec          ; loading path starts here
+		//
+		// We scan for the distinctive loop tail: add rbx,0x30 / cmp rbx,rdi
+		// The je gate is 9 bytes after the add instruction.
+		//
+		// Pattern: 48 83 C3 30  (add rbx, 0x30)
+		//          48 3B DF     (cmp rbx, rdi)
+		//          75 ??        (jne loop_top)
+		//          48 3B DF     (cmp rbx, rdi)
+		//          0F 84        (je near - the gate)
+		auto func_base = LoadVoiceBank_ptr.as<uint8_t*>();
+
+		// Scan within the first 0x300 bytes of the function for the mActors loop tail
+		uint8_t* gate_addr = nullptr;
+		for (size_t i = 0; i + 16 < 0x300; i++)
+		{
+			// Match: add rbx, 0x30 / cmp rbx, rdi / jne ?? / cmp rbx, rdi / je near
+			if (func_base[i]     == 0x48 && func_base[i + 1] == 0x83 &&
+			    func_base[i + 2] == 0xC3 && func_base[i + 3] == 0x30 && // add rbx, 0x30
+			    func_base[i + 4] == 0x48 && func_base[i + 5] == 0x3B &&
+			    func_base[i + 6] == 0xDF &&                              // cmp rbx, rdi
+			    func_base[i + 7] == 0x75 &&                              // jne (short)
+			    func_base[i + 9] == 0x48 && func_base[i + 10] == 0x3B &&
+			    func_base[i + 11] == 0xDF &&                             // cmp rbx, rdi
+			    func_base[i + 12] == 0x0F && func_base[i + 13] == 0x84)  // je (near)
+			{
+				gate_addr = func_base + i + 12;
+				break;
+			}
+		}
+
+		if (!gate_addr)
+		{
+			LOG(WARNING) << "LoadVoiceBank actor-check branch not found; custom voice banks disabled";
+			return;
+		}
+
+		// NOP the 6-byte conditional jump (je near: 0F 84 xx xx xx xx)
+		static constexpr uint8_t nops[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+		static_assert(sizeof(nops) == 6);
+		for (size_t i = 0; i < sizeof(nops); i++)
+		{
+			memory::byte_patch::make(gate_addr + i, nops[i])->apply();
+		}
+
+		LOG(INFO) << "Patched LoadVoiceBank actor check - custom voice banks enabled";
+	}
+
 	static std::string g_fixed_path_fsAppendPathComponent;
 
 	static void hook_fsAppendPathComponent(const char* basePath, const char* pathComponent, char* output /*size: 512*/)
@@ -69,6 +135,11 @@ namespace lua::hades::audio
 		}
 
 		return false;
+	}
+
+	void init()
+	{
+		patch_LoadVoiceBank_actor_check();
 	}
 
 	void bind(sol::table& state)

@@ -24,15 +24,9 @@ namespace sgg
 
 extern std::unordered_map<std::string, std::string> additional_map_files;
 
-struct vo_file_registry
-{
-	std::unordered_map<std::string, std::string> fsb_files;
-	std::unordered_map<std::string, std::string> txt_files;
-};
-extern vo_file_registry additional_vo_files;
+#include "hades2/plugin_file_registry.hpp"
 
 extern std::unordered_map<std::string, std::string> additional_bik_files;
-extern std::shared_mutex g_plugin_files_mutex;
 extern int ends_with(const char* str, const char* suffix);
 
 // Defined in main.cpp: file redirect maps for custom GPK/PKG assets
