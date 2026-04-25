@@ -53,6 +53,49 @@ namespace big::lua_manager_extension
 		return 1;
 	}
 
+	// Block some dangerous standard library functions from mods
+	static int blocked_lua_function(lua_State* L)
+	{
+		const char* name = lua_tostring(L, lua_upvalueindex(1));
+		return luaL_error(L, "%s() is not available", name);
+	}
+
+	struct sandbox_entry
+	{
+		const char* table; // table name, or nullptr for globals
+		const char* field; // function name within the table (or global name)
+	};
+
+	static constexpr sandbox_entry blocked_functions[] = {
+		{"os", "execute"},  
+		{"io", "popen"},   
+		{"package", "loadlib"}, 
+	};
+
+	static void sandbox_lua_state(lua_State* L)
+	{
+		for (const auto& entry : blocked_functions)
+		{
+			if (entry.table)
+			{
+				lua_getglobal(L, entry.table);
+				if (lua_istable(L, -1))
+				{
+					lua_pushfstring(L, "%s.%s", entry.table, entry.field);
+					lua_pushcclosure(L, blocked_lua_function, 1);
+					lua_setfield(L, -2, entry.field);
+				}
+				lua_pop(L, 1);
+			}
+			else
+			{
+				lua_pushstring(L, entry.field);
+				lua_pushcclosure(L, blocked_lua_function, 1);
+				lua_setglobal(L, entry.field);
+			}
+		}
+	}
+
 	typedef luaL_Stream LStream;
 
 	static LStream *newprefile(lua_State *L)
@@ -256,6 +299,8 @@ namespace big::lua_manager_extension
 		lua_setglobal(state.lua_state(), "_rom_open_debug");
 
 		auto L = state.lua_state();
+
+		sandbox_lua_state(L);
 
 		// Push io table onto the stack
 		lua_getglobal(L, "io");      // stack: io
