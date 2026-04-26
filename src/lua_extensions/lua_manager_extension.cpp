@@ -57,7 +57,6 @@ namespace big::lua_manager_extension
 	// Use the mod GUID as it appears in the plugins folder ("AuthorName-ModName")
 	static constexpr const char* allowlisted_mods[] = {
 		"Enderclem-CG3HBuilder",
-		"NikkelM-Zagreus_Journey",
 		"zerp-MelSkin",
 	};
 
