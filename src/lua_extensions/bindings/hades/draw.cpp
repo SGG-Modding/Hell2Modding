@@ -293,22 +293,21 @@ namespace lua::hades::draw
 	// skips to the loop-next target; otherwise it replays the original
 	// cmp+je and resumes normal execution.
 
-	static void install_shadow_cast_patch(uintptr_t doDraw3D_addr)
+	static void install_shadow_cast_patch()
 	{
-		// All offsets are relative to the DoDraw3D PDB symbol address.
-		uintptr_t patch_site      = doDraw3D_addr + 0x148E4; // cmp byte [r10+0x2d], 0
-		uintptr_t shadow_continue = doDraw3D_addr + 0x148EB; // shadow param setup
-		uintptr_t main_continue   = doDraw3D_addr + 0x148FF; // hash load + main path
-		uintptr_t loop_next       = doDraw3D_addr + 0x14AC1; // inc rsi (loop next)
+		// draw::bind runs per Lua plugin; only patch once.
+		static bool already_installed = false;
+		if (already_installed) return;
 
-		// Verify expected bytes before patching.
-		const uint8_t expected[] = {0x41, 0x80, 0x7A, 0x2D, 0x00, 0x74, 0x14};
-		if (memcmp((void*)patch_site, expected, 7) != 0)
-		{
-			LOG(ERROR) << "draw: shadow patch byte mismatch at "
-			           << HEX_TO_UPPER(patch_site) << ": skipping";
-			return;
-		}
+		// Scan for the cmp+je instead of using a fixed offset from
+		// DoDraw3D — the function moves across game updates, the local
+		// layout around the patch site doesn't.
+		auto scan = gmAddress::scan("41 80 7A 2D 00 74 14", "DoDraw3D shadow-flag check");
+		if (!scan) return;
+		uintptr_t patch_site      = (uintptr_t)scan;
+		uintptr_t shadow_continue = patch_site + 0x07;  // right after the cmp+je
+		uintptr_t main_continue   = patch_site + 0x1B;  // thumbnail check + main path
+		uintptr_t loop_next       = patch_site + 0x1DD; // inc rsi; loop continue
 
 		// Allocate code cave within ±2GB of the patch site (required for rel32 jmp).
 		void* cave = nullptr;
@@ -417,6 +416,7 @@ namespace lua::hades::draw
 		FlushInstructionCache(GetCurrentProcess(), (void*)patch_site, 7);
 
 		LOG(INFO) << "draw: shadow patch installed at " << HEX_TO_UPPER(patch_site);
+		already_installed = true;
 	}
 
 	// ─── Lua binding ──────────────────────────────────────────────────
@@ -812,11 +812,7 @@ namespace lua::hades::draw
 		}
 
 		// Manual code cave for DoDrawShadowCast3D.
-		{
-			auto addr = big::hades2_symbol_to_address["sgg::DrawManager::DoDraw3D"];
-			if (addr)
-				install_shadow_cast_patch(addr.as<uintptr_t>());
-		}
+		install_shadow_cast_patch();
 	}
 
 } // namespace lua::hades::draw
