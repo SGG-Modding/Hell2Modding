@@ -53,9 +53,70 @@ namespace big::lua_manager_extension
 		return 1;
 	}
 
-	// Block some dangerous standard library functions from mods
+	// Mods listed here may use all blocked functions
+	// Use the mod GUID as it appears in the plugins folder ("AuthorName-ModName")
+	static constexpr const char* allowlisted_mods[] = {
+		"Enderclem-CG3HBuilder",
+		"zerp-MelSkin",
+	};
+
+	static bool is_mod_allowlisted(const char* source)
+	{
+		if (!source)
+		{
+			return false;
+		}
+
+		// Source paths look like: @.../plugins/AuthorName-ModName/file.lua
+		const char* plugins_pos = strstr(source, "plugins\\");
+		if (!plugins_pos)
+		{
+			plugins_pos = strstr(source, "plugins/");
+		}
+		if (!plugins_pos)
+		{
+			return false;
+		}
+
+		const char* mod_start = plugins_pos + 8;
+		const char* mod_end   = mod_start;
+		while (*mod_end && *mod_end != '/' && *mod_end != '\\')
+		{
+			mod_end++;
+		}
+
+		size_t mod_len = mod_end - mod_start;
+
+		for (const auto& allowed : allowlisted_mods)
+		{
+			if (strlen(allowed) == mod_len && strncmp(mod_start, allowed, mod_len) == 0)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Upvalue 1: function name string, Upvalue 2: original function
 	static int blocked_lua_function(lua_State* L)
 	{
+		// Check if the direct caller is an allowlisted mod
+		lua_Debug ar;
+		if (lua_getstack(L, 1, &ar))
+		{
+			lua_getinfo(L, "S", &ar);
+			if (is_mod_allowlisted(ar.source))
+			{
+				// Forward to the original function with all arguments
+				int nargs = lua_gettop(L);
+				lua_pushvalue(L, lua_upvalueindex(2));
+				lua_insert(L, 1);
+				lua_call(L, nargs, LUA_MULTRET);
+				return lua_gettop(L);
+			}
+		}
+
 		const char* name = lua_tostring(L, lua_upvalueindex(1));
 		return luaL_error(L, "%s() is not available", name);
 	}
@@ -67,9 +128,9 @@ namespace big::lua_manager_extension
 	};
 
 	static constexpr sandbox_entry blocked_functions[] = {
-		{"os", "execute"},  
-		{"io", "popen"},   
-		{"package", "loadlib"}, 
+		{"os", "execute"},
+		{"io", "popen"},
+		{"package", "loadlib"},
 	};
 
 	static void sandbox_lua_state(lua_State* L)
@@ -81,17 +142,23 @@ namespace big::lua_manager_extension
 				lua_getglobal(L, entry.table);
 				if (lua_istable(L, -1))
 				{
+					lua_getfield(L, -1, entry.field);
 					lua_pushfstring(L, "%s.%s", entry.table, entry.field);
-					lua_pushcclosure(L, blocked_lua_function, 1);
-					lua_setfield(L, -2, entry.field);
+					lua_pushvalue(L, -2);
+					lua_pushcclosure(L, blocked_lua_function, 2);
+					lua_setfield(L, -3, entry.field);
+					lua_pop(L, 1);
 				}
 				lua_pop(L, 1);
 			}
 			else
 			{
+				lua_getglobal(L, entry.field);
 				lua_pushstring(L, entry.field);
-				lua_pushcclosure(L, blocked_lua_function, 1);
+				lua_pushvalue(L, -2);
+				lua_pushcclosure(L, blocked_lua_function, 2);
 				lua_setglobal(L, entry.field);
+				lua_pop(L, 1);
 			}
 		}
 	}
