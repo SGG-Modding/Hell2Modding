@@ -300,7 +300,7 @@ namespace lua::hades::draw
 		if (already_installed) return;
 
 		// Scan for the cmp+je instead of using a fixed offset from
-		// DoDraw3D — the function moves across game updates, the local
+		// DoDraw3D - the function moves across game updates, the local
 		// layout around the patch site doesn't.
 		auto scan = gmAddress::scan("41 80 7A 2D 00 74 14", "DoDraw3D shadow-flag check");
 		if (!scan) return;

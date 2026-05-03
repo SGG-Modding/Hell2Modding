@@ -1672,7 +1672,7 @@ std::unordered_map<std::string, std::string> additional_map_files;
 
 vo_file_registry additional_vo_files;
 
-std::unordered_map<std::string, std::string> additional_bik_files;
+std::unordered_map<std::string, bik_file_paths> additional_bik_files;
 
 // Guards runtime writes (register_plugin_file from Lua) against concurrent reads in hooks.
 std::shared_mutex g_plugin_files_mutex;
@@ -1693,14 +1693,16 @@ static bool glob_match(const std::string& pattern, const std::string& str)
 	    && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-// Hook for Bink video loading: OpenBinkUtf8 internally strips the directory from the path and calls
-// BinkOpen with just the filename after SetCurrentDirectoryW. This doesn't work for cross-drive redirects.
-// Instead, we resolve BinkOpen's address from bink2w64.dll and call it directly with the absolute path.
+// Hook directly on bink2w64.dll's BinkOpen to intercept ALL bik file open calls.
+// The engine calls BinkOpen from multiple code paths (OpenBinkUtf8, Movie::Load, etc.).
+// On Proton/Wine, BinkOpen cannot open absolute paths with mixed separators, so we use
+// SetCurrentDirectoryW + BinkOpen(filename_only) which works reliably on all platforms.
 static void* (*g_BinkOpen)(const char* filename, unsigned int flags) = nullptr;
+static std::mutex g_bik_cwd_mutex;
 
-static void* hook_OpenBinkUtf8(char* filename, unsigned int flags)
+static void* hook_BinkOpen(const char* filename, unsigned int flags)
 {
-	if (filename && g_BinkOpen)
+	if (filename)
 	{
 		const char* bik_filename = strrchr(filename, '/');
 		if (!bik_filename)
@@ -1709,22 +1711,50 @@ static void* hook_OpenBinkUtf8(char* filename, unsigned int flags)
 		}
 		bik_filename = bik_filename ? bik_filename + 1 : filename;
 
-		std::shared_lock lock(g_plugin_files_mutex);
-		auto it = additional_bik_files.find(bik_filename);
-		if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
+		std::string absolute_bik_path;
 		{
-			// Bink files are requested again on every use, this clutters the log
-			// LOG(DEBUG) << filename << " | " << it->first << " | " << it->second;
-
-			void* result = g_BinkOpen(it->second.c_str(), flags);
-			if (result)
+			std::shared_lock lock(g_plugin_files_mutex);
+			auto it = additional_bik_files.find(bik_filename);
+			if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
 			{
-				return result;
+				absolute_bik_path = it->second.resolve(filename);
+			}
+		}
+
+		if (!absolute_bik_path.empty())
+		{
+			std::filesystem::path bik_path(absolute_bik_path);
+			std::wstring parent_dir  = bik_path.parent_path().wstring();
+			std::string bik_name_only = bik_path.filename().string();
+
+			if (!parent_dir.empty() && !bik_name_only.empty())
+			{
+				std::lock_guard<std::mutex> cwd_lock(g_bik_cwd_mutex);
+
+				DWORD cwd_len = GetCurrentDirectoryW(0, nullptr);
+				std::wstring prev_cwd(cwd_len, L'\0');
+				GetCurrentDirectoryW(cwd_len, prev_cwd.data());
+
+				if (SetCurrentDirectoryW(parent_dir.c_str()))
+				{
+					void* result = big::g_hooking->get_original<hook_BinkOpen>()(bik_name_only.c_str(), flags);
+					SetCurrentDirectoryW(prev_cwd.c_str());
+					if (result)
+					{
+						return result;
+					}
+					LOG(WARNING) << "BinkOpen failed for mod file: " << absolute_bik_path;
+				}
+				else
+				{
+					LOG(WARNING) << "SetCurrentDirectoryW failed for bik parent dir: "
+					             << bik_path.parent_path().string();
+				}
 			}
 		}
 	}
 
-	return big::g_hooking->get_original<hook_OpenBinkUtf8>()(filename, flags);
+	return big::g_hooking->get_original<hook_BinkOpen>()(filename, flags);
 }
 
 //static std::string g_current_custom_package_stem;
@@ -1808,14 +1838,25 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 		// Bik files: match by filename for both .bik_atlas (engine I/O) and .bik (path stored in BinkFile::mFile via ReadBink)
 		{
 			std::shared_lock lock(g_plugin_files_mutex);
-			auto it = additional_bik_files.find(pathComponent);
+			// Strip directory prefix from pathComponent (e.g. "Movies/1080p/SomeBik.bik_atlas" -> "SomeBik.bik_atlas"),
+			// matching the VO-file approach. The engine may pass pathComponent with subdirectory components.
+			const char* bik_lookup = strrchr(pathComponent, '\\');
+			if (!bik_lookup)
+			{
+				bik_lookup = strrchr(pathComponent, '/');
+			}
+			bik_lookup = bik_lookup ? bik_lookup + 1 : pathComponent;
+
+			auto it = additional_bik_files.find(bik_lookup);
 			if (it != additional_bik_files.end())
 			{
-				// Bink files are requested again on every use, this clutters the log
-				// LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
-
-				strcpy(output, it->second.c_str());
-				return;
+				// Use the already-resolved output to determine which resolution the engine requested
+				const std::string& resolved = it->second.resolve(output);
+				if (!resolved.empty())
+				{
+					strcpy(output, resolved.c_str());
+					return;
+				}
 			}
 		}
 
@@ -1967,7 +2008,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 		}
 
 		std::shared_lock lock(g_plugin_files_mutex);
-		for (const auto& [filename, filepath] : additional_bik_files)
+		for (const auto& [filename, _] : additional_bik_files)
 		{
 			if (ends_with(filename.c_str(), ".bik_atlas") && existing.find(filename) == existing.end())
 			{
@@ -2912,34 +2953,24 @@ extern "C" __declspec(dllexport) void my_main()
 	}
 
 	{
-		static auto ptr = big::hades2_symbol_to_address["sgg::OpenBinkUtf8"];
-		if (ptr)
+		// Hook BinkOpen from the Bink SDK DLL directly to intercept all bik file opens.
+		// The engine calls BinkOpen from multiple code paths (OpenBinkUtf8, Movie::Load, etc.).
+		HMODULE binkModule = GetModuleHandleA("bink2w64.dll");
+		if (binkModule)
 		{
-			static auto ptr_func = ptr;
+			g_BinkOpen = reinterpret_cast<decltype(g_BinkOpen)>(GetProcAddress(binkModule, "BinkOpen"));
+		}
 
-			static auto hook_ = hooking::detour_hook_helper::add_queue<hook_OpenBinkUtf8>(
-			    "OpenBinkUtf8 for bik file redirect",
-			    ptr_func);
-
-			// Resolve BinkOpen from the Bink SDK DLL so we can call it directly with absolute paths
-			HMODULE binkModule = GetModuleHandleA("bink2w64.dll");
-			if (binkModule)
-			{
-				g_BinkOpen = reinterpret_cast<decltype(g_BinkOpen)>(GetProcAddress(binkModule, "BinkOpen"));
-			}
-
-			if (g_BinkOpen)
-			{
-				LOG(INFO) << "Resolved BinkOpen from Bink SDK DLL";
-			}
-			else
-			{
-				LOG(WARNING) << "Could not resolve BinkOpen, .bik file redirect will fall through to OpenBinkUtf8";
-			}
+		if (g_BinkOpen)
+		{
+			static auto bink_hook = hooking::detour_hook_helper::add_queue<hook_BinkOpen>(
+			    "BinkOpen for mod bik file redirect",
+			    reinterpret_cast<void*>(g_BinkOpen));
+			LOG(INFO) << "Hooked BinkOpen from Bink SDK DLL";
 		}
 		else
 		{
-			LOG(WARNING) << "sgg::OpenBinkUtf8 symbol not found, .bik file redirect will not work";
+			LOG(WARNING) << "Could not resolve BinkOpen from bink2w64.dll, .bik file redirect will not work";
 		}
 	}
 
@@ -3132,10 +3163,26 @@ extern "C" __declspec(dllexport) void my_main()
 		}
 		else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
 		{
-			additional_bik_files.emplace((char *)entry.path().filename().u8string().c_str(),
-			                             (char *)entry.path().u8string().c_str());
+			auto bik_filename = std::string((char *)entry.path().filename().u8string().c_str());
+			auto parent_dir   = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
+			auto full_path    = std::string((char *)entry.path().u8string().c_str());
 
-			LOG(INFO) << "Adding to bik files: " << (char *)entry.path().u8string().c_str();
+			auto& bik = additional_bik_files[bik_filename];
+			if (parent_dir == "1080p")
+			{
+				bik.path_1080p = full_path;
+			}
+			else if (parent_dir == "720p")
+			{
+				bik.path_720p = full_path;
+			}
+			else
+			{
+				// Files not in a resolution subdirectory (e.g. directly in Movies/) — store as 1080p
+				bik.path_1080p = full_path;
+			}
+
+			LOG(INFO) << "Adding to bik files: " << full_path;
 		}
 	}
 
@@ -3156,9 +3203,9 @@ extern "C" __declspec(dllexport) void my_main()
 	}
 
 	// Validate file pairs: warn if either half of a required pair is missing
-	auto validate_file_pairs = [](const std::unordered_map<std::string, std::string>& files_a,
+	auto validate_file_pairs = [](const auto& files_a,
 	                              const char* ext_a,
-	                              const std::unordered_map<std::string, std::string>& files_b,
+	                              const auto& files_b,
 	                              const char* ext_b)
 	{
 		std::unordered_set<std::string> stems_a, stems_b;
