@@ -26,7 +26,6 @@ extern std::unordered_map<std::string, std::string> additional_map_files;
 
 #include "hades2/plugin_file_registry.hpp"
 
-extern std::unordered_map<std::string, std::string> additional_bik_files;
 extern int ends_with(const char* str, const char* suffix);
 
 // Defined in main.cpp: file redirect maps for custom GPK/PKG assets
@@ -594,6 +593,7 @@ namespace lua::hades::data
 		ns.set_function("register_plugin_file", [](const std::string& filename, const std::string& absolute_path) -> bool {
 			std::unordered_map<std::string, std::string>* target = nullptr;
 			const char* label = nullptr;
+			bool is_bik = false;
 
 			if (ends_with(filename.c_str(), ".map_text") || ends_with(filename.c_str(), ".thing_bin"))
 			{
@@ -602,7 +602,7 @@ namespace lua::hades::data
 			}
 			else if (ends_with(filename.c_str(), ".bik") || ends_with(filename.c_str(), ".bik_atlas"))
 			{
-				target = &additional_bik_files;
+				is_bik = true;
 				label = "bik";
 			}
 			else if (ends_with(filename.c_str(), ".fsb"))
@@ -616,18 +616,35 @@ namespace lua::hades::data
 				label = "VO (txt)";
 			}
 
-			if (!target)
+			if (!target && !is_bik)
 			{
 				LOG(WARNING) << "register_plugin_file: unsupported extension for '" << filename << "'";
 				return false;
 			}
 
 			std::unique_lock lock(g_plugin_files_mutex);
-			if (target->count(filename))
+
+			if (is_bik)
 			{
-				return false;
+				auto& bik = additional_bik_files[filename];
+				if (strstr(absolute_path.c_str(), "720p"))
+				{
+					bik.path_720p = absolute_path;
+				}
+				else
+				{
+					bik.path_1080p = absolute_path;
+				}
 			}
-			(*target)[filename] = absolute_path;
+			else
+			{
+				if (target->count(filename))
+				{
+					return false;
+				}
+				(*target)[filename] = absolute_path;
+			}
+
 			LOG(INFO) << "Adding to " << label << " files: " << absolute_path;
 			return true;
 		});

@@ -10,7 +10,30 @@ struct vo_file_registry
 	std::unordered_map<std::string, std::string> txt_files;
 };
 
+struct bik_file_paths
+{
+	std::string path_1080p;
+	std::string path_720p;
+
+	// Returns the path for the requested resolution, falling back to whichever is available.
+	// Checks the context string (e.g. a basePath or filename) for "720p" to determine intent.
+	const std::string& resolve(const char* context) const
+	{
+		bool want_720p = context && strstr(context, "720p");
+		if (want_720p && !path_720p.empty())
+		{
+			return path_720p;
+		}
+		if (!path_1080p.empty())
+		{
+			return path_1080p;
+		}
+		return path_720p;
+	}
+};
+
 extern vo_file_registry additional_vo_files;
+extern std::unordered_map<std::string, bik_file_paths> additional_bik_files;
 extern std::shared_mutex g_plugin_files_mutex;
 
 // Validates that a voice bank stem name (e.g. "Authornamemodnamevoicebank") is compatible with
