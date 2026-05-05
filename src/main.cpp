@@ -1695,7 +1695,8 @@ static bool glob_match(const std::string& pattern, const std::string& str)
 
 // Hook directly on bink2w64.dll's BinkOpen to intercept ALL bik file open calls.
 // The engine calls BinkOpen from multiple code paths (OpenBinkUtf8, Movie::Load, etc.).
-// On Proton/Wine, BinkOpen cannot open absolute paths with mixed separators, so we use
+// BinkOpen may receive truncated or mixed-separator paths.
+// We extract the filename, look it up in additional_bik_files, and use
 // SetCurrentDirectoryW + BinkOpen(filename_only) which works reliably on all platforms.
 static void* (*g_BinkOpen)(const char* filename, unsigned int flags) = nullptr;
 static std::mutex g_bik_cwd_mutex;
@@ -1704,10 +1705,16 @@ static void* hook_BinkOpen(const char* filename, unsigned int flags)
 {
 	if (filename)
 	{
-		const char* bik_filename = strrchr(filename, '/');
-		if (!bik_filename)
+		const char* last_fwd = strrchr(filename, '/');
+		const char* last_bck = strrchr(filename, '\\');
+		const char* bik_filename = nullptr;
+		if (last_fwd && last_bck)
 		{
-			bik_filename = strrchr(filename, '\\');
+			bik_filename = (last_fwd > last_bck) ? last_fwd : last_bck;
+		}
+		else
+		{
+			bik_filename = last_fwd ? last_fwd : last_bck;
 		}
 		bik_filename = bik_filename ? bik_filename + 1 : filename;
 
