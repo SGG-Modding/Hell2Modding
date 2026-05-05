@@ -1705,24 +1705,13 @@ static void* hook_BinkOpen(const char* filename, unsigned int flags)
 {
 	if (filename)
 	{
-		const char* last_fwd = strrchr(filename, '/');
-		const char* last_bck = strrchr(filename, '\\');
-		const char* bik_filename = nullptr;
-		if (last_fwd && last_bck)
-		{
-			bik_filename = (last_fwd > last_bck) ? last_fwd : last_bck;
-		}
-		else
-		{
-			bik_filename = last_fwd ? last_fwd : last_bck;
-		}
-		bik_filename = bik_filename ? bik_filename + 1 : filename;
+		std::string bik_filename = std::filesystem::path(filename).filename().string();
 
 		std::string absolute_bik_path;
 		{
 			std::shared_lock lock(g_plugin_files_mutex);
 			auto it = additional_bik_files.find(bik_filename);
-			if (it != additional_bik_files.end() && ends_with(bik_filename, ".bik"))
+			if (it != additional_bik_files.end() && ends_with(bik_filename.c_str(), ".bik"))
 			{
 				absolute_bik_path = it->second.resolve(filename);
 			}
@@ -1815,14 +1804,9 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 		// VO files: pathComponent includes subdir prefix (e.g. "VO\Zagreus.fsb"), match by filename
 		{
 			std::shared_lock lock(g_plugin_files_mutex);
-			const char* vo_filename = strrchr(pathComponent, '\\');
-			if (!vo_filename)
-			{
-				vo_filename = strrchr(pathComponent, '/');
-			}
-			vo_filename = vo_filename ? vo_filename + 1 : pathComponent;
+			std::string vo_filename = std::filesystem::path(pathComponent).filename().string();
 
-			if (ends_with(vo_filename, ".fsb"))
+			if (ends_with(vo_filename.c_str(), ".fsb"))
 			{
 				auto it = additional_vo_files.fsb_files.find(vo_filename);
 				if (it != additional_vo_files.fsb_files.end())
@@ -1831,7 +1815,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 					strcpy(output, it->second.c_str());
 				}
 			}
-			else if (ends_with(vo_filename, ".txt"))
+			else if (ends_with(vo_filename.c_str(), ".txt"))
 			{
 				auto it = additional_vo_files.txt_files.find(vo_filename);
 				if (it != additional_vo_files.txt_files.end())
@@ -1845,14 +1829,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 		// Bik files: match by filename for both .bik_atlas (engine I/O) and .bik (path stored in BinkFile::mFile via ReadBink)
 		{
 			std::shared_lock lock(g_plugin_files_mutex);
-			// Strip directory prefix from pathComponent (e.g. "Movies/1080p/SomeBik.bik_atlas" -> "SomeBik.bik_atlas"),
-			// matching the VO-file approach. The engine may pass pathComponent with subdirectory components.
-			const char* bik_lookup = strrchr(pathComponent, '\\');
-			if (!bik_lookup)
-			{
-				bik_lookup = strrchr(pathComponent, '/');
-			}
-			bik_lookup = bik_lookup ? bik_lookup + 1 : pathComponent;
+			std::string bik_lookup = std::filesystem::path(pathComponent).filename().string();
 
 			auto it = additional_bik_files.find(bik_lookup);
 			if (it != additional_bik_files.end())
