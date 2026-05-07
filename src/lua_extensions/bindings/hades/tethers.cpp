@@ -356,7 +356,7 @@ namespace lua::hades::tethers
 			std::scoped_lock l(g_tether_mutex);
 
 			// Run once per physics tick. The engine passes the same dt to every Thing in a tick, so a dt change means a new tick.
-			// With Vsync consecutive ticks can share identical dt values, so we also track the first Thing ID.
+			// With capped FPS or Vsync, consecutive ticks can share identical dt values, so we also track the first Thing ID processed:
 			// When it reappears with the same dt, a new tick has begun.
 			static float s_last_dt = -1.0f;
 			static int s_first_thing_id = -1;
@@ -376,6 +376,14 @@ namespace lua::hades::tethers
 			if (new_tick)
 			{
 				cleanup_stale_tethers();
+			}
+
+			// The engine calls UpdateThing once per Thing per tick. At low FPS, the per-tick displacement is large enough that units with chain
+			// tethers (e.g. Hydra heads) visibly overshoot their tether distance before the next tick's constraint pass corrects them, causing a
+			// one-frame snap-away-then-snap-back. Re-running the full constraint solver after each tethered unit is moved eliminates this.
+			auto *data = get_tether_data(thing->mId);
+			if (data && !data->links.empty())
+			{
 				update_all_tethers(elapsedSeconds);
 			}
 		}
