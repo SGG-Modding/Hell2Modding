@@ -106,7 +106,7 @@ namespace lua::hades::tethers
 	}
 
 	// Global tether update
-	static void update_all_tethers(float dt)
+	static void update_all_tethers(float dt, bool chain_only = false)
 	{
 		dt = std::min(dt, MAX_TETHER_DT);
 
@@ -143,6 +143,11 @@ namespace lua::hades::tethers
 
 				if (link.elasticity > 0.0f)
 				{
+					if (chain_only)
+					{
+						continue;
+					}
+
 					// Elastic tether: critically damped spring
 					if (!thing->pPhysics)
 					{
@@ -376,15 +381,17 @@ namespace lua::hades::tethers
 			if (new_tick)
 			{
 				cleanup_stale_tethers();
+				update_all_tethers(elapsedSeconds);
 			}
 
 			// The engine calls UpdateThing once per Thing per tick. At low FPS, the per-tick displacement is large enough that units with chain
 			// tethers (e.g. Hydra heads) visibly overshoot their tether distance before the next tick's constraint pass corrects them, causing a
-			// one-frame snap-away-then-snap-back. Re-running the full constraint solver after each tethered unit is moved eliminates this.
+			// one-frame snap-away-then-snap-back. Re-running the chain-only constraint solver after each tethered unit is moved eliminates
+			// this without double-applying elastic (spring) physics.
 			auto *data = get_tether_data(thing->mId);
 			if (data && !data->links.empty())
 			{
-				update_all_tethers(elapsedSeconds);
+				update_all_tethers(elapsedSeconds, true);
 			}
 		}
 
