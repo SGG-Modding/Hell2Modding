@@ -3269,7 +3269,19 @@ extern "C" __declspec(dllexport) void my_main()
 		LOG(INFO) << "Hooking enabled.";
 	}
 
-	asi_loader::init(g_hmodule);
+	asi_loader::init(big::g_file_manager.get_project_folder("plugins").get_path(),
+	                 [](const std::filesystem::path &p)
+	                 {
+		                 if (p.filename() == "TheNormalnijMods-Hades2ModExtension")
+		                 {
+			                 LOG(DEBUG) << "Loading asi from: " << (char *)p.u8string().c_str();
+			                 return true;
+		                 }
+		                 else
+		                 {
+			                 return false;
+		                 }
+	                 });
 
 	g_running = true;
 
