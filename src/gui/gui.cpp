@@ -15,6 +15,7 @@
 #include <lua_extensions/bindings/hades/inputs.hpp>
 #include <memory/gm_address.hpp>
 #include <misc/cpp/imgui_stdlib.h>
+#include <hades2/pdb_symbol_map.hpp>
 
 namespace big
 {
@@ -60,8 +61,29 @@ namespace big
 		return g_is_open;
 	}
 
+	static bool previous_vsync = true;
+
 	void gui::toggle(bool toggle)
 	{
+		auto VSync = big::hades2_symbol_to_address["sgg::ConfigOptions::VSync"].as<bool *>();
+		if (toggle && !g_is_open)
+		{
+			if (VSync)
+			{
+				LOG(DEBUG) << "Turning off V-Sync for ImGui";
+				previous_vsync = *VSync;
+				*VSync = false;
+			}
+		}
+		else if (!toggle && g_is_open)
+		{
+			if (VSync)
+			{
+				*VSync = previous_vsync;
+				LOG(DEBUG) << "Restoring V-Sync setting to: " << (previous_vsync ? "ON" : "OFF");
+			}
+		}
+
 		g_is_open = toggle;
 
 		toggle_mouse();
