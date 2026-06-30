@@ -2712,6 +2712,18 @@ extern "C" __declspec(dllexport) void my_main()
 	// Purposely leak it, we are not unloading this module in any case.
 	const auto exception_handling = new exception_handler(!is_debug_build, nullptr);
 
+	if (is_debug_build)
+	{
+		// The debug build's sgg::InitWindow pops a "Script modification detected" message box when it
+		// notices our script edits (the ship build has no such check). Flip its guard branch (je -> jmp)
+		// so the dialog block is always skipped.
+		auto script_mod_popup = gmAddress::scan("0F B6 40 3C 85 C0 74 3A 4C 8D 0D", "Debug script-modification popup");
+		if (script_mod_popup)
+		{
+			memory::byte_patch::make(script_mod_popup.offset(6).as<uint8_t *>(), (uint8_t)0xEB)->apply();
+		}
+	}
+
 	{
 		// ensure_early_entrypoint();
 	}
