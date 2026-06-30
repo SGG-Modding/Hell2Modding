@@ -41,7 +41,7 @@ namespace lua::hades::draw
 		uint32_t texture_name_hash; // +0x40: feeds GetTexture
 		uint32_t texture_handle;    // +0x44: resolved bindless handle
 		uint32_t mesh_name_hash;    // +0x48: sgg::HashGuid of the mesh's name
-		uint8_t mesh_type;          // +0x4C: 0 main, 1 outline, 2 shadow/hidden
+		uint8_t mesh_type;          // +0x4C: 0 main, 1 outline, 2 shadow
 		char pad_4D[3];
 	};
 	static_assert(offsetof(GrannyMeshData, texture_name_hash) == 0x40);
@@ -106,9 +106,11 @@ namespace lua::hades::draw
 	constexpr int      kBucketWalkGuard = 32;
 	constexpr size_t   kMaxMeshesPerEntry = 128;
 
-	// Sentinel mesh_type used to hide a single mesh inside an entry:
-	// DoDraw3D's own mesh-type switch skips meshes with this value.
-	constexpr uint8_t kMeshTypeHidden = 2;
+	// Body-pass hide: DoDraw3D's case-2 branch skips body render.
+	// Shadow-pass hide: 0xFF is the shadow switch's default case.
+	constexpr uint8_t kMeshTypeHidden     = 2;
+	constexpr uint8_t kMeshTypeShadowSkip = 0xFF;
+	static_assert(kMeshTypeHidden != kMeshTypeShadowSkip);
 
 	// ─── SEH-protected pointer reads ──────────────────────────────────
 	// The mModelData walk touches pointers that can be null or
@@ -196,6 +198,24 @@ namespace lua::hades::draw
 	static std::unordered_set<unsigned int> g_hidden_entries;
 	static std::unordered_map<unsigned int, unsigned int> g_remap; // original → variant
 
+	// Per-mesh hide set keyed by (entry_hash, mesh_hash).  Drives the
+	// shadow-pass skip in hook_DoDrawShadow3D.
+	struct MeshKey
+	{
+		uint32_t entry;
+		uint32_t mesh;
+		bool operator==(const MeshKey& o) const noexcept
+		{ return entry == o.entry && mesh == o.mesh; }
+	};
+	struct MeshKeyHash
+	{
+		size_t operator()(const MeshKey& k) const noexcept
+		{
+			return (size_t)k.entry * 2654435761u ^ k.mesh;
+		}
+	};
+	static std::unordered_set<MeshKey, MeshKeyHash> g_hidden_meshes;
+
 	// Fast-path flag for the code cave: avoids the function-call overhead
 	// on every draw entry when nothing is active (hidden or remapped).
 	static volatile uint8_t g_any_active = 0;
@@ -260,6 +280,11 @@ namespace lua::hades::draw
 	// shadow3D=variant) that appears to wedge the render thread.
 	// Keeping shadow/thumbnail on stock is the safe subset: the main
 	// DoDraw3D swap carries the visual change on its own.
+	//
+	// Per-mesh hide for the shadow pass: temporarily rewrite each
+	// hidden mesh's mesh_type to kMeshTypeShadowSkip, call the
+	// original, restore.  Safe because the render thread serialises
+	// passes — no other pass observes the temporary value.
 	static void hook_DoDrawShadow3D(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
 	{
 		{
@@ -267,7 +292,38 @@ namespace lua::hades::draw
 			if (g_hidden_entries.count(hash.mId))
 				return;
 		}
+
+		struct SavedMeshType { GrannyMeshData* gmd; uint8_t orig; };
+		std::vector<SavedMeshType> patched;
+		{
+			std::shared_lock l(g_mutex);
+			if (!g_hidden_meshes.empty())
+			{
+				ModelDataNode* node = find_model_data_node(hash.mId);
+				if (node)
+				{
+					GrannyMeshData* meshes = nullptr;
+					size_t count = 0;
+					if (get_entry_meshes(node, &meshes, &count))
+					{
+						for (size_t i = 0; i < count; i++)
+						{
+							uint32_t mhash = 0;
+							if (!safe_read_u32(&meshes[i].mesh_name_hash, &mhash)) continue;
+							if (!mhash) continue;
+							if (!g_hidden_meshes.count({hash.mId, mhash})) continue;
+							patched.push_back({&meshes[i], meshes[i].mesh_type});
+							meshes[i].mesh_type = kMeshTypeShadowSkip;
+						}
+					}
+				}
+			}
+		}
+
 		big::g_hooking->get_original<hook_DoDrawShadow3D>()(vec_ref, index, param, hash);
+
+		for (auto& s : patched)
+			s.gmd->mesh_type = s.orig;
 	}
 
 	static void hook_DoDraw3DThumbnail(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
@@ -659,6 +715,13 @@ namespace lua::hades::draw
 
 			int matched = 0;
 			std::lock_guard lk(g_saved_mutex);
+			{
+				std::unique_lock l(g_mutex);
+				if (visible)
+					g_hidden_meshes.erase({entry_guid.mId, mesh_guid.mId});
+				else
+					g_hidden_meshes.insert({entry_guid.mId, mesh_guid.mId});
+			}
 			for (size_t i = 0; i < mesh_count; i++)
 			{
 				GrannyMeshData& gmd = meshes[i];
@@ -686,7 +749,6 @@ namespace lua::hades::draw
 						g_saved_mesh_type[key] = current_type;
 						gmd.mesh_type = kMeshTypeHidden;
 					}
-					// else: already hidden: no-op
 				}
 				matched++;
 				// Don't break: toggle main+outline+shadow variants sharing
