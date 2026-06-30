@@ -20,6 +20,7 @@
 
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
+#include <hades2/pdb_symbol_cache.hpp>
 #include <lua_extensions/bindings/hades/data.hpp>
 #include "hades2/plugin_file_registry.hpp"
 #include <lua_extensions/bindings/hades/audio.hpp>
@@ -2464,6 +2465,21 @@ static void read_game_pdb()
 	                 h->guid.Data4[6],
 	                 h->guid.Data4[7]));
 
+	const auto game_pdb_cache_path = big::pdb_cache::cache_path_for(game_pdb_path);
+	big::pdb_cache::file_key pdb_key{};
+	std::memcpy(pdb_key.guid, &h->guid, sizeof(pdb_key.guid));
+	pdb_key.signature = h->signature;
+	pdb_key.age       = h->age;
+
+	// The debug build's PDB is huge and slow to parse (~30s); if a prebuilt cache sits next to
+	// it (shipped with the debug build) and matches this PDB, load it and skip the full walk.
+	// The ship build ships no cache, so this just fails and falls through to a full parse.
+	if (big::pdb_cache::try_load(game_pdb_cache_path, pdb_key, base_game_address))
+	{
+		LOG(INFO) << "Loaded game symbols from PDB cache, skipping full parse";
+		MemoryMappedFile::Close(pdbFile);
+		return;
+	}
 
 	const PDB::DBIStream dbiStream = PDB::CreateDBIStream(rawPdbFile);
 	if (!HasValidDBIStreams(rawPdbFile, dbiStream))
