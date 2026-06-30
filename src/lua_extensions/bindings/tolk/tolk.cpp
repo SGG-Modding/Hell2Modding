@@ -110,7 +110,8 @@ namespace lua::tolk
 		{
 			if (gui_comp->vtbl->ShouldDraw(gui_comp))
 			{
-				for (auto i = gui_comp->mLines.mpBegin; i < gui_comp->mLines.mpEnd; i++)
+				auto* gui_comp_lines = gui_textbox_lines(gui_comp);
+				for (auto i = gui_comp_lines->mpBegin; i < gui_comp_lines->mpEnd; i++)
 				{
 					if (i->mText.size() && !already_printed.contains(i->mText.c_str()))
 					{
@@ -184,7 +185,8 @@ namespace lua::tolk
 
 		for (auto i = active_thing->pText->mTextBoxes.begin(); i != active_thing->pText->mTextBoxes.end(); i++)
 		{
-			for (auto j = (*i)->mLines.mpBegin; j < (*i)->mLines.mpEnd; j++)
+			auto* textbox_lines = gui_textbox_lines(*i);
+			for (auto j = textbox_lines->mpBegin; j < textbox_lines->mpEnd; j++)
 			{
 				res.push_back(j->mText.c_str());
 			}

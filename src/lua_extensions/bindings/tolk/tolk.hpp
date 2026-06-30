@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/string.h>
+#include <hades2/pdb_symbol_map.hpp>
 #include <unordered_set>
 
 /*struct eastl_basic_string_view_char
@@ -84,6 +85,20 @@ struct GUIComponentButton
 };
 
 static_assert(offsetof(GUIComponentButton, mTextBox) == 0x5'80);
+
+// mTextBox/mLines moved to different struct offsets on the older debug build; the ship offsets come
+// from the struct defs above (via the static_asserts), the debug ones were read from its PDB.
+inline GUIComponentTextBox* gui_button_textbox(GUIComponentButton* button)
+{
+	const size_t offset = big::hades2_is_debug_build() ? 0x5'90 : offsetof(GUIComponentButton, mTextBox);
+	return *reinterpret_cast<GUIComponentTextBox**>(reinterpret_cast<char*>(button) + offset);
+}
+
+inline eastl_vector<GUIComponentTextBox_Line>* gui_textbox_lines(GUIComponentTextBox* textbox)
+{
+	const size_t offset = big::hades2_is_debug_build() ? 0x6'48 : offsetof(GUIComponentTextBox, mLines);
+	return reinterpret_cast<eastl_vector<GUIComponentTextBox_Line>*>(reinterpret_cast<char*>(textbox) + offset);
+}
 
 inline GUIComponentButton* g_currently_selected_gui_comp = nullptr;
 

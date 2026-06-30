@@ -70,6 +70,26 @@ std::vector<SafetyHookMid> g_sgg_sTempStringsBuffer_mid_hooks;
 constexpr uint32_t extended_sgg_sTempStringsBuffer_size = sizeof(char) * 262'144 * 8;
 char *extended_sgg_sTempStringsBuffer;
 
+// Extending an interned-string buffer means redirecting every `lea reg, [rip+buffer]` that
+// references the original buffer so it loads the enlarged copy instead, via a mid-hook. The
+// destination register depends on the build's compiler output (the ship build uses rax/rbx/rdi
+// for sBuffer, r14/rdi for sStringsBuffer and rcx for sTempStringsBuffer; the debug build also
+// uses rcx/rdx and rax), so there is one hook per register. The extension is all-or-nothing: if
+// a site uses a register we have no hook for, the detection pass flips
+// g_buffer_extension_supported off and we keep the engine on its original buffers (lite mode)
+// rather than leave the intern table half redirected. Mods still load in lite mode, just
+// without the enlarged capacity.
+struct pending_buffer_hook
+{
+	uintptr_t address;
+	void (*hook)(SafetyHookContext &);
+};
+
+std::vector<pending_buffer_hook> g_pending_sBuffer_hooks;
+std::vector<pending_buffer_hook> g_pending_sStringsBuffer_hooks;
+std::vector<pending_buffer_hook> g_pending_sTempStringsBuffer_hooks;
+bool g_buffer_extension_supported = true;
+
 void hook_mid_sgg_sIndices_rcx(SafetyHookContext &ctx)
 {
 	ctx.rcx = (uintptr_t)extended_sgg_sIndices;
@@ -185,9 +205,23 @@ void hook_mid_sgg_sStringsBuffer_rdi(SafetyHookContext &ctx)
 	ctx.rip += 7;
 }
 
+void hook_mid_sgg_sStringsBuffer_rax(SafetyHookContext &ctx)
+{
+	ctx.rax = (uintptr_t)extended_sgg_sStringsBuffer;
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
 void hook_mid_sgg_sTempStringsBuffer_rcx(SafetyHookContext &ctx)
 {
 	ctx.rcx = (uintptr_t)extended_sgg_sTempStringsBuffer;
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sTempStringsBuffer_rax(SafetyHookContext &ctx)
+{
+	ctx.rax = (uintptr_t)extended_sgg_sTempStringsBuffer;
 	// Skip the original lea instruction.
 	ctx.rip += 7;
 }
@@ -211,6 +245,22 @@ void hook_mid_sgg_sBuffer_rbx(SafetyHookContext &ctx)
 void hook_mid_sgg_sBuffer_rdi(SafetyHookContext &ctx)
 {
 	ctx.rdi = (uintptr_t)extended_sgg_sBuffer;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sBuffer_rcx(SafetyHookContext &ctx)
+{
+	ctx.rcx = (uintptr_t)extended_sgg_sBuffer;
+
+	// Skip the original lea instruction.
+	ctx.rip += 7;
+}
+
+void hook_mid_sgg_sBuffer_rdx(SafetyHookContext &ctx)
+{
+	ctx.rdx = (uintptr_t)extended_sgg_sBuffer;
 
 	// Skip the original lea instruction.
 	ctx.rip += 7;
@@ -462,21 +512,32 @@ bool patch_lea_sgg_sBuffer_usage(cs_insn *insn, uint64_t target_addr, const uint
 				if (insn->detail->x86.operands[0].reg == X86_REG_RBX)
 				{
 					LOG(DEBUG) << "lea rbx patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rbx));
+					g_pending_sBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sBuffer_rbx});
 				}
 				else if (insn->detail->x86.operands[0].reg == X86_REG_RAX)
 				{
 					LOG(DEBUG) << "lea rax patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rax));
+					g_pending_sBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sBuffer_rax});
 				}
 				else if (insn->detail->x86.operands[0].reg == X86_REG_RDI)
 				{
 					LOG(DEBUG) << "lea rdi patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sBuffer_rdi));
+					g_pending_sBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sBuffer_rdi});
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RCX)
+				{
+					LOG(DEBUG) << "lea rcx patch for " << HEX_TO_UPPER(instruction_address);
+					g_pending_sBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sBuffer_rcx});
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RDX)
+				{
+					LOG(DEBUG) << "lea rdx patch for " << HEX_TO_UPPER(instruction_address);
+					g_pending_sBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sBuffer_rdx});
 				}
 				else
 				{
-					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER(instruction_address);
+					LOG(ERROR) << "unhandled lea register for sgg::sBuffer at " << HEX_TO_UPPER(instruction_address) << " - disabling buffer extension.";
+					g_buffer_extension_supported = false;
 				}
 
 				return true;
@@ -514,16 +575,22 @@ bool patch_lea_sgg_sStringsBuffer_usage(cs_insn *insn, uint64_t target_addr, con
 				if (insn->detail->x86.operands[0].reg == X86_REG_R14)
 				{
 					LOG(DEBUG) << "lea r14 patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sStringsBuffer_r14));
+					g_pending_sStringsBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sStringsBuffer_r14});
 				}
 				else if (insn->detail->x86.operands[0].reg == X86_REG_RDI)
 				{
 					LOG(DEBUG) << "lea rdi patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sStringsBuffer_rdi));
+					g_pending_sStringsBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sStringsBuffer_rdi});
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RAX)
+				{
+					LOG(DEBUG) << "lea rax patch for " << HEX_TO_UPPER(instruction_address);
+					g_pending_sStringsBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sStringsBuffer_rax});
 				}
 				else
 				{
-					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER_OFFSET(instruction_address);
+					LOG(ERROR) << "unhandled lea register for sgg::sStringsBuffer at " << HEX_TO_UPPER_OFFSET(instruction_address) << " - disabling buffer extension.";
+					g_buffer_extension_supported = false;
 				}
 
 				return true;
@@ -561,11 +628,17 @@ bool patch_lea_sgg_sTempStringsBuffer_usage(cs_insn *insn, uint64_t target_addr,
 				if (insn->detail->x86.operands[0].reg == X86_REG_RCX)
 				{
 					LOG(DEBUG) << "lea rcx patch for " << HEX_TO_UPPER(instruction_address);
-					g_sgg_sTempStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(instruction_address, hook_mid_sgg_sTempStringsBuffer_rcx));
+					g_pending_sTempStringsBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sTempStringsBuffer_rcx});
+				}
+				else if (insn->detail->x86.operands[0].reg == X86_REG_RAX)
+				{
+					LOG(DEBUG) << "lea rax patch for " << HEX_TO_UPPER(instruction_address);
+					g_pending_sTempStringsBuffer_hooks.emplace_back(pending_buffer_hook{instruction_address, hook_mid_sgg_sTempStringsBuffer_rax});
 				}
 				else
 				{
-					LOG(ERROR) << "unhandled lea patch for " << HEX_TO_UPPER(instruction_address);
+					LOG(ERROR) << "unhandled lea register for sgg::sTempStringsBuffer at " << HEX_TO_UPPER(instruction_address) << " - disabling buffer extension.";
+					g_buffer_extension_supported = false;
 				}
 
 				return true;
@@ -575,108 +648,100 @@ bool patch_lea_sgg_sTempStringsBuffer_usage(cs_insn *insn, uint64_t target_addr,
 	return false;
 }
 
+// Patches a function's size-cap immediates (cmp sites only) to new_size, located by PDB symbol and
+// disassembly so it survives the encoding/offset shifts between game builds. Returns sites patched.
+static size_t patch_size_caps_in_function(const char *function_symbol, std::initializer_list<uint32_t> caps, uint32_t new_size)
+{
+	const auto func_addr = big::hades2_symbol_to_address[function_symbol];
+	const auto func_size = big::hades2_symbol_to_code_size[function_symbol];
+	if (!func_addr || !func_size)
+	{
+		LOG(WARNING) << "Buffer extension: " << function_symbol << " not found in the game PDB, skipping its size caps.";
+		return 0;
+	}
+
+	csh handle;
+	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+	{
+		LOG(ERROR) << "Buffer extension: failed to initialize Capstone for " << function_symbol;
+		return 0;
+	}
+	cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+	cs_option(handle, CS_OPT_SKIPDATA, CS_OPT_ON);
+
+	const uint8_t *code = func_addr.as<const uint8_t *>();
+	size_t remaining    = func_size;
+	uint64_t address    = func_addr.as<uint64_t>();
+
+	cs_insn *insn  = cs_malloc(handle);
+	size_t patched = 0;
+
+	while (cs_disasm_iter(handle, &code, &remaining, &address, insn))
+	{
+		// Only the bounds checks matter; the mov-immediate stores keep the original value (as on ship).
+		if (insn->id != X86_INS_CMP || insn->detail->x86.encoding.imm_size != 4)
+		{
+			continue;
+		}
+
+		for (size_t i = 0; i < insn->detail->x86.op_count; i++)
+		{
+			const cs_x86_op &op = insn->detail->x86.operands[i];
+			if (op.type != X86_OP_IMM)
+			{
+				continue;
+			}
+
+			const uint32_t imm = (uint32_t)op.imm;
+			bool is_cap        = false;
+			for (uint32_t cap : caps)
+			{
+				if (cap == imm)
+				{
+					is_cap = true;
+					break;
+				}
+			}
+			if (!is_cap)
+			{
+				continue;
+			}
+
+			auto *target = (uint32_t *)((uintptr_t)insn->address + insn->detail->x86.encoding.imm_offset);
+			memory::byte_patch::make(target, new_size)->apply();
+			patched++;
+
+			LOG(INFO) << "Buffer extension: patched cap " << HEX_TO_UPPER(imm) << " -> " << HEX_TO_UPPER(new_size) << " in " << function_symbol << " at "
+			          << HEX_TO_UPPER_OFFSET((uintptr_t)insn->address);
+		}
+	}
+
+	cs_free(insn, 1);
+	cs_close(&handle);
+	return patched;
+}
+
 bool extend_sgg_sBufferLen_max_size()
 {
-	// sgg::HashGuid::StringIntern(const char *s, unsigned __int64 length)
-
-	// .text:000000014019ECF9 8B 3D 69 C5 9C 03		mov     edi, cs:sgg__sBufferLen
-	// .text:000000014019ECFF 8D 47 01				lea     eax, [rdi+1]
-	// .text:000000014019ED02 41 03 C7				add     eax, r15d
-	// .text:000000014019ED05 3D 00 00 80 00		cmp     eax, 0C00001h <---- max_size
-	static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr = gmAddress::scan("41 03 C7 3D 01 00 C0 00");
-	if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr)
+	// sgg::sBuffer cap 0xC00000 (one site uses the inclusive 0xC00001), both in HashGuid::StringIntern.
+	const size_t patched = patch_size_caps_in_function("sgg::HashGuid::StringIntern", {0xC0'00'00, 0xC0'00'01}, extended_sgg_sBuffer_size);
+	if (patched == 0)
 	{
-		const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size =
-		    sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr.offset(4).as<uint32_t *>();
-
-		memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size, extended_sgg_sBuffer_size)->apply();
-
-		static auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2 = gmAddress::scan("81 F9 00 00 C0 00");
-		if (sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2)
-		{
-			const auto sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2 =
-			    sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size_addr2.offset(2).as<uint32_t *>();
-
-			memory::byte_patch::make(sgg_HashGuid_StringIntern_max_sgg_sBufferLen_size2, extended_sgg_sBuffer_size)->apply();
-
-			return true;
-		}
-		else
-		{
-			LOG(ERROR) << "sgg::HashGuid::StringIntern max_size 2 not found.";
-		}
-	}
-	else
-	{
-		LOG(ERROR) << "sgg::HashGuid::StringIntern max_size not found.";
+		LOG(ERROR) << "sgg::HashGuid::StringIntern sBuffer size caps not found.";
+		return false;
 	}
 
-	return false;
+	return true;
 }
 
 void extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size()
 {
-	// sgg__CopyToStringsBuffer
-	{
-		{
-			static auto check = gmAddress::scan("48 81 FA 00 00 38 00");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
-			}
-		}
+	// sStringsBuffer caps 0x380000/0x64CCCC/0x700000 and sTempStringsBuffer caps 0x39999/0x40000, in
+	// CopyToStringsBuffer; sStringsBuffer is additionally checked in CleanupAndCopyVerbatimString.
+	patch_size_caps_in_function("sgg::CopyToStringsBuffer", {0x38'00'00, 0x64'CC'CC, 0x70'00'00}, extended_sgg_sStringsBuffer_size);
+	patch_size_caps_in_function("sgg::CleanupAndCopyVerbatimString", {0x70'00'00}, extended_sgg_sStringsBuffer_size);
 
-		{
-			static auto check = gmAddress::scan("48 81 FA CC CC 64 00");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
-			}
-		}
-
-		{
-			static auto check = gmAddress::scan("48 3D 00 00 70 00 0F");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
-			}
-		}
-
-		{
-			static auto check = gmAddress::scan("48 81 FA 99 99 03 00");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sTempStringsBuffer_size)->apply();
-			}
-		}
-
-		{
-			static auto check = gmAddress::scan("48 3D 00 00 04 00");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sTempStringsBuffer_size)->apply();
-			}
-		}
-	}
-
-	// sgg__CleanupAndCopyVerbatimString
-	{
-		{
-			static auto check = gmAddress::scan("48 3D 00 00 70 00 76");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(2).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
-			}
-		}
-
-		{
-			static auto check = gmAddress::scan("48 81 FA 00 00 70 00");
-			if (check)
-			{
-				memory::byte_patch::make(check.offset(3).as<uint32_t *>(), extended_sgg_sStringsBuffer_size)->apply();
-			}
-		}
-	}
+	patch_size_caps_in_function("sgg::CopyToStringsBuffer", {0x3'99'99, 0x4'00'00}, extended_sgg_sTempStringsBuffer_size);
 }
 
 void array_extender(void **extended_array, size_t extended_array_size, const char *original_array_symbol_name, std::function<void(cs_insn *, uintptr_t, uintptr_t, uintptr_t)> on_instruction_disassembled)
@@ -688,6 +753,7 @@ void array_extender(void **extended_array, size_t extended_array_size, const cha
 	if (!buf)
 	{
 		LOG(ERROR) << original_array_symbol_name << " not found, not extending its size.";
+		g_buffer_extension_supported = false;
 		return;
 	}
 
@@ -695,6 +761,7 @@ void array_extender(void **extended_array, size_t extended_array_size, const cha
 	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
 	{
 		LOG(ERROR) << "Failed to initialize Capstone. Can't extend " << original_array_symbol_name;
+		g_buffer_extension_supported = false;
 		return;
 	}
 
@@ -1287,10 +1354,11 @@ static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUICom
 	g_currently_selected_gui_comp = this_;
 
 	auto gui_button = g_currently_selected_gui_comp;
-	auto gui_text   = gui_button->mTextBox;
+	auto gui_text   = gui_button_textbox(gui_button);
 
 	std::vector<std::string> lines;
-	for (auto i = gui_text->mLines.mpBegin; i < gui_text->mLines.mpEnd; i++)
+	auto *gui_text_lines = gui_textbox_lines(gui_text);
+	for (auto i = gui_text_lines->mpBegin; i < gui_text_lines->mpEnd; i++)
 	{
 		if (i->mText.size())
 		{
@@ -2633,18 +2701,24 @@ extern "C" __declspec(dllexport) void my_main()
 	// Name: rom
 	rom::init("Hell2Modding", "Hades2.exe", "rom");
 
-	// Purposely leak it, we are not unloading this module in any case.
-	const auto exception_handling = new exception_handler(true, nullptr);
-
 	read_game_pdb();
+
+	// On the debug build the engine installs its own assert/breakpoint handler via
+	// SetUnhandledExceptionFilter. Forbidding future filters (which we do on the ship build to
+	// keep our crash logger installed) turns every debug-build assert into an unhandled
+	// breakpoint that kills the process, so leave its handler in place on the debug build.
+	const bool is_debug_build = big::hades2_is_debug_build();
+
+	// Purposely leak it, we are not unloading this module in any case.
+	const auto exception_handling = new exception_handler(!is_debug_build, nullptr);
 
 	{
 		// ensure_early_entrypoint();
 	}
 
 	{
+		// Detection pass: collect every buffer-reference site (all-or-nothing, see pending_buffer_hook).
 		array_extender((void **)&extended_sgg_sBuffer, extended_sgg_sBuffer_size, "sgg::sBuffer", patch_lea_sgg_sBuffer_usage);
-		extend_sgg_sBufferLen_max_size();
 
 		//array_extender((void **)&extended_sgg_sHashes, extended_sgg_sHashes_size, "sgg::sHashes", patch_sgg_sHashes_usage);
 		//{
@@ -2676,37 +2750,73 @@ extern "C" __declspec(dllexport) void my_main()
 
 		array_extender((void **)&extended_sgg_sTempStringsBuffer, extended_sgg_sTempStringsBuffer_size, "sgg::sTempStringsBuffer", patch_lea_sgg_sTempStringsBuffer_usage);
 
-		extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
-
-
-		sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
-		XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
-		InitializeStringIntern = big::hades2_symbol_to_address["sgg::HashGuid::InitializeStringIntern"].as_func<void()>();
-		sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
-		sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
-
-		extended_sgg_sHashes  = (uint64_t *)_aligned_malloc(extended_sgg_sHashes_size, 16);
-		extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
-		memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
-		memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
-		memset(extended_sgg_sBuffer, 0, extended_sgg_sBuffer_size);
-
+		// Cap patches are PDB-symbol + disassembly based now, so this runs on ship and debug; the detection
+		// pass above already cleared the flag if any site used a register/encoding we don't handle.
+		if (g_buffer_extension_supported)
 		{
-			const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
-			if (ptr)
+			// Commit pass: every referencing site is supported, so install the redirections and enlarge the buffers.
+			for (const auto &pending : g_pending_sBuffer_hooks)
 			{
-				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>(
-				    "sgg::HashGuid::StringIntern",
-				    ptr);
+				g_sgg_sBuffer_mid_hooks.emplace_back(safetyhook::create_mid(pending.address, pending.hook));
+			}
+			for (const auto &pending : g_pending_sStringsBuffer_hooks)
+			{
+				g_sgg_sStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(pending.address, pending.hook));
+			}
+			for (const auto &pending : g_pending_sTempStringsBuffer_hooks)
+			{
+				g_sgg_sTempStringsBuffer_mid_hooks.emplace_back(safetyhook::create_mid(pending.address, pending.hook));
+			}
+
+			extend_sgg_sBufferLen_max_size();
+			extend_sgg_sStringsBuffer_and_sTempStringsBuffer_max_size();
+
+			sgg_sInitialized = big::hades2_symbol_to_address["sgg::sInitialized"].as<bool *>();
+			XXH_INLINE_XXH3_64bits = big::hades2_symbol_to_address["XXH_INLINE_XXH3_64bits"].as_func<uint64_t(const char *input, size_t len)>();
+			InitializeStringIntern = big::hades2_symbol_to_address["sgg::HashGuid::InitializeStringIntern"].as_func<void()>();
+			sgg_sBufferLen = big::hades2_symbol_to_address["sgg::sBufferLen"].as<uint32_t *>();
+			sgg_sItemCount = big::hades2_symbol_to_address["sgg::sItemCount"].as<uint32_t *>();
+
+			extended_sgg_sHashes  = (uint64_t *)_aligned_malloc(extended_sgg_sHashes_size, 16);
+			extended_sgg_sIndices = (uint32_t *)_aligned_malloc(extended_sgg_sIndices_size, 16);
+			memset(extended_sgg_sHashes, 0, extended_sgg_sHashes_size);
+			memset(extended_sgg_sIndices, -1, extended_sgg_sIndices_size);
+			memset(extended_sgg_sBuffer, 0, extended_sgg_sBuffer_size);
+
+			{
+				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::StringIntern"];
+				if (ptr)
+				{
+					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_StringIntern>(
+					    "sgg::HashGuid::StringIntern",
+					    ptr);
+				}
+			}
+
+			{
+				const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
+				if (ptr)
+				{
+					big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>("sgg::HashGuid::Lookup", ptr);
+				}
 			}
 		}
-
+		else
 		{
-			const auto ptr = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"];
-			if (ptr)
-			{
-				big::hooking::detour_hook_helper::add_queue<hook_sgg_HashGuid_Lookup>("sgg::HashGuid::Lookup", ptr);
-			}
+			LOG(WARNING)
+			    << "Interned-string buffer extension is unsupported on this build - running without enlarged buffers. "
+			       "Mods still load; only very heavy mod sets may reach the engine's original string limits.";
+
+			_aligned_free(extended_sgg_sBuffer);
+			extended_sgg_sBuffer = nullptr;
+			_aligned_free(extended_sgg_sStringsBuffer);
+			extended_sgg_sStringsBuffer = nullptr;
+			_aligned_free(extended_sgg_sTempStringsBuffer);
+			extended_sgg_sTempStringsBuffer = nullptr;
+
+			g_pending_sBuffer_hooks.clear();
+			g_pending_sStringsBuffer_hooks.clear();
+			g_pending_sTempStringsBuffer_hooks.clear();
 		}
 	}
 

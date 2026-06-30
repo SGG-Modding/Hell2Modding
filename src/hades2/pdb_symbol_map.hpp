@@ -8,6 +8,15 @@ namespace big
 
 	inline std::unordered_map<std::string, size_t> hades2_symbol_to_code_size;
 
+	// The debug build is the only Hades II build that ships the in-engine LiveEditor (map editor);
+	// the ship build compiles it out, so a LiveEditor-only symbol tells the builds apart. Only
+	// meaningful once the symbol map has been populated by read_game_pdb().
+	inline bool hades2_is_debug_build()
+	{
+		const auto it = hades2_symbol_to_address.find("sgg::LiveEditorWindows::Draw");
+		return it != hades2_symbol_to_address.end() && (bool)it->second;
+	}
+
 	// Function to insert symbols with unique names into the map
 	inline void hades2_insert_symbol_to_map(const std::string& name, uintptr_t address)
 	{

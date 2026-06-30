@@ -479,7 +479,10 @@ namespace lua::hades::inputs
 	void bind(sol::state_view &state, sol::table &lua_ext)
 	{
 		static auto RegisterDebugKey_ptr = big::hades2_symbol_to_address["sgg::Debug::RegisterDebugKey"];
-		if (RegisterDebugKey_ptr)
+		// The debug build handles debug keys natively and its sgg::Debug::RegisterDebugKey has a
+		// different signature; calling it with the ship layout corrupts the engine's keybind table,
+		// so leave it unresolved there.
+		if (RegisterDebugKey_ptr && !big::hades2_is_debug_build())
 		{
 			RegisterDebugKey = RegisterDebugKey_ptr;
 		}
