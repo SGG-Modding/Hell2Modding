@@ -110,14 +110,13 @@ namespace lua::tolk
 		{
 			if (gui_comp->vtbl->ShouldDraw(gui_comp))
 			{
-				auto* gui_comp_lines = gui_textbox_lines(gui_comp);
-				for (auto i = gui_comp_lines->mpBegin; i < gui_comp_lines->mpEnd; i++)
+				for (const auto& text : tolk_safe_textbox_lines(gui_comp))
 				{
-					if (i->mText.size() && !already_printed.contains(i->mText.c_str()))
+					if (!already_printed.contains(text))
 					{
-						already_printed.insert(i->mText.c_str());
+						already_printed.insert(text);
 						//LOG(INFO) << text << " (" << gui_comp_loc.mX << ", " << gui_comp_loc.mY << ")";
-						text_buffer << i->mText.c_str() << "\n";
+						text_buffer << text << "\n";
 					}
 				}
 			}
@@ -185,10 +184,9 @@ namespace lua::tolk
 
 		for (auto i = active_thing->pText->mTextBoxes.begin(); i != active_thing->pText->mTextBoxes.end(); i++)
 		{
-			auto* textbox_lines = gui_textbox_lines(*i);
-			for (auto j = textbox_lines->mpBegin; j < textbox_lines->mpEnd; j++)
+			for (auto& text : tolk_safe_textbox_lines(*i))
 			{
-				res.push_back(j->mText.c_str());
+				res.push_back(text);
 			}
 		}
 

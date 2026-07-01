@@ -2,11 +2,18 @@
 
 #include "memory/gm_address.hpp"
 
+#include <atomic>
+
 namespace big
 {
 	inline std::unordered_map<std::string, gmAddress> hades2_symbol_to_address;
 
 	inline std::unordered_map<std::string, size_t> hades2_symbol_to_code_size;
+
+	// Cached result of hades2_is_debug_build(), set once at startup. hades2_is_debug_build()
+	// reads hades2_symbol_to_address, which other threads mutate via operator[], so it must not be called
+	// from multi-threaded hot paths (e.g. the log hook).
+	inline std::atomic<bool> g_hades2_is_debug_build_flag{false};
 
 	// The debug build is the only Hades II build that ships the in-engine LiveEditor (map editor);
 	// the ship build compiles it out, so a LiveEditor-only symbol tells the builds apart. Only

@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstring>
 #include <EASTL/string.h>
 #include <hades2/pdb_symbol_map.hpp>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 /*struct eastl_basic_string_view_char
 {
@@ -101,6 +104,55 @@ inline eastl_vector<GUIComponentTextBox_Line>* gui_textbox_lines(GUIComponentTex
 }
 
 inline GUIComponentButton* g_currently_selected_gui_comp = nullptr;
+
+// Reading a text box's lines can crash on the debug build for some reason.
+// when the box or its line vector is null or points at non-text memory. Copy the
+// lines under SEH so a bad read just yields fewer lines instead of taking down the game.
+inline int tolk_copy_textbox_lines(GUIComponentTextBox* textbox, char lines[][256], int max_lines)
+{
+	__try
+	{
+		if (!textbox)
+		{
+			return 0;
+		}
+		auto* vec = gui_textbox_lines(textbox);
+		if (!vec || !vec->mpBegin || vec->mpEnd < vec->mpBegin || vec->mpEnd - vec->mpBegin > max_lines)
+		{
+			return 0;
+		}
+		int count = 0;
+		for (auto* line = vec->mpBegin; line < vec->mpEnd && count < max_lines; line++)
+		{
+			const size_t n = line->mText.size();
+			if (n == 0 || n >= 256)
+			{
+				continue;
+			}
+			memcpy(lines[count], line->mText.c_str(), n);
+			lines[count][n] = '\0';
+			count++;
+		}
+		return count;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return 0;
+	}
+}
+
+inline std::vector<std::string> tolk_safe_textbox_lines(GUIComponentTextBox* textbox)
+{
+	char buf[64][256];
+	const int count = tolk_copy_textbox_lines(textbox, buf, 64);
+	std::vector<std::string> out;
+	out.reserve(count);
+	for (int k = 0; k < count; k++)
+	{
+		out.push_back(buf[k]);
+	}
+	return out;
+}
 
 namespace lua::tolk
 {

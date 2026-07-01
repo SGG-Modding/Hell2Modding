@@ -18,6 +18,7 @@
 #include "version.hpp"
 #include "sjson_overlay.hpp"
 
+#include <array>
 #include <DbgHelp.h>
 #include <hades2/pdb_symbol_map.hpp>
 #include <hades2/pdb_symbol_cache.hpp>
@@ -1355,16 +1356,11 @@ static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUICom
 	g_currently_selected_gui_comp = this_;
 
 	auto gui_button = g_currently_selected_gui_comp;
-	auto gui_text   = gui_button_textbox(gui_button);
 
 	std::vector<std::string> lines;
-	auto *gui_text_lines = gui_textbox_lines(gui_text);
-	for (auto i = gui_text_lines->mpBegin; i < gui_text_lines->mpEnd; i++)
+	if (gui_button)
 	{
-		if (i->mText.size())
-		{
-			lines.push_back(i->mText.c_str());
-		}
+		lines = tolk_safe_textbox_lines(gui_button_textbox(gui_button));
 	}
 
 	for (const auto &mod_ : big::g_lua_manager->m_modules)
@@ -2725,18 +2721,29 @@ extern "C" __declspec(dllexport) void my_main()
 	// breakpoint that kills the process, so leave its handler in place on the debug build.
 	const bool is_debug_build = big::hades2_is_debug_build();
 
+	// Cache it so the multi-threaded log hook can gate on it without touching the symbol map.
+	big::g_hades2_is_debug_build_flag.store(is_debug_build);
+
 	// Purposely leak it, we are not unloading this module in any case.
 	const auto exception_handling = new exception_handler(!is_debug_build, nullptr);
 
 	if (is_debug_build)
 	{
 		// The debug build's sgg::InitWindow pops a "Script modification detected" message box when it
-		// notices our script edits (the ship build has no such check). Flip its guard branch (je -> jmp)
-		// so the dialog block is always skipped.
+		// notices our script edits. Flip its guard branch (je -> jmp) so the dialog block is always skipped.
 		auto script_mod_popup = gmAddress::scan("0F B6 40 3C 85 C0 74 3A 4C 8D 0D", "Debug script-modification popup");
 		if (script_mod_popup)
 		{
 			memory::byte_patch::make(script_mod_popup.offset(6).as<uint8_t *>(), (uint8_t)0xEB)->apply();
+		}
+
+		// The debug build shows a popup for every dev assert.
+		// Zero the rel32 of the conditional jump that selects the dialog so sgg::HandleAssert falls through
+		// to its "Suppressing Assert" path, which just logs the assert and continues.
+		auto assert_dialog_branch = gmAddress::scan("0F B6 44 24 41 85 C0 0F 84 DB 00 00 00", "Debug assert dialog branch");
+		if (assert_dialog_branch)
+		{
+			memory::byte_patch::make(assert_dialog_branch.offset(9).as<uint32_t *>(), (uint32_t)0)->apply();
 		}
 	}
 
