@@ -212,13 +212,22 @@ namespace lua::hades::data
 		return size;
 	}
 
-	static void* g_current_file_stream = nullptr;
+	// Thread-local: set by the CreateStream hooks and read back by hook_fsAppendPathComponent, which runs on
+	// the same thread during the open. Being thread-local lets us open files without holding g_manager_mutex
+	// across the (blocking) open, so the engine's parallel loader threads aren't serialised through one lock.
+	static thread_local void* g_current_file_stream = nullptr;
 
 	static constexpr size_t g_GetFileSize_index = 7;
 
 	static bool hook_sgg_PlatformFile_CreateStreamWithRetry(int32_t resourceDir, const char* fileName, int32_t mode, void* file_stream)
 	{
-		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+		{
+			// The engine reuses file_stream addresses, so drop any stale SJSON mapping for this pointer before
+			// opening a new file - otherwise a reused stream (e.g. a binary animation file) inherits the previous
+			// SJSON's size-halving and reads truncated data, crashing the parser. Only a real .sjson open re-adds it.
+			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+			g_sjson_FileStream_to_filepath.erase(file_stream);
+		}
 
 		g_current_file_stream = file_stream;
 
@@ -229,9 +238,13 @@ namespace lua::hades::data
 		return res;
 	}
 
-		static bool hook_sgg_PlatformFile_CreateStream(int32_t resourceDir, const char* fileName, int32_t mode, void* file_stream)
+	static bool hook_sgg_PlatformFile_CreateStream(int32_t resourceDir, const char* fileName, int32_t mode, void* file_stream)
 	{
-		std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+		{
+			// See hook_sgg_PlatformFile_CreateStreamWithRetry: clear any stale mapping for this reused pointer.
+			std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
+			g_sjson_FileStream_to_filepath.erase(file_stream);
+		}
 
 		g_current_file_stream = file_stream;
 
