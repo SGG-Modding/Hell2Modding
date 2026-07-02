@@ -2745,6 +2745,16 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			memory::byte_patch::make(assert_dialog_branch.offset(9).as<uint32_t *>(), (uint32_t)0)->apply();
 		}
+
+		// The debug-only sgg::PerfDash::MemoryTick forces a full Lua GC once the tracked Lua heap exceeds its
+		// ~127MB budget, which heavy mods sit right at - so it collects every tick and each one stalls (or
+		// crashes) in the GC on the large heap. Ship has no PerfDash and runs fine on incremental GC, so patch
+		// sgg::ScriptManager::RunGC to return immediately (ret); incremental GC still keeps memory bounded.
+		auto run_gc = big::hades2_symbol_to_address["sgg::ScriptManager::RunGC"];
+		if (run_gc)
+		{
+			memory::byte_patch::make(run_gc.as<uint8_t *>(), (uint8_t)0xC3)->apply();
+		}
 	}
 
 	{
@@ -3307,7 +3317,7 @@ extern "C" __declspec(dllexport) void my_main()
 			}
 			else
 			{
-				// Files not in a resolution subdirectory (e.g. directly in Movies/) — store as 1080p
+				// Files not in a resolution subdirectory (e.g. directly in Movies/) - store as 1080p
 				bik.path_1080p = full_path;
 			}
 

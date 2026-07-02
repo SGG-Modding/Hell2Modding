@@ -284,7 +284,7 @@ namespace lua::hades::draw
 	// Per-mesh hide for the shadow pass: temporarily rewrite each
 	// hidden mesh's mesh_type to kMeshTypeShadowSkip, call the
 	// original, restore.  Safe because the render thread serialises
-	// passes — no other pass observes the temporary value.
+	// passes - no other pass observes the temporary value.
 	static void hook_DoDrawShadow3D(void* vec_ref, unsigned int index, int param, sgg::HashGuid hash)
 	{
 		{
