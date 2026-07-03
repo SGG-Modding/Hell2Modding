@@ -2755,6 +2755,31 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			memory::byte_patch::make(run_gc.as<uint8_t *>(), (uint8_t)0xC3)->apply();
 		}
+
+		// The debug build's F5 editor uses ImGui multi-viewports, so a floated editor window gets its own
+		// D3D12 swapchain; a failed swapchain call there is a fatal assert we defuse above, so the game runs on
+		// with an invalid resource until the GPU is removed (DXGI_ERROR_ACCESS_DENIED) on the next present. NOP
+		// both `bts eax, 0xc` that set the RendererHasViewports flag so ImGui auto-disables viewports instead.
+		auto imgui_dx12_init = big::hades2_symbol_to_address["ImGui_ImplDX12_Init"];
+		if (imgui_dx12_init)
+		{
+			uint8_t *func_base = imgui_dx12_init.as<uint8_t *>();
+			const size_t size  = big::hades2_symbol_to_code_size["ImGui_ImplDX12_Init"];
+
+			// bts eax, 0xc sets the RendererHasViewports backend flag (ImGuiBackendFlags 0x1000)
+			static constexpr uint8_t bts_eax_0xc[] = {0x0F, 0xBA, 0xE8, 0x0C};
+			static constexpr uint8_t nops[]        = {0x90, 0x90, 0x90, 0x90};
+			for (size_t i = 0; i + sizeof(bts_eax_0xc) <= size; i++)
+			{
+				if (memcmp(func_base + i, bts_eax_0xc, sizeof(bts_eax_0xc)) == 0)
+				{
+					for (size_t k = 0; k < sizeof(nops); k++)
+					{
+						memory::byte_patch::make(func_base + i + k, nops[k])->apply();
+					}
+				}
+			}
+		}
 	}
 
 	{
