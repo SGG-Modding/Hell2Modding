@@ -2659,6 +2659,22 @@ static void read_game_pdb()
 		}
 	}
 
+	// We only get here on a cache miss (no cache, or one that did not match this PDB), having just
+	// done the full parse. On the debug build, if there is no cache file yet, self-build one next to
+	// the PDB so the next launch skips the ~30s parse. The ship build parses fast and ships no cache,
+	// so hades2_is_debug_build() is false there and this is skipped.
+	if (big::hades2_is_debug_build() && !std::filesystem::exists(game_pdb_cache_path))
+	{
+		if (big::pdb_cache::write_from_globals(game_pdb_cache_path, pdb_key, base_game_address))
+		{
+			LOG(INFO) << "Self-built PDB symbol cache; the next launch will skip the full parse";
+		}
+		else
+		{
+			LOG(WARNING) << "Failed to write the PDB symbol cache (no write access to the game folder?)";
+		}
+	}
+
 	MemoryMappedFile::Close(pdbFile);
 }
 
