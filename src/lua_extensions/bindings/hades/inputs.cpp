@@ -487,9 +487,9 @@ namespace lua::hades::inputs
 			RegisterDebugKey = RegisterDebugKey_ptr;
 		}
 
-		state["OnKeyPressed"] = [](sol::table args)
+		if (RegisterDebugKey)
 		{
-			if (RegisterDebugKey)
+			state["OnKeyPressed"] = [](sol::table args)
 			{
 				auto keybind_opt       = args[1].get<std::optional<std::string>>();
 				auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
@@ -501,8 +501,8 @@ namespace lua::hades::inputs
 					auto RegisterDebugKey_good_type = RegisterDebugKey.as_func<void(int32_t a1, int32_t, eastl_custom::function<void(uintptr_t)> *, eastl::string *, void *, void *, bool, eastl::string *, eastl::string *, bool)>();
 					parse_and_register_keybind(*keybind_opt, *callback_opt, callback_name_opt ? *callback_name_opt : "", RegisterDebugKey_good_type, true, nullptr);
 				}
-			}
-		};
+			};
+		}
 
 		auto ns = lua_ext.create_named("inputs");
 
