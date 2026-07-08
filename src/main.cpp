@@ -5,6 +5,7 @@
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
 #include "hades2/hooks.hpp"
+#include "hades2/mod_settings/mod_settings.hpp"
 #include "hooks/hooking.hpp"
 #include "logger/exception_handler.hpp"
 #include "lua/lua_manager.hpp"
@@ -2813,6 +2814,9 @@ extern "C" __declspec(dllexport) void my_main()
 			    GUIComponentButton_OnSelected);
 		}
 	}
+
+	// Adds a "Mods" category to the in-game options
+	big::mod_settings::register_hooks();
 
 	{
 		static auto read_anim_data_ptr = big::hades2_symbol_to_address["sgg::GameDataManager::ReadAllAnimationData"];
