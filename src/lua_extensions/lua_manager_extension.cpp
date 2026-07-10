@@ -4,16 +4,18 @@
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/data.hpp"
 #include "bindings/hades/draw.hpp"
-#include "bindings/hades/inputs.hpp"
 #include "bindings/hades/gpk.hpp"
+#include "bindings/hades/inputs.hpp"
 #include "bindings/hades/tethers.hpp"
 #include "bindings/lpeg.hpp"
 #include "bindings/luasocket/luasocket.hpp"
 #include "bindings/paths_ext.hpp"
 #include "bindings/tolk/tolk.hpp"
 #include "lua_module_ext.hpp"
-#include <hooks/hooking.hpp>
+
+#include <hades2/mod_settings/mod_settings.hpp>
 #include <hades2/pdb_symbol_map.hpp>
+#include <hooks/hooking.hpp>
 
 std::wstring utf8_to_wstring(const std::string &utf8_str);
 
@@ -32,20 +34,20 @@ namespace big::lua_manager_extension
 		LOG(INFO) << "state is no longer valid!";
 	}
 
-	static int the_state_is_going_down(lua_State* L)
+	static int the_state_is_going_down(lua_State *L)
 	{
 		delete_everything();
 
 		return 0;
 	}
 
-	void init_lua_manager(sol::state_view& state, sol::table& lua_ext)
+	void init_lua_manager(sol::state_view &state, sol::table &lua_ext)
 	{
 		init_lua_state(state, lua_ext);
 		init_lua_api(state, lua_ext);
 	}
 
-	static int open_debug_lib(lua_State* L)
+	static int open_debug_lib(lua_State *L)
 	{
 		luaL_requiref(L, "_rom_debug", luaopen_debug, 1 /*Leaves a copy of the module on the stack.*/);
 
@@ -55,12 +57,12 @@ namespace big::lua_manager_extension
 
 	// Mods listed here may use all blocked functions
 	// Use the mod GUID as it appears in the plugins folder ("AuthorName-ModName")
-	static constexpr const char* allowlisted_mods[] = {
-		"Enderclem-CG3HBuilder",
-		"zerp-MelSkin",
+	static constexpr const char *allowlisted_mods[] = {
+	    "Enderclem-CG3HBuilder",
+	    "zerp-MelSkin",
 	};
 
-	static bool is_mod_allowlisted(const char* source)
+	static bool is_mod_allowlisted(const char *source)
 	{
 		if (!source)
 		{
@@ -68,7 +70,7 @@ namespace big::lua_manager_extension
 		}
 
 		// Source paths look like: @.../plugins/AuthorName-ModName/file.lua
-		const char* plugins_pos = strstr(source, "plugins\\");
+		const char *plugins_pos = strstr(source, "plugins\\");
 		if (!plugins_pos)
 		{
 			plugins_pos = strstr(source, "plugins/");
@@ -78,8 +80,8 @@ namespace big::lua_manager_extension
 			return false;
 		}
 
-		const char* mod_start = plugins_pos + 8;
-		const char* mod_end   = mod_start;
+		const char *mod_start = plugins_pos + 8;
+		const char *mod_end   = mod_start;
 		while (*mod_end && *mod_end != '/' && *mod_end != '\\')
 		{
 			mod_end++;
@@ -87,7 +89,7 @@ namespace big::lua_manager_extension
 
 		size_t mod_len = mod_end - mod_start;
 
-		for (const auto& allowed : allowlisted_mods)
+		for (const auto &allowed : allowlisted_mods)
 		{
 			if (strlen(allowed) == mod_len && strncmp(mod_start, allowed, mod_len) == 0)
 			{
@@ -99,7 +101,7 @@ namespace big::lua_manager_extension
 	}
 
 	// Upvalue 1: function name string, Upvalue 2: original function
-	static int blocked_lua_function(lua_State* L)
+	static int blocked_lua_function(lua_State *L)
 	{
 		// Check if the direct caller is an allowlisted mod
 		lua_Debug ar;
@@ -117,25 +119,25 @@ namespace big::lua_manager_extension
 			}
 		}
 
-		const char* name = lua_tostring(L, lua_upvalueindex(1));
+		const char *name = lua_tostring(L, lua_upvalueindex(1));
 		return luaL_error(L, "%s() is not available", name);
 	}
 
 	struct sandbox_entry
 	{
-		const char* table; // table name, or nullptr for globals
-		const char* field; // function name within the table (or global name)
+		const char *table; // table name, or nullptr for globals
+		const char *field; // function name within the table (or global name)
 	};
 
 	static constexpr sandbox_entry blocked_functions[] = {
-		{"os", "execute"},
-		{"io", "popen"},
-		{"package", "loadlib"},
+	    {"os", "execute"},
+	    {"io", "popen"},
+	    {"package", "loadlib"},
 	};
 
-	static void sandbox_lua_state(lua_State* L)
+	static void sandbox_lua_state(lua_State *L)
 	{
-		for (const auto& entry : blocked_functions)
+		for (const auto &entry : blocked_functions)
 		{
 			if (entry.table)
 			{
@@ -204,7 +206,7 @@ namespace big::lua_manager_extension
 
 #endif
 
-	static int io_open_utf8(lua_State* L)
+	static int io_open_utf8(lua_State *L)
 	{
 		const char *filename = luaL_checkstring(L, 1);
 		const char *mode     = luaL_optstring(L, 2, "r");
@@ -342,7 +344,7 @@ namespace big::lua_manager_extension
 		return status;
 	}
 
-	void init_lua_state(sol::state_view& state, sol::table& lua_ext)
+	void init_lua_state(sol::state_view &state, sol::table &lua_ext)
 	{
 		// Register our cleanup functions when the state get destroyed.
 		{
@@ -394,7 +396,7 @@ namespace big::lua_manager_extension
 		}
 	}
 
-	void init_lua_api(sol::state_view& state, sol::table& lua_ext)
+	void init_lua_api(sol::state_view &state, sol::table &lua_ext)
 	{
 		auto on_import_table = lua_ext.create_named("on_import");
 
@@ -407,7 +409,7 @@ namespace big::lua_manager_extension
 		on_import_table.set_function("pre",
 		                             [](sol::protected_function f, sol::this_environment env)
 		                             {
-			                             auto mod = (lua_module_ext*)lua_module::this_from(env);
+			                             auto mod = (lua_module_ext *)lua_module::this_from(env);
 			                             if (mod)
 			                             {
 				                             mod->m_data_ext.m_on_pre_import.push_back(f);
@@ -422,7 +424,7 @@ namespace big::lua_manager_extension
 		on_import_table.set_function("post",
 		                             [](sol::protected_function f, sol::this_environment env)
 		                             {
-			                             auto mod = (lua_module_ext*)lua_module::this_from(env);
+			                             auto mod = (lua_module_ext *)lua_module::this_from(env);
 			                             if (mod)
 			                             {
 				                             mod->m_data_ext.m_on_post_import.push_back(f);
@@ -441,5 +443,6 @@ namespace big::lua_manager_extension
 		lua::gui_ext::bind(lua_ext);
 		lua::lpeg::bind(lua_ext);
 		lua::paths_ext::bind(lua_ext);
+		big::mod_settings::bind_config_api(state, lua_ext);
 	}
 } // namespace big::lua_manager_extension

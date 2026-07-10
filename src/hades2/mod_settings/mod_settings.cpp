@@ -123,12 +123,16 @@ namespace big::mod_settings
 	// ScreenCenterOffsetY, and X = the row's own location. Rows mirror the key-rebind
 	// ControlButton layout: the component is anchored to the right pane and its text is
 	// left-justified via a negative text offset, matching the native option-name column.
-	static constexpr float row_location_x        = 1560.0f; // component X (right pane), like OptionToggleButton
-	static constexpr float row_text_offset_x     = -900.0f; // left-justify the label to the option-name column
+	static constexpr float row_location_x    = 1560.0f; // component X (right pane), like OptionToggleButton
+	static constexpr float row_text_offset_x = -900.0f; // left-justify the label to the option-name column
+	static constexpr float value_text_offset_x = 55.0f; // right-justify the value; aligns with the toggle indicator column
 	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
 	static constexpr float row_base_y            = 315.0f;  // first row's Y (aligns with the tab column)
 	static constexpr float row_pitch             = 54.0f;   // vertical distance between rows
 	static constexpr std::uint32_t rows_per_page = 8;
+
+	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
+	static constexpr std::uint64_t edit_cursor_blink_ms = 500;
 
 	// What a panel row represents, so a click can be routed to the right action.
 	enum class RowKind
@@ -152,6 +156,10 @@ namespace big::mod_settings
 
 		bool disabled          = false; // greyed & non-interactable (mod disabled)
 		bool is_enabled_toggle = false; // the mod's master "enabled" toggle
+
+		// Right-column value display for a non-bool setting row (paired with `component`, the
+		// left-column key). Not in mOptions; positioned to follow `component` each frame.
+		GUIComponent* value_component = nullptr;
 	};
 
 	static std::vector<PanelRow> g_rows;
@@ -176,7 +184,7 @@ namespace big::mod_settings
 	static bool g_editing                                        = false;
 	static GUIComponent* g_edit_component                        = nullptr;
 	static toml_v2::config_file::config_entry_base* g_edit_entry = nullptr;
-	static std::string g_edit_key;
+
 	static std::string g_edit_buffer;
 	static bool g_edit_numeric = false; // restrict input to a numeric literal
 	static bool g_edit_confirm = false;
@@ -251,12 +259,15 @@ namespace big::mod_settings
 	// vectors, sets its X, and starts it transparent. UpdateScrollState only fades in and
 	// repositions on-page rows, so off-page rows must start invisible to avoid flashing
 	// stacked at the top.
-	static void finalize_row(MiscSettingsScreen* screen, GUIComponent* row)
+	static void finalize_row(MiscSettingsScreen* screen, GUIComponent* row, bool in_options = true)
 	{
 		GUIComponent* value = row;
 		auto* menu          = reinterpret_cast<MenuScreen*>(screen);
 		g_push_back(&menu->m_components, &value);
-		g_push_back(&screen->m_options, &value);
+		if (in_options)
+		{
+			g_push_back(&screen->m_options, &value);
+		}
 
 		row->m_location_x   = row_location_x;
 		row->m_fade_opacity = 0.0f;
@@ -292,6 +303,17 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_sel_text_blue)  = grey;
 	}
 
+	// Forces a row's normal text colour to full white so plain-text (key/value) rows read as
+	// bright/editable, matching the toggle rows. The selected colour is left as the template's
+	// so hover still highlights. Must run before SetupComponent to reach the text box.
+	static void set_def_text_white(GUIComponent* row)
+	{
+		char* def                                       = reinterpret_cast<char*>(row) + component_def_offset;
+		*reinterpret_cast<float*>(def + def_text_red)   = 1.0f;
+		*reinterpret_cast<float*>(def + def_text_green) = 1.0f;
+		*reinterpret_cast<float*>(def + def_text_blue)  = 1.0f;
+	}
+
 	// A plain left-justified text row (mod names, Back, and non-toggle settings). Applies a
 	// template for a valid font/colours, then retunes the row's own def into the key-rebind
 	// "ControlButton" style - no background graphic, left text, and a text-area hit region
@@ -325,6 +347,10 @@ namespace big::mod_settings
 		if (disabled)
 		{
 			set_def_text_grey(row);
+		}
+		else
+		{
+			set_def_text_white(row);
 		}
 
 		if (g_setup_component)
@@ -469,6 +495,73 @@ namespace big::mod_settings
 		return row;
 	}
 
+	// A right-justified, non-interactive value label for the right column of a key/value
+	// setting row (paired with a left-column key row). It is NOT added to mOptions: the
+	// engine's scroll pass lays out only mOptions rows by index and would stack a second
+	// per-row entry, so instead the value follows its key row each frame (sync_value_columns).
+	// It shares the key's component X anchor but uses RIGHT justification, so the value sits in
+	// the right column while the key stays left.
+	static GUIComponent* make_value_display(MiscSettingsScreen* screen, const char* text, bool disabled)
+	{
+		auto* row = create_button(screen);
+		if (!row)
+		{
+			return nullptr;
+		}
+		auto* row_bytes = reinterpret_cast<char*>(row);
+
+		set_sso_string(row_bytes + gui_component_name_offset, "CategoryOptionsButton");
+		g_apply_data(reinterpret_cast<MenuScreen*>(screen), row);
+
+		char* def                                                      = row_bytes + component_def_offset;
+		*reinterpret_cast<std::uint8_t*>(def + def_add_text_area)      = 0; // display only: no hit area
+		*reinterpret_cast<std::uint8_t*>(def + def_use_text_area)      = 0;
+		*reinterpret_cast<std::uint32_t*>(def + def_graphic)           = 0;
+		*reinterpret_cast<std::uint32_t*>(def + def_selected_graphic)  = 0;
+		*reinterpret_cast<std::uint32_t*>(def + def_alternate_graphic) = 0;
+		*reinterpret_cast<float*>(def + def_width)                     = 0.0f;
+		*reinterpret_cast<float*>(def + def_height)                    = 0.0f;
+		*reinterpret_cast<std::uint8_t*>(def + def_text_justification) = 1; // sgg::Justification::RIGHT
+		*reinterpret_cast<float*>(def + def_text_offset_x)             = value_text_offset_x;
+		*reinterpret_cast<float*>(def + def_y)                         = row_base_y;
+		*reinterpret_cast<float*>(def + def_spacing)                   = row_pitch;
+
+		if (disabled)
+		{
+			set_def_text_grey(row);
+		}
+		else
+		{
+			set_def_text_white(row);
+		}
+
+		if (g_setup_component)
+		{
+			g_setup_component(row, row_bytes + component_data_offset);
+		}
+		if (g_set_normal_texture)
+		{
+			g_set_normal_texture(row, 0, false);
+		}
+		if (g_set_selected_texture)
+		{
+			g_set_selected_texture(row, 0);
+		}
+		if (g_set_animation && g_blank_graphic)
+		{
+			g_set_animation(row, g_blank_graphic);
+		}
+		if (g_set_label)
+		{
+			g_set_label(row, text);
+		}
+
+		row->m_can_be_focused = false; // never interactive; the empty hit area blocks hover/click
+
+		finalize_row(screen, row, false); // drawn (mComponents) but not paged (mOptions)
+		return row;
+	}
+
 	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail
 	// down in place - the same unlink the engine's DoShowCategory performs. No-op if not
 	// present; the backing storage is left owned by the vector.
@@ -494,14 +587,12 @@ namespace big::mod_settings
 	{
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
 
-		for (const auto& row : g_rows)
+		auto unlink_and_free = [&](GUIComponent* comp, bool in_options)
 		{
-			GUIComponent* comp = row.component;
 			if (!comp)
 			{
-				continue;
+				return;
 			}
-
 			if (menu->m_mouse_over_component == comp)
 			{
 				menu->m_mouse_over_component = nullptr;
@@ -518,15 +609,28 @@ namespace big::mod_settings
 			{
 				screen->m_last_option_button = nullptr;
 			}
+			if (g_edit_component == comp)
+			{
+				g_edit_component = nullptr;
+			}
 
 			vector_erase(menu->m_components, comp);
-			vector_erase(screen->m_options, comp);
+			if (in_options)
+			{
+				vector_erase(screen->m_options, comp);
+			}
 
 			if (g_button_dtor)
 			{
 				g_button_dtor(comp);
 			}
 			_aligned_free(comp);
+		};
+
+		for (const auto& row : g_rows)
+		{
+			unlink_and_free(row.component, true);
+			unlink_and_free(row.value_component, false);
 		}
 
 		g_rows.clear();
@@ -576,12 +680,6 @@ namespace big::mod_settings
 		std::string display = key;
 		std::replace(display.begin(), display.end(), '_', ' ');
 		return display;
-	}
-
-	// "Key : value" label for a non-toggle setting row.
-	static std::string setting_label(const std::string& key, toml_v2::config_file::config_entry_base* entry)
-	{
-		return key_to_display(key) + " : " + (entry ? entry->get_serialized_value() : std::string{});
 	}
 
 	// Accepts a character into a numeric edit buffer only if the result stays a plausible
@@ -664,13 +762,13 @@ namespace big::mod_settings
 		registered = true;
 	}
 
-	static void enter_edit_mode(GUIComponent* component, toml_v2::config_file::config_entry_base* entry, const std::string& key)
+	// Enters freetext edit on `value_component` (the row's right-column value display).
+	static void enter_edit_mode(GUIComponent* value_component, toml_v2::config_file::config_entry_base* entry)
 	{
 		ensure_wndproc_registered();
 		g_editing        = true;
-		g_edit_component = component;
+		g_edit_component = value_component;
 		g_edit_entry     = entry;
-		g_edit_key       = key;
 		g_edit_buffer    = entry ? entry->get_serialized_value() : std::string{};
 		g_edit_numeric   = entry && entry->type() != typeid(std::string);
 		g_edit_confirm   = false;
@@ -722,13 +820,14 @@ namespace big::mod_settings
 		return false;
 	}
 
-	// Live-updates the edited row's label with a trailing cursor. Called from Update while
-	// editing is still active.
+	// Live-updates the edited value display (right column) with a blinking cursor. Called from
+	// Update while editing is active; g_edit_component is the row's value component.
 	static void update_edit_label()
 	{
 		if (g_edit_component && g_set_label)
 		{
-			const std::string label = key_to_display(g_edit_key) + " : " + g_edit_buffer + "|";
+			const bool cursor_on    = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
+			const std::string label = g_edit_buffer + (cursor_on ? "|" : " ");
 			g_set_label(g_edit_component, label.c_str());
 		}
 	}
@@ -740,9 +839,10 @@ namespace big::mod_settings
 	}
 
 	// Level 2: a Back row followed by one row per config entry belonging to `stem`. Boolean
-	// entries render as native toggle rows; other types render as "key : value" text rows.
-	// A boolean "enabled" entry (if present) is pinned to the top; when it is off, every
-	// other setting is greyed out and made non-interactable.
+	// entries render as native toggle rows; other types render as a left-aligned key with a
+	// right-aligned, freetext-editable value (two components). A boolean "enabled" entry (if
+	// present) is pinned to the top; when it is off, every other setting is greyed out and
+	// made non-interactable.
 	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem)
 	{
 		if (auto* row = make_text_row(screen, "< Back"))
@@ -788,14 +888,21 @@ namespace big::mod_settings
 			const bool is_enabled_row = (entry == enabled_entry);
 			const bool disabled       = !is_enabled_row && !mod_enabled;
 
-			GUIComponent* row = nullptr;
+			GUIComponent* row   = nullptr;
+			GUIComponent* value = nullptr;
 			if (entry->type() == typeid(bool))
 			{
 				row = make_toggle_row(screen, key_to_display(key).c_str(), entry->get_value_base<bool>(), disabled);
 			}
 			else
 			{
-				row = make_text_row(screen, setting_label(key, entry).c_str(), disabled);
+				// Left-aligned key + right-aligned value (two components), like a keybind row.
+				row = make_text_row(screen, key_to_display(key).c_str(), disabled);
+				if (row)
+				{
+					const std::string v = entry ? entry->get_serialized_value() : std::string{};
+					value               = make_value_display(screen, v.c_str(), disabled);
+				}
 			}
 
 			if (row)
@@ -803,8 +910,30 @@ namespace big::mod_settings
 				PanelRow pr{row, RowKind::setting, stem, key, entry};
 				pr.disabled          = disabled;
 				pr.is_enabled_toggle = is_enabled_row;
+				pr.value_component   = value;
 				g_rows.push_back(pr);
 			}
+		}
+	}
+
+	// Value displays are not in mOptions, so the engine's scroll pass does not lay them out.
+	// Mirror each value component onto its key row's current position and fade so the right
+	// column tracks scrolling and fade-in/out.
+	static void sync_value_columns()
+	{
+		for (const auto& row : g_rows)
+		{
+			GUIComponent* key   = row.component;
+			GUIComponent* value = row.value_component;
+			if (!key || !value)
+			{
+				continue;
+			}
+			value->m_location_x   = key->m_location_x;
+			value->m_location_y   = key->m_location_y;
+			value->m_fade_opacity = key->m_fade_opacity;
+			value->m_fade_target  = key->m_fade_target;
+			value->m_hidden       = key->m_hidden;
 		}
 	}
 
@@ -868,6 +997,9 @@ namespace big::mod_settings
 				}
 			}
 		}
+
+		// Value displays are not laid out by the scroll pass; place them on their key rows now.
+		sync_value_columns();
 	}
 
 	// Applies a queued navigation (mod list <-> a mod's settings) by rebuilding the panel.
@@ -941,8 +1073,8 @@ namespace big::mod_settings
 	{
 		RowKind kind = RowKind::mod_entry;
 		std::string stem;
-		std::string setting_key;
 		toml_v2::config_file::config_entry_base* entry = nullptr;
+		GUIComponent* value_component                  = nullptr;
 		bool matched                                   = false;
 		bool disabled                                  = false;
 		bool is_enabled_toggle                         = false;
@@ -955,8 +1087,8 @@ namespace big::mod_settings
 				{
 					kind              = row.kind;
 					stem              = row.stem;
-					setting_key       = row.setting_key;
 					entry             = row.entry;
+					value_component   = row.value_component;
 					disabled          = row.disabled;
 					is_enabled_toggle = row.is_enabled_toggle;
 					matched           = true;
@@ -1000,7 +1132,7 @@ namespace big::mod_settings
 				}
 				else if (entry)
 				{
-					enter_edit_mode(self, entry, setting_key);
+					enter_edit_mode(value_component, entry);
 				}
 				break;
 			case RowKind::action:
@@ -1045,7 +1177,16 @@ namespace big::mod_settings
 			g_nav_pending = false;
 		}
 
-		return big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
+		void* result = big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
+
+		// The original just laid out the key rows for this frame; mirror the value columns
+		// onto them so the right column tracks scrolling and fade.
+		if (on_mods_tab)
+		{
+			sync_value_columns();
+		}
+
+		return result;
 	}
 
 	// While a freetext setting is being edited, read Enter (confirm) and Escape (cancel)
