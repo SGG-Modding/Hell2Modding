@@ -242,6 +242,14 @@ namespace big::mod_settings
 		double stepper_min  = 0.0;
 		double stepper_max  = 0.0;
 		double stepper_step = 1.0;
+
+		// Enum cycler (metadata has `values`). Rendered as a native number box over the index
+		// 0..labels-1 whose value text is overridden to the label (like the game's own enum
+		// options). `enum_values` are the serialized config values, `enum_labels` the parallel
+		// display strings; both indexed by the box's current integer value.
+		bool is_enum = false;
+		std::vector<std::string> enum_values;
+		std::vector<std::string> enum_labels;
 	};
 
 	static std::vector<PanelRow> g_rows;
@@ -674,14 +682,30 @@ namespace big::mod_settings
 		return std::isfinite(v) && v == std::floor(v);
 	}
 
+	// Overrides a num-box's centered value text (its mValueTextBox) with raw text. Used for enum
+	// rows to show the option label instead of the raw index the box tracks internally.
+	static void set_numbox_value_text(GUIComponent* numbox, const char* text)
+	{
+		if (!g_show_text || !numbox)
+		{
+			return;
+		}
+		if (void* value_tb = *reinterpret_cast<void**>(reinterpret_cast<char*>(numbox) + numbox_value_text_offset))
+		{
+			g_show_text(value_tb, text);
+		}
+	}
+
 	// Builds a native sgg::GUIComponentNumBox stepper row - identical to the game's own FPS-limit /
 	// graphics-quality options (boxed value flanked by Arrow_Left/Arrow_Right, left/right + arrow-click
 	// stepping, keyboard + controller). The game's factory allocates it, sets the correct vtable and
 	// builds all five sub-components (box graphic, label, value text, both arrows), which are also
 	// freed automatically when the row vectors are torn down - so no manual cleanup is needed. Value
 	// edits are persisted by the SetNumberValue hook (filtered to our rows). Returns the num-box
-	// component (not a GUIComponentButton, so it never routes through the OnClicked hook).
-	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled)
+	// component (not a GUIComponentButton, so it never routes through the OnClicked hook). When
+	// `value_labels` is non-null the box is an enum cycler: it steps the integer index and its value
+	// text is overridden to the matching label instead of the raw number.
+	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled, const std::vector<std::string>* value_labels = nullptr)
 	{
 		if (!g_numbox_factory || !g_numbox_set_range || !g_numbox_set_value || !g_apply_data || !g_show_text)
 		{
@@ -741,6 +765,21 @@ namespace big::mod_settings
 
 		// Paint the starting value; notify=false so the SetNumberValue hook does not persist it.
 		g_numbox_set_value(nb, static_cast<float>(initial), false);
+
+		// Enum cycler: replace the raw index the box just painted with the option's label.
+		if (value_labels && !value_labels->empty())
+		{
+			int idx = static_cast<int>(initial);
+			if (idx < 0)
+			{
+				idx = 0;
+			}
+			else if (idx >= static_cast<int>(value_labels->size()))
+			{
+				idx = static_cast<int>(value_labels->size()) - 1;
+			}
+			set_numbox_value_text(nb, (*value_labels)[idx].c_str());
+		}
 
 		if (disabled)
 		{
@@ -828,7 +867,7 @@ namespace big::mod_settings
 
 		for (const auto& row : g_rows)
 		{
-			unlink_and_free(row.component, true, row.is_stepper);
+			unlink_and_free(row.component, true, row.is_stepper || row.is_enum);
 			unlink_and_free(row.value_component, false, false);
 		}
 
@@ -1182,18 +1221,44 @@ namespace big::mod_settings
 			}
 			const std::string label = (meta && !meta->name.empty()) ? meta->name : key_to_display(key);
 
-			// A numeric setting with author-declared min AND max renders as a native number box
-			// (boxed value + arrows, like the game's own FPS-limit option); otherwise numbers stay
-			// freetext-editable and the value shows as a plain right-column label.
+			// An enum (metadata `values`) renders as a native number box cycling its label list; a
+			// numeric setting with author-declared min AND max renders as a native number box over
+			// its range (like the FPS-limit option); other numbers stay freetext-editable with a
+			// plain right-column value label.
 			const bool is_number  = entry->type() == typeid(double);
-			const bool is_stepper = is_number && meta && meta->has_min && meta->has_max;
+			const bool is_enum    = meta && !meta->values.empty();
+			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max;
 			const double step     = (meta && meta->has_step) ? meta->step : 1.0;
+
+			// Enum option lists (serialized values + parallel labels), resolved once so the widget and
+			// the PanelRow share them. The current value maps to its index, defaulting to 0.
+			std::vector<std::string> enum_values;
+			std::vector<std::string> enum_labels;
+			int enum_index = 0;
+			if (is_enum)
+			{
+				enum_values           = meta->values;
+				enum_labels           = (meta->labels.size() == enum_values.size()) ? meta->labels : enum_values;
+				const std::string cur = entry->get_serialized_value();
+				for (int i = 0; i < static_cast<int>(enum_values.size()); ++i)
+				{
+					if (enum_values[i] == cur)
+					{
+						enum_index = i;
+						break;
+					}
+				}
+			}
 
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
 			if (entry->type() == typeid(bool))
 			{
 				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
+			}
+			else if (is_enum)
+			{
+				row = make_numbox_row(screen, label.c_str(), 0.0, static_cast<double>(enum_values.size() - 1), 1.0, static_cast<double>(enum_index), disabled, &enum_labels);
 			}
 			else if (is_stepper)
 			{
@@ -1219,7 +1284,13 @@ namespace big::mod_settings
 				// Prefer the author's metadata description; fall back to the .cfg comment text.
 				pr.description = (meta && !meta->description.empty()) ? meta->description : entry->m_description.m_description;
 
-				if (is_stepper)
+				if (is_enum)
+				{
+					pr.is_enum     = true;
+					pr.enum_values = std::move(enum_values);
+					pr.enum_labels = std::move(enum_labels);
+				}
+				else if (is_stepper)
 				{
 					pr.is_stepper   = true;
 					pr.stepper_min  = meta->min;
@@ -1581,7 +1652,33 @@ namespace big::mod_settings
 		}
 
 		PanelRow* row = find_row(reinterpret_cast<GUIComponent*>(self));
-		if (!row || !row->is_stepper || !row->entry)
+		if (!row || !row->entry)
+		{
+			return;
+		}
+
+		// Enum cycler: the box tracks the option index; persist the matching serialized value and
+		// replace the raw index the original just painted with the option's label.
+		if (row->is_enum)
+		{
+			int idx = static_cast<int>(*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + numbox_value_offset));
+			if (idx < 0 || idx >= static_cast<int>(row->enum_values.size()))
+			{
+				return;
+			}
+			set_numbox_value_text(reinterpret_cast<GUIComponent*>(self), row->enum_labels[idx].c_str());
+
+			const std::string& serialized = row->enum_values[idx];
+			if (row->entry->get_serialized_value() != serialized)
+			{
+				capture_restart_baseline(row->entry);
+				row->entry->set_serialized_value(serialized); // auto-saves via on_setting_changed
+				note_change_if_restart_required(row->entry, row->enum_labels[idx]);
+			}
+			return;
+		}
+
+		if (!row->is_stepper)
 		{
 			return;
 		}
