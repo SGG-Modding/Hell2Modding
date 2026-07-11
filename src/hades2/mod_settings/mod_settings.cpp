@@ -3,6 +3,7 @@
 #include "sgg_gui.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <gui/renderer.hpp>
@@ -106,6 +107,27 @@ namespace big::mod_settings
 	static constexpr std::uintptr_t anchor_rva = 0x11'5C'70; // sgg::GUIComponentButton::GUIComponentButton
 	static constexpr std::uintptr_t message_dialog_ctor_rva = 0x16'EE'60; // sgg::MessageDialog::MessageDialog(this,sm,eastl::string*)
 	static constexpr std::uintptr_t add_screen_rva = 0x14'7D'D0; // sgg::ScreenManager::AddScreen(this,screen,bool,eastl::string*)
+	// tf_new_internal<sgg::GUIComponentNumBox, sgg::MiscSettingsScreen*>: the game's own factory that
+	// allocates a GUIComponentNumBox, sets its vtable and builds its 5 sub-components (box graphic,
+	// label, value text, left/right arrows). Template instantiation, so resolved by RVA off the anchor.
+	static constexpr std::uintptr_t numbox_factory_rva = 0x17'A5'30;
+
+	// sgg::GUIComponentNumBox field offsets (DIA-validated on the current Ship build). sizeof 0x5D0;
+	// derives directly from GUIComponent (not GUIComponentButton).
+	static constexpr std::size_t numbox_value_offset = 0x5'40;      // mNumberValue      (float)
+	static constexpr std::size_t numbox_step_offset  = 0x5'44;      // mNumberStepValue  (float)
+	static constexpr std::size_t numbox_min_offset   = 0x5'48;      // mNumberMin        (float)
+	static constexpr std::size_t numbox_max_offset   = 0x5'4C;      // mNumberMax        (float)
+	static constexpr std::size_t numbox_is_integer_offset = 0x5'50; // mIsInteger        (bool: discrete + integer display)
+	static constexpr std::size_t numbox_disable_input_offset = 0x5'63; // mDisableInput   (bool: HandleInput early-out)
+	static constexpr std::size_t numbox_value_text_offset    = 0x5'B0; // mValueTextBox     (GUIComponentTextBox*)
+	static constexpr std::size_t numbox_left_arrow_offset    = 0x5'98; // mLeftArrow        (GUIComponentAnimation*)
+	static constexpr std::size_t numbox_right_arrow_offset   = 0x5'A0; // mRightArrow       (GUIComponentAnimation*)
+	static constexpr std::size_t numbox_label_text_offset = 0x5'A8; // mTextBox          (GUIComponentTextBox*, the label)
+	static constexpr std::size_t numbox_sizeof = 0x5'D0;
+	// Scalar deleting destructor slot in the GUIComponent vtable. Called with flags=0 it destructs
+	// and frees any owned sub-components without the final operator delete, so we then _aligned_free.
+	static constexpr std::size_t vtable_deleting_dtor_offset = 0x1'88;
 
 	using ctor_fn                = void* (*)(void* button, void* owner_screen);
 	using push_back_fn           = void (*)(void* vector, GUIComponent** value);
@@ -123,6 +145,9 @@ namespace big::mod_settings
 	using add_screen_fn          = void (*)(void* screen_manager, void* screen, bool add_at_end, void* eastl_name);
 	using show_text_fn           = void (*)(void* text_box, const char* text);
 	using get_lines_fn           = void* (*)(void* text_box);
+	using numbox_factory_fn      = void* (*)(const char* file, int line, const char* tag, void** screen);
+	using numbox_set_range_fn    = void (*)(void* num_box, float min, float max);
+	using numbox_set_value_fn    = void (*)(void* num_box, float value, bool notify);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -149,6 +174,9 @@ namespace big::mod_settings
 	static add_screen_fn g_add_screen                   = nullptr;
 	static show_text_fn g_show_text                     = nullptr;
 	static get_lines_fn g_get_lines                     = nullptr;
+	static numbox_factory_fn g_numbox_factory           = nullptr;
+	static numbox_set_range_fn g_numbox_set_range       = nullptr;
+	static numbox_set_value_fn g_numbox_set_value       = nullptr;
 
 	// sgg::KeyboardButtonId values used for edit confirm/cancel (validated in the PDB).
 	static constexpr int key_escape   = 0;
@@ -167,6 +195,7 @@ namespace big::mod_settings
 	static constexpr float row_location_x      = 1560.0f; // component X (right pane), like OptionToggleButton
 	static constexpr float row_text_offset_x   = -900.0f; // left-justify the label to the option-name column
 	static constexpr float value_text_offset_x = 15.0f; // right-justify the value; right edge aligns with the toggle's
+	static constexpr float numbox_location_x   = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
 	static constexpr float button_center_x     = 1130.0f; // centered action button X (clear of the scrollbar)
 	static constexpr float row_base_y          = 315.0f;  // first row's Y (aligns with the tab column)
 	static constexpr float row_pitch           = 54.0f;   // vertical distance between rows
@@ -639,6 +668,90 @@ namespace big::mod_settings
 		return row;
 	}
 
+	// True for a finite whole number (used to pick integer vs float num-box display/stepping).
+	static bool is_whole(double v)
+	{
+		return std::isfinite(v) && v == std::floor(v);
+	}
+
+	// Builds a native sgg::GUIComponentNumBox stepper row - identical to the game's own FPS-limit /
+	// graphics-quality options (boxed value flanked by Arrow_Left/Arrow_Right, left/right + arrow-click
+	// stepping, keyboard + controller). The game's factory allocates it, sets the correct vtable and
+	// builds all five sub-components (box graphic, label, value text, both arrows), which are also
+	// freed automatically when the row vectors are torn down - so no manual cleanup is needed. Value
+	// edits are persisted by the SetNumberValue hook (filtered to our rows). Returns the num-box
+	// component (not a GUIComponentButton, so it never routes through the OnClicked hook).
+	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled)
+	{
+		if (!g_numbox_factory || !g_numbox_set_range || !g_numbox_set_value || !g_apply_data || !g_show_text)
+		{
+			return nullptr;
+		}
+
+		void* scr = screen;
+		auto* nb  = static_cast<GUIComponent*>(g_numbox_factory("h2m", 0, "h2m::NumBox", &scr));
+		if (!nb)
+		{
+			return nullptr;
+		}
+		char* nb_bytes = reinterpret_cast<char*>(nb);
+
+		// Name the box and its sub-components so ApplyDataToComponent applies the matching sjson
+		// templates (its virtual ApplyDataToName routes each def by the sub-component's mName).
+		set_sso_string(nb_bytes + gui_component_name_offset, "OptionNumBox");
+		if (void* value_tb = *reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset))
+		{
+			set_sso_string(static_cast<char*>(value_tb) + gui_component_name_offset, "OptionNumBoxValueText");
+		}
+		if (void* left_arrow = *reinterpret_cast<void**>(nb_bytes + numbox_left_arrow_offset))
+		{
+			set_sso_string(static_cast<char*>(left_arrow) + gui_component_name_offset, "OptionNumBoxLeftArrow");
+		}
+		if (void* right_arrow = *reinterpret_cast<void**>(nb_bytes + numbox_right_arrow_offset))
+		{
+			set_sso_string(static_cast<char*>(right_arrow) + gui_component_name_offset, "OptionNumBoxRightArrow");
+		}
+
+		// Integer box when the bounds and step are all whole (shows "3" not "3.0" and uses the discrete
+		// single-step path); otherwise a float box (decimals + analog repeat). Set the flag BEFORE
+		// SetRange, whose auto-step derives from it, then pin our own step.
+		const bool is_integer = is_whole(min_v) && is_whole(max_v) && is_whole(step_v);
+		*reinterpret_cast<bool*>(nb_bytes + numbox_is_integer_offset) = is_integer;
+
+		g_numbox_set_range(nb, static_cast<float>(min_v), static_cast<float>(max_v));
+		*reinterpret_cast<float*>(nb_bytes + numbox_step_offset) = static_cast<float>(step_v != 0.0 ? step_v : 1.0);
+
+		g_apply_data(reinterpret_cast<MenuScreen*>(screen), nb);
+
+		// ApplyDataToComponent copies the OptionNumBox template's own row grid (Y=300, Spacing=45)
+		// into the component; override it to our grid so the box lines up with the other rows instead
+		// of drawing on the previous one. def_y/def_spacing alias the component's baseY(+0xC8) and
+		// pitch(+0x204) that UpdateScrollState reads (def sits at component+0xA8).
+		{
+			char* def                                    = nb_bytes + component_def_offset;
+			*reinterpret_cast<float*>(def + def_y)       = row_base_y;
+			*reinterpret_cast<float*>(def + def_spacing) = row_pitch;
+		}
+
+		// The label lives in the num-box's own left text box (raw text, like our other rows).
+		if (void* label_tb = *reinterpret_cast<void**>(nb_bytes + numbox_label_text_offset))
+		{
+			g_show_text(label_tb, label);
+		}
+
+		// Paint the starting value; notify=false so the SetNumberValue hook does not persist it.
+		g_numbox_set_value(nb, static_cast<float>(initial), false);
+
+		if (disabled)
+		{
+			*reinterpret_cast<bool*>(nb_bytes + numbox_disable_input_offset) = true;
+		}
+
+		finalize_row(screen, nb);
+		nb->m_location_x = numbox_location_x; // override finalize_row's default so box + arrows clear the scrollbar
+		return nb;
+	}
+
 	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail
 	// down in place - the same unlink the engine's DoShowCategory performs. No-op if not
 	// present; the backing storage is left owned by the vector.
@@ -664,7 +777,7 @@ namespace big::mod_settings
 	{
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
 
-		auto unlink_and_free = [&](GUIComponent* comp, bool in_options)
+		auto unlink_and_free = [&](GUIComponent* comp, bool in_options, bool is_numbox)
 		{
 			if (!comp)
 			{
@@ -697,7 +810,16 @@ namespace big::mod_settings
 				vector_erase(screen->m_options, comp);
 			}
 
-			if (g_button_dtor)
+			if (is_numbox)
+			{
+				// GUIComponentNumBox is not a GUIComponentButton; destruct it through its own vtable
+				// so its five sub-components (box/label/value/arrows) are freed too. flags=0 destructs
+				// without the final operator delete, so we still _aligned_free the block ourselves.
+				void** vtbl = *reinterpret_cast<void***>(comp);
+				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset / sizeof(void*)]);
+				dtor(comp, 0);
+			}
+			else if (g_button_dtor)
 			{
 				g_button_dtor(comp);
 			}
@@ -706,8 +828,8 @@ namespace big::mod_settings
 
 		for (const auto& row : g_rows)
 		{
-			unlink_and_free(row.component, true);
-			unlink_and_free(row.value_component, false);
+			unlink_and_free(row.component, true, row.is_stepper);
+			unlink_and_free(row.value_component, false, false);
 		}
 
 		g_rows.clear();
@@ -1002,48 +1124,6 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
-	// Adjusts a bounded numeric stepper row by `direction` steps (+1 = increment, -1 = decrement).
-	// `wrap` cycles past a bound to the opposite one (used for a mouse click, so the value can be
-	// reached without arrow keys); otherwise the value is clamped to [min, max] (used for
-	// left/right, matching native number options). Writes the new value (which auto-saves and
-	// fires on_setting_changed), records any restart-required change, and refreshes the value
-	// label in place - no full rebuild, so rapid stepping stays smooth.
-	static void step_stepper_row(const PanelRow& row, int direction, bool wrap)
-	{
-		auto* entry = row.entry;
-		if (!entry || entry->type() != typeid(double) || row.disabled)
-		{
-			return;
-		}
-
-		const double step = (row.stepper_step != 0.0) ? row.stepper_step : 1.0;
-		const double cur  = entry->get_value_base<double>();
-		double next       = cur + direction * step;
-
-		if (next > row.stepper_max)
-		{
-			next = wrap ? row.stepper_min : row.stepper_max;
-		}
-		else if (next < row.stepper_min)
-		{
-			next = wrap ? row.stepper_max : row.stepper_min;
-		}
-
-		if (next == cur)
-		{
-			return; // already at the clamped bound; nothing changed
-		}
-
-		capture_restart_baseline(entry);
-		entry->set_value_base<double>(next); // auto-saves via on_setting_changed
-		note_change_if_restart_required(entry, entry->get_serialized_value());
-
-		if (row.value_component && g_set_label)
-		{
-			g_set_label(row.value_component, entry->get_serialized_value().c_str());
-		}
-	}
-
 	// Level 2: a Back row followed by one row per config entry belonging to `stem`. Boolean
 	// entries render as native toggle rows; other types render as a left-aligned key with a
 	// right-aligned, freetext-editable value (two components). A boolean "enabled" entry (if
@@ -1102,11 +1182,22 @@ namespace big::mod_settings
 			}
 			const std::string label = (meta && !meta->name.empty()) ? meta->name : key_to_display(key);
 
+			// A numeric setting with author-declared min AND max renders as a native number box
+			// (boxed value + arrows, like the game's own FPS-limit option); otherwise numbers stay
+			// freetext-editable and the value shows as a plain right-column label.
+			const bool is_number  = entry->type() == typeid(double);
+			const bool is_stepper = is_number && meta && meta->has_min && meta->has_max;
+			const double step     = (meta && meta->has_step) ? meta->step : 1.0;
+
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
 			if (entry->type() == typeid(bool))
 			{
 				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
+			}
+			else if (is_stepper)
+			{
+				row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
 			}
 			else
 			{
@@ -1128,14 +1219,12 @@ namespace big::mod_settings
 				// Prefer the author's metadata description; fall back to the .cfg comment text.
 				pr.description = (meta && !meta->description.empty()) ? meta->description : entry->m_description.m_description;
 
-				// A numeric setting with author-declared min AND max becomes a bounded stepper
-				// (left/right adjusts by step); otherwise numbers stay freetext-editable.
-				if (entry->type() == typeid(double) && meta && meta->has_min && meta->has_max)
+				if (is_stepper)
 				{
 					pr.is_stepper   = true;
 					pr.stepper_min  = meta->min;
 					pr.stepper_max  = meta->max;
-					pr.stepper_step = meta->has_step ? meta->step : 1.0;
+					pr.stepper_step = step;
 				}
 
 				g_rows.push_back(pr);
@@ -1164,6 +1253,32 @@ namespace big::mod_settings
 		}
 	}
 
+	// The component the user is currently on: the mouse-over one (mouse) takes priority, else the
+	// selected one (keyboard/controller). These are MenuScreen fields (flat struct view).
+	static GUIComponent* active_row_component(MiscSettingsScreen* screen)
+	{
+		auto* menu = reinterpret_cast<MenuScreen*>(screen);
+		return menu->m_mouse_over_component ? menu->m_mouse_over_component : menu->m_selected_component;
+	}
+
+	// Finds the PanelRow whose left-column component is `comp`, or nullptr. Valid until the next
+	// panel rebuild (deferred to Update), so callers within a single input/update pass may keep it.
+	static PanelRow* find_row(GUIComponent* comp)
+	{
+		if (!comp)
+		{
+			return nullptr;
+		}
+		for (auto& row : g_rows)
+		{
+			if (row.component == comp)
+			{
+				return &row;
+			}
+		}
+		return nullptr;
+	}
+
 	// The component whose description was last written to the description box, so the box is only
 	// updated when the highlighted row changes (not every frame). Reset when the panel rebuilds.
 	static GUIComponent* g_last_description_component = nullptr;
@@ -1180,24 +1295,13 @@ namespace big::mod_settings
 		}
 		auto* box = screen->m_description_box;
 
-		GUIComponent* active = reinterpret_cast<MenuScreen*>(screen)->m_mouse_over_component;
-		if (!active)
-		{
-			active = reinterpret_cast<MenuScreen*>(screen)->m_selected_component;
-		}
+		GUIComponent* active = active_row_component(screen);
 
 		// Resolve the highlighted row's description (cheap linear scan over the few visible rows).
 		const std::string* description = nullptr;
-		if (active)
+		if (PanelRow* row = find_row(active))
 		{
-			for (const auto& row : g_rows)
-			{
-				if (row.component == active)
-				{
-					description = &row.description;
-					break;
-				}
-			}
+			description = &row->description;
 		}
 		const bool show = description && !description->empty();
 
@@ -1460,6 +1564,39 @@ namespace big::mod_settings
 		return result;
 	}
 
+	// Value-change hook for our native number-box rows. GUIComponentNumBox::SetNumberValue is called
+	// (with notify=true) on every user step - left/right, arrow click, keyboard or controller. We run
+	// the original first (it clamps to [min,max], refreshes the value text, updates arrow visibility),
+	// then, if `this` is one of our rows, persist the post-clamp value to the config entry and run the
+	// restart-required tracking. `notify` is false only for our own initial paint in make_numbox_row,
+	// so filtering on it keeps that from being recorded as a change. This fires for native settings
+	// num-boxes too, hence the `find_row` filter.
+	static void hook_GUIComponentNumBox_SetNumberValue(void* self, float value, bool notify)
+	{
+		big::g_hooking->get_original<hook_GUIComponentNumBox_SetNumberValue>()(self, value, notify);
+
+		if (!notify || !self)
+		{
+			return;
+		}
+
+		PanelRow* row = find_row(reinterpret_cast<GUIComponent*>(self));
+		if (!row || !row->is_stepper || !row->entry)
+		{
+			return;
+		}
+
+		const double new_value = static_cast<double>(*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + numbox_value_offset));
+		if (row->entry->get_value_base<double>() == new_value)
+		{
+			return;
+		}
+
+		capture_restart_baseline(row->entry);
+		row->entry->set_value_base<double>(new_value); // auto-saves via on_setting_changed
+		note_change_if_restart_required(row->entry, row->entry->get_serialized_value());
+	}
+
 	// Button-click hook. GUIComponentButton overrides GUIComponent::OnClicked (vtable slot
 	// +0x100, the engine's terminal-click), so this is where our button rows' clicks land.
 	// For our rows the engine returns false (they have no bound activate function) but still
@@ -1510,7 +1647,9 @@ namespace big::mod_settings
 			case RowKind::setting:
 			{
 				auto* entry = matched_row.entry;
-				// Boolean settings toggle in place; bounded numbers step; other types edit.
+				// Boolean settings toggle in place; other types open a freetext editor. Number-box
+				// (stepper) rows are GUIComponentNumBox, not buttons, so their clicks never reach
+				// this hook - the num-box handles its own arrow clicks and left/right natively.
 				if (entry && entry->type() == typeid(bool))
 				{
 					// Capture the session baseline before the first write so a later revert to
@@ -1533,12 +1672,6 @@ namespace big::mod_settings
 						g_pending_stem = matched_row.stem;
 						g_nav_pending  = true;
 					}
-				}
-				else if (matched_row.is_stepper)
-				{
-					// A click on a bounded number steps it up, wrapping past the max back to
-					// the min so mouse users can reach every value without arrow keys.
-					step_stepper_row(matched_row, +1, true);
 				}
 				else if (entry)
 				{
@@ -1682,6 +1815,10 @@ namespace big::mod_settings
 		// ShowText has a single overload, so it resolves by name.
 		g_show_text = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::ShowText"].as_func<void(void*, const char*)>();
 		g_get_lines = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GetLines"].as_func<void*(void*)>();
+		// GUIComponentNumBox setters are single-overload named symbols; the factory is a template
+		// instantiation, so it is resolved by RVA off the anchor in the block below.
+		g_numbox_set_range = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetRange"].as_func<void(void*, float, float)>();
+		g_numbox_set_value = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetNumberValue"].as_func<void(void*, float, bool)>();
 
 		// MessageDialog::MessageDialog and ScreenManager::AddScreen are overloaded, so the PDB
 		// symbol map cannot pick the wanted overload by name; resolve their DIA-validated RVAs
@@ -1691,6 +1828,7 @@ namespace big::mod_settings
 			const auto base       = anchor.as<uintptr_t>() - anchor_rva;
 			g_message_dialog_ctor = reinterpret_cast<message_dialog_ctor_fn>(base + message_dialog_ctor_rva);
 			g_add_screen          = reinterpret_cast<add_screen_fn>(base + add_screen_rva);
+			g_numbox_factory      = reinterpret_cast<numbox_factory_fn>(base + numbox_factory_rva);
 		}
 
 		if (!g_push_back)
@@ -1725,6 +1863,19 @@ namespace big::mod_settings
 		{
 			LOG(WARNING)
 			    << "[mod_settings] sgg::GUIComponentButton::OnClicked not found; mod rows will not be clickable";
+		}
+
+		const auto set_number_value = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetNumberValue"];
+		if (set_number_value)
+		{
+			static auto snv_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentNumBox_SetNumberValue>(
+			    "sgg::GUIComponentNumBox::SetNumberValue",
+			    set_number_value);
+		}
+		else
+		{
+			LOG(WARNING) << "[mod_settings] sgg::GUIComponentNumBox::SetNumberValue not found; number-box edits will "
+			                "not persist";
 		}
 
 		const auto update = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::Update"];
