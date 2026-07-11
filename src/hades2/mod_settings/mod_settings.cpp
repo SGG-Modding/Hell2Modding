@@ -122,6 +122,7 @@ namespace big::mod_settings
 	using message_dialog_ctor_fn = void* (*)(void* self, void* screen_manager, void* eastl_message);
 	using add_screen_fn          = void (*)(void* screen_manager, void* screen, bool add_at_end, void* eastl_name);
 	using show_text_fn           = void (*)(void* text_box, const char* text);
+	using get_lines_fn           = void* (*)(void* text_box);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -147,6 +148,7 @@ namespace big::mod_settings
 	static message_dialog_ctor_fn g_message_dialog_ctor = nullptr;
 	static add_screen_fn g_add_screen                   = nullptr;
 	static show_text_fn g_show_text                     = nullptr;
+	static get_lines_fn g_get_lines                     = nullptr;
 
 	// sgg::KeyboardButtonId values used for edit confirm/cancel (validated in the PDB).
 	static constexpr int key_escape   = 0;
@@ -162,12 +164,12 @@ namespace big::mod_settings
 	// ScreenCenterOffsetY, and X = the row's own location. Rows mirror the key-rebind
 	// ControlButton layout: the component is anchored to the right pane and its text is
 	// left-justified via a negative text offset, matching the native option-name column.
-	static constexpr float row_location_x    = 1560.0f; // component X (right pane), like OptionToggleButton
-	static constexpr float row_text_offset_x = -900.0f; // left-justify the label to the option-name column
-	static constexpr float value_text_offset_x = 55.0f; // right-justify the value; aligns with the toggle indicator column
-	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
-	static constexpr float row_base_y            = 315.0f;  // first row's Y (aligns with the tab column)
-	static constexpr float row_pitch             = 54.0f;   // vertical distance between rows
+	static constexpr float row_location_x      = 1560.0f; // component X (right pane), like OptionToggleButton
+	static constexpr float row_text_offset_x   = -900.0f; // left-justify the label to the option-name column
+	static constexpr float value_text_offset_x = 15.0f; // right-justify the value; right edge aligns with the toggle's
+	static constexpr float button_center_x     = 1130.0f; // centered action button X (clear of the scrollbar)
+	static constexpr float row_base_y          = 315.0f;  // first row's Y (aligns with the tab column)
+	static constexpr float row_pitch           = 54.0f;   // vertical distance between rows
 	static constexpr std::uint32_t rows_per_page = 8;
 
 	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
@@ -196,9 +198,21 @@ namespace big::mod_settings
 		bool disabled          = false; // greyed & non-interactable (mod disabled)
 		bool is_enabled_toggle = false; // the mod's master "enabled" toggle
 
+		// Author-provided description shown at the bottom of the screen while this row is
+		// highlighted (setting rows only; empty for navigation rows).
+		std::string description;
+
 		// Right-column value display for a non-bool setting row (paired with `component`, the
 		// left-column key). Not in mOptions; positioned to follow `component` each frame.
 		GUIComponent* value_component = nullptr;
+
+		// Numeric stepper (bounded number setting: metadata has both min and max). Left/right
+		// adjusts the value by `stepper_step`, clamped to [stepper_min, stepper_max]; a mouse
+		// click increments and wraps. When false, a numeric setting uses the freetext editor.
+		bool is_stepper     = false;
+		double stepper_min  = 0.0;
+		double stepper_max  = 0.0;
+		double stepper_step = 1.0;
 	};
 
 	static std::vector<PanelRow> g_rows;
@@ -362,15 +376,19 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_sel_text_blue)  = grey;
 	}
 
-	// Forces a row's normal text colour to full white so plain-text (key/value) rows read as
-	// bright/editable, matching the toggle rows. The selected colour is left as the template's
-	// so hover still highlights. Must run before SetupComponent to reach the text box.
-	static void set_def_text_white(GUIComponent* row)
+	// Sets a row's normal text colour to the native settings-option grey (0.55) used by the
+	// game's own OptionToggleButton / OptionNumBox rows, so plain-text (key/value) rows built on
+	// the CategoryOptionsButton template (whose own text is a darker 0.35) match the toggle rows
+	// instead of reading as brighter full white. The selected colour is left as the template's
+	// (the same green highlight both templates use) so hover still highlights. Must run before
+	// SetupComponent to reach the text box.
+	static void set_def_text_normal(GUIComponent* row)
 	{
 		char* def                                       = reinterpret_cast<char*>(row) + component_def_offset;
-		*reinterpret_cast<float*>(def + def_text_red)   = 1.0f;
-		*reinterpret_cast<float*>(def + def_text_green) = 1.0f;
-		*reinterpret_cast<float*>(def + def_text_blue)  = 1.0f;
+		constexpr float option_grey                     = 0.55f; // matches MiscSettingsScreen.sjson option rows
+		*reinterpret_cast<float*>(def + def_text_red)   = option_grey;
+		*reinterpret_cast<float*>(def + def_text_green) = option_grey;
+		*reinterpret_cast<float*>(def + def_text_blue)  = option_grey;
 	}
 
 	// A plain left-justified text row (mod names, Back, and non-toggle settings). Applies a
@@ -409,7 +427,7 @@ namespace big::mod_settings
 		}
 		else
 		{
-			set_def_text_white(row);
+			set_def_text_normal(row);
 		}
 
 		if (g_setup_component)
@@ -591,7 +609,7 @@ namespace big::mod_settings
 		}
 		else
 		{
-			set_def_text_white(row);
+			set_def_text_normal(row);
 		}
 
 		if (g_setup_component)
@@ -984,6 +1002,48 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
+	// Adjusts a bounded numeric stepper row by `direction` steps (+1 = increment, -1 = decrement).
+	// `wrap` cycles past a bound to the opposite one (used for a mouse click, so the value can be
+	// reached without arrow keys); otherwise the value is clamped to [min, max] (used for
+	// left/right, matching native number options). Writes the new value (which auto-saves and
+	// fires on_setting_changed), records any restart-required change, and refreshes the value
+	// label in place - no full rebuild, so rapid stepping stays smooth.
+	static void step_stepper_row(const PanelRow& row, int direction, bool wrap)
+	{
+		auto* entry = row.entry;
+		if (!entry || entry->type() != typeid(double) || row.disabled)
+		{
+			return;
+		}
+
+		const double step = (row.stepper_step != 0.0) ? row.stepper_step : 1.0;
+		const double cur  = entry->get_value_base<double>();
+		double next       = cur + direction * step;
+
+		if (next > row.stepper_max)
+		{
+			next = wrap ? row.stepper_min : row.stepper_max;
+		}
+		else if (next < row.stepper_min)
+		{
+			next = wrap ? row.stepper_max : row.stepper_min;
+		}
+
+		if (next == cur)
+		{
+			return; // already at the clamped bound; nothing changed
+		}
+
+		capture_restart_baseline(entry);
+		entry->set_value_base<double>(next); // auto-saves via on_setting_changed
+		note_change_if_restart_required(entry, entry->get_serialized_value());
+
+		if (row.value_component && g_set_label)
+		{
+			g_set_label(row.value_component, entry->get_serialized_value().c_str());
+		}
+	}
+
 	// Level 2: a Back row followed by one row per config entry belonging to `stem`. Boolean
 	// entries render as native toggle rows; other types render as a left-aligned key with a
 	// right-aligned, freetext-editable value (two components). A boolean "enabled" entry (if
@@ -1034,16 +1094,24 @@ namespace big::mod_settings
 			const bool is_enabled_row = (entry == enabled_entry);
 			const bool disabled       = !is_enabled_row && !mod_enabled;
 
+			// Author metadata (if any) can rename the row, hide it, and (later) pick its widget.
+			const auto meta = get_setting_metadata(stem, entry->m_definition.m_section, entry->m_definition.m_key);
+			if (meta && meta->hidden)
+			{
+				continue;
+			}
+			const std::string label = (meta && !meta->name.empty()) ? meta->name : key_to_display(key);
+
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
 			if (entry->type() == typeid(bool))
 			{
-				row = make_toggle_row(screen, key_to_display(key).c_str(), entry->get_value_base<bool>(), disabled);
+				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
 			}
 			else
 			{
 				// Left-aligned key + right-aligned value (two components), like a keybind row.
-				row = make_text_row(screen, key_to_display(key).c_str(), disabled);
+				row = make_text_row(screen, label.c_str(), disabled);
 				if (row)
 				{
 					const std::string v = entry ? entry->get_serialized_value() : std::string{};
@@ -1057,6 +1125,19 @@ namespace big::mod_settings
 				pr.disabled          = disabled;
 				pr.is_enabled_toggle = is_enabled_row;
 				pr.value_component   = value;
+				// Prefer the author's metadata description; fall back to the .cfg comment text.
+				pr.description = (meta && !meta->description.empty()) ? meta->description : entry->m_description.m_description;
+
+				// A numeric setting with author-declared min AND max becomes a bounded stepper
+				// (left/right adjusts by step); otherwise numbers stay freetext-editable.
+				if (entry->type() == typeid(double) && meta && meta->has_min && meta->has_max)
+				{
+					pr.is_stepper   = true;
+					pr.stepper_min  = meta->min;
+					pr.stepper_max  = meta->max;
+					pr.stepper_step = meta->has_step ? meta->step : 1.0;
+				}
+
 				g_rows.push_back(pr);
 			}
 		}
@@ -1083,8 +1164,71 @@ namespace big::mod_settings
 		}
 	}
 
+	// The component whose description was last written to the description box, so the box is only
+	// updated when the highlighted row changes (not every frame). Reset when the panel rebuilds.
+	static GUIComponent* g_last_description_component = nullptr;
+
+	// Shows the highlighted row's author description in the screen's native description box
+	// (MiscSettingsScreen::mDescriptionBox @ 0x460). The highlighted component is the mouse-over
+	// one (mouse) or the selected one (keyboard/controller); if it is one of our rows, its
+	// description is shown as raw text, otherwise the box is cleared.
+	static void sync_description_box(MiscSettingsScreen* screen)
+	{
+		if (!g_show_text || !screen->m_description_box)
+		{
+			return;
+		}
+		auto* box = screen->m_description_box;
+
+		GUIComponent* active = reinterpret_cast<MenuScreen*>(screen)->m_mouse_over_component;
+		if (!active)
+		{
+			active = reinterpret_cast<MenuScreen*>(screen)->m_selected_component;
+		}
+
+		// Resolve the highlighted row's description (cheap linear scan over the few visible rows).
+		const std::string* description = nullptr;
+		if (active)
+		{
+			for (const auto& row : g_rows)
+			{
+				if (row.component == active)
+				{
+					description = &row.description;
+					break;
+				}
+			}
+		}
+		const bool show = description && !description->empty();
+
+		// Rebuild the text only when the highlighted row changes (ShowText re-lays out the lines).
+		if (active != g_last_description_component)
+		{
+			g_last_description_component = active;
+			g_show_text(box, show ? description->c_str() : "");
+
+			// ShowText only marks the lines dirty; the layout (and text height, which the box's
+			// justification uses to place the text) is otherwise recomputed lazily at draw time,
+			// so the first visible frame would render at a stale position and visibly jump. Force
+			// the line rebuild now so the first shown frame is already laid out.
+			if (show && g_get_lines)
+			{
+				g_get_lines(box);
+			}
+		}
+
+		// Re-apply the fade every frame: the native Update runs before this and re-hides the box on
+		// the Mods tab (it does not use mDescriptionBox here), so a one-time set would fade back out.
+		box->m_fade_opacity = show ? 1.0f : 0.0f;
+		box->m_fade_target  = show ? 1.0f : 0.0f;
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
+		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer
+		// is no longer meaningful; force the description box to refresh next frame.
+		g_last_description_component = nullptr;
+
 		// Preserve the current scroll offset across an in-place refresh (same view/mod, e.g.
 		// after committing a setting edit or toggling "enabled") so confirming a setting on a
 		// lower page does not jump back to the top. A real view change (instant == false)
@@ -1277,6 +1421,7 @@ namespace big::mod_settings
 		g_restart_confirm_button = nullptr;
 		g_restart_changes.clear();
 		g_restart_baselines.clear();
+		g_last_description_component = nullptr;
 		exit_edit_mode();
 
 		// The engine constructor returns `this`; forward it unchanged.
@@ -1330,13 +1475,8 @@ namespace big::mod_settings
 			TerminateProcess(GetCurrentProcess(), 0);
 		}
 
-		RowKind kind = RowKind::mod_entry;
-		std::string stem;
-		toml_v2::config_file::config_entry_base* entry = nullptr;
-		GUIComponent* value_component                  = nullptr;
-		bool matched                                   = false;
-		bool disabled                                  = false;
-		bool is_enabled_toggle                         = false;
+		PanelRow matched_row;
+		bool matched = false;
 
 		if (self)
 		{
@@ -1344,13 +1484,8 @@ namespace big::mod_settings
 			{
 				if (row.component == self)
 				{
-					kind              = row.kind;
-					stem              = row.stem;
-					entry             = row.entry;
-					value_component   = row.value_component;
-					disabled          = row.disabled;
-					is_enabled_toggle = row.is_enabled_toggle;
-					matched           = true;
+					matched_row = row;
+					matched     = true;
 					break;
 				}
 			}
@@ -1358,13 +1493,13 @@ namespace big::mod_settings
 
 		const bool result = big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
 
-		if (matched && !disabled)
+		if (matched && !matched_row.disabled)
 		{
-			switch (kind)
+			switch (matched_row.kind)
 			{
 			case RowKind::mod_entry:
 				g_pending_view = View::mod_settings;
-				g_pending_stem = stem;
+				g_pending_stem = matched_row.stem;
 				g_nav_pending  = true;
 				break;
 			case RowKind::back:
@@ -1373,7 +1508,9 @@ namespace big::mod_settings
 				g_nav_pending = true;
 				break;
 			case RowKind::setting:
-				// Boolean settings toggle in place; other types open a freetext editor.
+			{
+				auto* entry = matched_row.entry;
+				// Boolean settings toggle in place; bounded numbers step; other types edit.
 				if (entry && entry->type() == typeid(bool))
 				{
 					// Capture the session baseline before the first write so a later revert to
@@ -1390,18 +1527,25 @@ namespace big::mod_settings
 
 					// Toggling the mod's master "enabled" switch changes which other rows
 					// are greyed out, so rebuild the settings view on the next Update.
-					if (is_enabled_toggle)
+					if (matched_row.is_enabled_toggle)
 					{
 						g_pending_view = View::mod_settings;
-						g_pending_stem = stem;
+						g_pending_stem = matched_row.stem;
 						g_nav_pending  = true;
 					}
 				}
+				else if (matched_row.is_stepper)
+				{
+					// A click on a bounded number steps it up, wrapping past the max back to
+					// the min so mouse users can reach every value without arrow keys.
+					step_stepper_row(matched_row, +1, true);
+				}
 				else if (entry)
 				{
-					enter_edit_mode(value_component, entry);
+					enter_edit_mode(matched_row.value_component, entry);
 				}
 				break;
+			}
 			case RowKind::action:
 				// TODO: dispatch the action row's callback.
 				break;
@@ -1447,10 +1591,12 @@ namespace big::mod_settings
 		void* result = big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
 
 		// The original just laid out the key rows for this frame; mirror the value columns
-		// onto them so the right column tracks scrolling and fade.
+		// onto them so the right column tracks scrolling and fade, and show the highlighted
+		// row's description in the native description box.
 		if (on_mods_tab)
 		{
 			sync_value_columns();
+			sync_description_box(screen);
 		}
 
 		return result;
@@ -1535,6 +1681,7 @@ namespace big::mod_settings
 
 		// ShowText has a single overload, so it resolves by name.
 		g_show_text = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::ShowText"].as_func<void(void*, const char*)>();
+		g_get_lines = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GetLines"].as_func<void*(void*)>();
 
 		// MessageDialog::MessageDialog and ScreenManager::AddScreen are overloaded, so the PDB
 		// symbol map cannot pick the wanted overload by name; resolve their DIA-validated RVAs

@@ -1,5 +1,6 @@
 #include "mod_settings.hpp"
 
+#include <format>
 #include <lua/lua_manager.hpp>
 #include <lua/lua_module.hpp>
 #include <map>
@@ -17,13 +18,14 @@ using namespace al;
 namespace big::mod_settings
 {
 	// Author-declared per-setting metadata registry, populated from each mod's config.lua by
-	// rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Currently records only
-	// whether a setting requires a game restart to take effect (set via `restart_required = true`
-	// in a setting's config.lua description table); extensible to context/visibility later. This
+	// rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Holds the widget type,
+	// numeric bounds, enum options, display name, ordering, and the restart-required flag that the
+	// settings menu reads to pick and drive a widget. Only settings whose config.lua description is
+	// a rich table are registered; the rest fall back to type-based rendering. The restart flag
 	// replaces the old sjson-hook auto-detection, which could not see a mod that starts disabled
 	// (it registers no hooks until enabled), and never covered restarts needed for other reasons.
 	static std::mutex g_metadata_mutex;
-	static std::map<std::string, bool> g_restart_required_settings;
+	static std::map<std::string, setting_metadata> g_setting_metadata;
 
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
 	{
@@ -42,17 +44,28 @@ namespace big::mod_settings
 	static void clear_metadata_for(const std::string& guid)
 	{
 		const std::string prefix = guid + '\0';
-		for (auto it = g_restart_required_settings.begin(); it != g_restart_required_settings.end();)
+		for (auto it = g_setting_metadata.begin(); it != g_setting_metadata.end();)
 		{
-			it = (it->first.rfind(prefix, 0) == 0) ? g_restart_required_settings.erase(it) : std::next(it);
+			it = (it->first.rfind(prefix, 0) == 0) ? g_setting_metadata.erase(it) : std::next(it);
 		}
 	}
 
 	bool setting_requires_restart(const std::string& guid, const std::string& section, const std::string& key)
 	{
 		std::scoped_lock lock(g_metadata_mutex);
-		const auto it = g_restart_required_settings.find(metadata_key(guid, section, key));
-		return it != g_restart_required_settings.end() && it->second;
+		const auto it = g_setting_metadata.find(metadata_key(guid, section, key));
+		return it != g_setting_metadata.end() && it->second.restart_required;
+	}
+
+	std::optional<setting_metadata> get_setting_metadata(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_setting_metadata.find(metadata_key(guid, section, key));
+		if (it == g_setting_metadata.end())
+		{
+			return std::nullopt;
+		}
+		return it->second;
 	}
 
 	// Extracts a description string from a config.lua description value, which may be a plain string
@@ -89,6 +102,102 @@ namespace big::mod_settings
 		}
 		sol::object flag = desc.as<sol::table>()["restart_required"];
 		return flag.is<bool>() && flag.as<bool>();
+	}
+
+	// Serializes a Lua enum-option value (bool/number/string) into the exact string form a config
+	// entry serializes to, so the menu can match an option against the stored value. Numbers use
+	// the same locale-invariant std::format the toml converter uses, and every config number is
+	// stored as a double.
+	static std::string serialize_option(const sol::object& v)
+	{
+		switch (v.get_type())
+		{
+		case sol::type::string:  return v.as<std::string>();
+		case sol::type::boolean: return v.as<bool>() ? "true" : "false";
+		case sol::type::number:  return std::format("{}", v.as<double>());
+		default:                 return "";
+		}
+	}
+
+	// Reads the array part of a Lua list table (ipairs order) applying `transform` to each element.
+	template<typename Transform>
+	static void read_list(const sol::object& obj, std::vector<std::string>& out, Transform transform)
+	{
+		if (!obj.is<sol::table>())
+		{
+			return;
+		}
+		sol::table t = obj.as<sol::table>();
+		for (std::size_t i = 1; i <= t.size(); ++i)
+		{
+			out.push_back(transform(t[i]));
+		}
+	}
+
+	// Builds a setting_metadata from a config.lua description table for a flat (non-table) value.
+	// Missing fields keep their defaults. The widget kind is not stored: the menu derives it from
+	// the config value's type plus the presence of `values` (enum), so authors never declare a
+	// `type`. Author-only inputs that cannot be inferred (name, bounds, enum options/labels,
+	// order, hidden, restart) are what this captures.
+	static setting_metadata extract_metadata(const sol::table& desc)
+	{
+		setting_metadata m;
+		m.description = describe(desc);
+
+		sol::object name = desc["name"];
+		if (name.get_type() == sol::type::string)
+		{
+			m.name = name.as<std::string>();
+		}
+
+		sol::object min_field = desc["min"];
+		if (min_field.get_type() == sol::type::number)
+		{
+			m.has_min = true;
+			m.min     = min_field.as<double>();
+		}
+		sol::object max_field = desc["max"];
+		if (max_field.get_type() == sol::type::number)
+		{
+			m.has_max = true;
+			m.max     = max_field.as<double>();
+		}
+		sol::object step_field = desc["step"];
+		if (step_field.get_type() == sol::type::number)
+		{
+			m.has_step = true;
+			m.step     = step_field.as<double>();
+		}
+
+		read_list(desc["values"],
+		          m.values,
+		          [](const sol::object& v)
+		          {
+			          return serialize_option(v);
+		          });
+		read_list(desc["labels"],
+		          m.labels,
+		          [](const sol::object& v)
+		          {
+			          return v.get_type() == sol::type::string ? v.as<std::string>() : serialize_option(v);
+		          });
+
+		sol::object order_field = desc["order"];
+		if (order_field.get_type() == sol::type::number)
+		{
+			m.has_order = true;
+			m.order     = order_field.as<double>();
+		}
+
+		sol::object hidden_field = desc["hidden"];
+		if (hidden_field.is<bool>())
+		{
+			m.hidden = hidden_field.as<bool>();
+		}
+
+		m.restart_required = description_requires_restart(desc);
+
+		return m;
 	}
 
 	// Finds the config entry for (section, key), or nullptr. m_entries is keyed by config_definition,
@@ -179,12 +288,21 @@ namespace big::mod_settings
 		}
 	};
 
+	// A setting's extracted metadata together with the section/key it belongs to, collected while
+	// walking config.lua and then folded into the registry.
+	struct collected_metadata
+	{
+		std::string section;
+		std::string key;
+		setting_metadata meta;
+	};
+
 	// Recursively binds a config.lua `defaults` table into `cf` under `section`, forwarding each
-	// leaf's description. Nested tables become sub-sections ("section.key"). Leaf keys whose
-	// description declares restart_required are appended to `restart_out` as (section, key) pairs.
+	// leaf's description. Nested tables become sub-sections ("section.key"). Each flat leaf whose
+	// description is a rich table has its metadata extracted into `meta_out` (keyed by section+key).
 	// config_file::bind adopts a value already saved in the .cfg, preserving user edits, and binds
 	// under section "config" so the .cfg stays byte-compatible with what SGG_Modding-Chalk wrote.
-	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<std::pair<std::string, std::string>>& restart_out)
+	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out)
 	{
 		sol::table desc_tbl;
 		const bool has_desc = desc_obj.is<sol::table>();
@@ -211,7 +329,7 @@ namespace big::mod_settings
 			switch (vt)
 			{
 			case sol::type::table:
-				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, restart_out);
+				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out);
 				break;
 			case sol::type::boolean: cf->bind(section, key, value_obj.as<bool>(), describe(desc)); break;
 			case sol::type::number:  cf->bind(section, key, value_obj.as<double>(), describe(desc)); break;
@@ -219,9 +337,11 @@ namespace big::mod_settings
 			default:                 continue;
 			}
 
-			if (vt != sol::type::table && description_requires_restart(desc))
+			// Only a rich description table carries metadata; a nested value is a sub-section (its
+			// table holds child descriptions, not this key's metadata) and is handled by recursion.
+			if (vt != sol::type::table && desc.is<sol::table>())
 			{
-				restart_out.emplace_back(section, key);
+				meta_out.push_back({section, key, extract_metadata(desc.as<sol::table>())});
 			}
 		}
 	}
@@ -283,22 +403,21 @@ namespace big::mod_settings
 		sol::object descriptions = cfg_result[1];
 
 		// Bind the defaults into the config_file (section root "config", matching Chalk) and collect
-		// the author-declared restart-required settings, then persist the file.
-		std::vector<std::pair<std::string, std::string>> restart_settings;
+		// each rich setting's metadata, then persist the file.
+		std::vector<collected_metadata> collected;
 		if (defaults.is<sol::table>())
 		{
-			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", restart_settings);
+			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", collected);
 		}
 		cf->save();
 
-		// Register this mod's restart-required settings into the metadata registry (replacing any
-		// from a previous load of the same mod).
+		// Register this mod's setting metadata (replacing any from a previous load of the same mod).
 		{
 			std::scoped_lock lock(g_metadata_mutex);
 			clear_metadata_for(guid);
-			for (const auto& [section, key] : restart_settings)
+			for (auto& cm : collected)
 			{
-				g_restart_required_settings[metadata_key(guid, section, key)] = true;
+				g_setting_metadata[metadata_key(guid, cm.section, cm.key)] = std::move(cm.meta);
 			}
 		}
 
