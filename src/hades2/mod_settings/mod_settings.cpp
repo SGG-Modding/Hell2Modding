@@ -8,7 +8,9 @@
 #include <gui/renderer.hpp>
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
+#include <lua/lua_manager.hpp>
 #include <malloc.h>
+#include <map>
 #include <memory/gm_address.hpp>
 #include <string>
 #include <toml_v2/config_file.hpp>
@@ -74,18 +76,52 @@ namespace big::mod_settings
 	static constexpr std::size_t def_sel_text_blue      = 0x1'30; // mSelectedTextBlue   (float)
 	static constexpr std::size_t def_spacing = 0x1'5C; // mSpacing (float) row pitch, read by UpdateScrollState
 
-	using ctor_fn            = void* (*)(void* button, void* owner_screen);
-	using push_back_fn       = void (*)(void* vector, GUIComponent** value);
-	using apply_data_fn      = void (*)(void* menu_screen, GUIComponent* component);
-	using set_label_fn       = void (*)(void* button, const char* text);
-	using update_scroll_fn   = void (*)(void* misc_settings_screen);
-	using set_animation_fn   = void (*)(void* button, std::uint32_t graphic_id);
-	using setup_component_fn = void (*)(void* component, void* component_data);
-	using set_texture_fn     = void (*)(void* button, std::uint32_t graphic_id, bool reset);
-	using set_sel_texture_fn = void (*)(void* button, std::uint32_t graphic_id);
-	using disable_fn         = void (*)(void* button);
-	using was_key_pressed_fn = bool (*)(void* input_handler, int keyboard_button_id);
-	using dtor_fn            = void (*)(void* button);
+	// Native sgg::MessageDialog (the single-button message box the game shows in the MAIN MENU for
+	// save/file errors, ShellText SaveErrorPC/FileAccessErrorPC). Unlike the Lua screen system it
+	// does not need a loaded save, so it works when mods are toggled in the main menu. Offsets +
+	// RVAs DIA-validated against the current Ship Hades2.pdb.
+	static constexpr std::size_t message_dialog_size          = 0x2'F0; // sizeof sgg::MessageDialog
+	static constexpr std::size_t screen_manager_offset        = 0x48;   // sgg::GameScreen::mScreenManager
+	static constexpr std::size_t screen_removed_offset        = 0x21;   // sgg::GameScreen::mRemoved (bool)
+	static constexpr std::size_t screen_visible_offset        = 0x22;   // sgg::GameScreen::mIsVisible (bool)
+	static constexpr std::size_t screen_block_input_offset    = 0x24;   // sgg::GameScreen::mBlockLowerInput (bool)
+	static constexpr std::size_t dialog_title_offset          = 0x1'88; // sgg::MenuScreen::mTitleText
+	static constexpr std::size_t dialog_confirm_button_offset = 0x1'A0; // sgg::MenuScreen::mConfirmButton
+	static constexpr std::size_t dialog_message_offset        = 0x2'B0; // sgg::MessageDialog::mMessageText
+
+	// The MessageDialog.sjson MessageText template renders at FontSize 26, which is larger than we
+	// want for the multi-line body. The rendered size is driven by GUIComponentTextBox::mFontHandle
+	// (@0x6A4); scaling its mFontSizeRatio (@+0x0C) / mEnglishFontSizeRatio (@+0x10) shrinks it. The
+	// def's mFontSize is ignored once the sjson template is loaded, so we scale the live handle.
+	static constexpr std::size_t textbox_font_handle_offset        = 0x6'A4; // GUIComponentTextBox::mFontHandle
+	static constexpr std::size_t font_handle_size_ratio_offset     = 0x0C;   // sgg::FontHandle::mFontSizeRatio
+	static constexpr std::size_t font_handle_eng_size_ratio_offset = 0x10;   // sgg::FontHandle::mEnglishFontSizeRatio
+	static constexpr float restart_message_font_scale              = 0.75f;  // ~26 -> ~19.5
+
+	// Module-relative RVAs (current Ship build) for the overloaded functions that cannot be picked
+	// by name from the PDB symbol map. Resolved at runtime relative to the button-ctor anchor:
+	// anchor_runtime - anchor_rva + target_rva. AddScreen has three overloads; the 4-arg one
+	// inserts at the END of the screen list (drawn on top), unlike the 2-arg one which front-inserts
+	// (drawn under the full-screen options menu = invisible).
+	static constexpr std::uintptr_t anchor_rva = 0x11'5C'70; // sgg::GUIComponentButton::GUIComponentButton
+	static constexpr std::uintptr_t message_dialog_ctor_rva = 0x16'EE'60; // sgg::MessageDialog::MessageDialog(this,sm,eastl::string*)
+	static constexpr std::uintptr_t add_screen_rva = 0x14'7D'D0; // sgg::ScreenManager::AddScreen(this,screen,bool,eastl::string*)
+
+	using ctor_fn                = void* (*)(void* button, void* owner_screen);
+	using push_back_fn           = void (*)(void* vector, GUIComponent** value);
+	using apply_data_fn          = void (*)(void* menu_screen, GUIComponent* component);
+	using set_label_fn           = void (*)(void* button, const char* text);
+	using update_scroll_fn       = void (*)(void* misc_settings_screen);
+	using set_animation_fn       = void (*)(void* button, std::uint32_t graphic_id);
+	using setup_component_fn     = void (*)(void* component, void* component_data);
+	using set_texture_fn         = void (*)(void* button, std::uint32_t graphic_id, bool reset);
+	using set_sel_texture_fn     = void (*)(void* button, std::uint32_t graphic_id);
+	using disable_fn             = void (*)(void* button);
+	using was_key_pressed_fn     = bool (*)(void* input_handler, int keyboard_button_id);
+	using dtor_fn                = void (*)(void* button);
+	using message_dialog_ctor_fn = void* (*)(void* self, void* screen_manager, void* eastl_message);
+	using add_screen_fn          = void (*)(void* screen_manager, void* screen, bool add_at_end, void* eastl_name);
+	using show_text_fn           = void (*)(void* text_box, const char* text);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -95,19 +131,22 @@ namespace big::mod_settings
 
 	using hash_lookup_fn = HashGuid* (*)(HashGuid * out, const char* str, std::size_t len);
 
-	static ctor_fn g_button_ctor                     = nullptr;
-	static push_back_fn g_push_back                  = nullptr;
-	static apply_data_fn g_apply_data                = nullptr;
-	static set_label_fn g_set_label                  = nullptr;
-	static update_scroll_fn g_update_scroll          = nullptr;
-	static set_animation_fn g_set_animation          = nullptr;
-	static hash_lookup_fn g_hash_lookup              = nullptr;
-	static setup_component_fn g_setup_component      = nullptr;
-	static set_texture_fn g_set_normal_texture       = nullptr;
-	static set_sel_texture_fn g_set_selected_texture = nullptr;
-	static dtor_fn g_button_dtor                     = nullptr;
-	static disable_fn g_disable                      = nullptr;
-	static was_key_pressed_fn g_was_key_pressed      = nullptr;
+	static ctor_fn g_button_ctor                        = nullptr;
+	static push_back_fn g_push_back                     = nullptr;
+	static apply_data_fn g_apply_data                   = nullptr;
+	static set_label_fn g_set_label                     = nullptr;
+	static update_scroll_fn g_update_scroll             = nullptr;
+	static set_animation_fn g_set_animation             = nullptr;
+	static hash_lookup_fn g_hash_lookup                 = nullptr;
+	static setup_component_fn g_setup_component         = nullptr;
+	static set_texture_fn g_set_normal_texture          = nullptr;
+	static set_sel_texture_fn g_set_selected_texture    = nullptr;
+	static dtor_fn g_button_dtor                        = nullptr;
+	static disable_fn g_disable                         = nullptr;
+	static was_key_pressed_fn g_was_key_pressed         = nullptr;
+	static message_dialog_ctor_fn g_message_dialog_ctor = nullptr;
+	static add_screen_fn g_add_screen                   = nullptr;
+	static show_text_fn g_show_text                     = nullptr;
 
 	// sgg::KeyboardButtonId values used for edit confirm/cancel (validated in the PDB).
 	static constexpr int key_escape   = 0;
@@ -163,6 +202,26 @@ namespace big::mod_settings
 	};
 
 	static std::vector<PanelRow> g_rows;
+
+	// Set when a restart-required setting is changed this menu session (e.g. toggling the
+	// "enabled" switch of an sjson-backed mod). On options-menu close we warn + close the game.
+	static bool g_restart_required = false;
+
+	// The restart-causing changes this session, keyed by "<stem>\0<section>\0<key>" so re-editing
+	// the same setting overwrites its line rather than adding a duplicate. Values are the
+	// human-readable lines listed in the restart popup, e.g. "MyMod: Enabled (on)".
+	static std::map<std::string, std::string> g_restart_changes;
+
+	// Baseline serialized value (as of this menu session's open) for each restart-required setting
+	// that was touched, keyed identically to g_restart_changes. Used to drop a setting from the
+	// restart list when it is changed back to its baseline (no net change -> no restart needed).
+	static std::map<std::string, std::string> g_restart_baselines;
+
+	// The native restart message box's (only) button; clicking it closes the game (restart).
+	static GUIComponent* g_restart_confirm_button = nullptr;
+
+	// True once the restart prompt has been shown this menu session (so closing again proceeds).
+	static bool g_restart_prompt_shown = false;
 
 	// Which view the Mods panel is currently showing, plus a deferred navigation request
 	// that a click sets and the Update hook applies at a safe point (outside input/click
@@ -793,6 +852,86 @@ namespace big::mod_settings
 		g_nav_pending  = true;
 	}
 
+	// Replaces each ASCII space with a non-breaking space (U+00A0, UTF-8 0xC2 0xA0). The message
+	// textbox auto-wraps at breakable spaces (computed at the template font size, before our font
+	// scaling), which would split a single logical line; non-breaking spaces keep it on one line.
+	static std::string to_non_breaking(const std::string& text)
+	{
+		std::string out;
+		out.reserve(text.size() + text.size() / 4);
+		for (char c : text)
+		{
+			if (c == ' ')
+			{
+				out += "\xC2\xA0";
+			}
+			else
+			{
+				out += c;
+			}
+		}
+		return out;
+	}
+
+	// Composite key ("<stem>\0<section>\0<key>") uniquely identifying a config entry across mods.
+	static std::string restart_change_key(toml_v2::config_file::config_entry_base* entry, const std::string& stem)
+	{
+		return stem + '\0' + entry->m_definition.m_section + '\0' + entry->m_definition.m_key;
+	}
+
+	// Captures a restart-required setting's baseline (its value as of this menu session's open)
+	// BEFORE it is first modified, so a later change back to this value can be recognised as "no
+	// net change". Called just before the value is written. No-op for non-restart-required settings
+	// and after the first capture for a given setting.
+	static void capture_restart_baseline(toml_v2::config_file::config_entry_base* entry)
+	{
+		if (!entry || !entry->m_config_file)
+		{
+			return;
+		}
+		const std::string& stem = entry->m_config_file->m_config_file_stem_as_str;
+		if (!setting_requires_restart(stem, entry->m_definition.m_section, entry->m_definition.m_key))
+		{
+			return;
+		}
+		const std::string key = restart_change_key(entry, stem);
+		g_restart_baselines.try_emplace(key, entry->get_serialized_value());
+	}
+
+	// Records or clears a restart-required setting change after the value has been written. If the
+	// new value equals the session baseline (e.g. a toggle flipped and flipped back, or a number
+	// re-typed to its original), nothing actually changed, so the setting is dropped from the
+	// restart list; otherwise it is listed. `new_value_display` is the value shown in the popup.
+	// g_restart_required stays set as long as any real change remains.
+	static void note_change_if_restart_required(toml_v2::config_file::config_entry_base* entry, const std::string& new_value_display)
+	{
+		if (!entry || !entry->m_config_file)
+		{
+			return;
+		}
+		const std::string& stem = entry->m_config_file->m_config_file_stem_as_str;
+		if (!setting_requires_restart(stem, entry->m_definition.m_section, entry->m_definition.m_key))
+		{
+			return;
+		}
+		const std::string key = restart_change_key(entry, stem);
+
+		const auto baseline = g_restart_baselines.find(key);
+		if (baseline != g_restart_baselines.end() && entry->get_serialized_value() == baseline->second)
+		{
+			// Reverted to the session baseline: no net change, so it no longer needs a restart.
+			g_restart_changes.erase(key);
+		}
+		else
+		{
+			// Keep each mod/setting/value entry on one line (see to_non_breaking).
+			const std::string line = display_name_from_stem(stem) + ": " + key_to_display(entry->m_definition.m_key) + " (" + new_value_display + ")";
+			g_restart_changes[key] = to_non_breaking(line);
+		}
+
+		g_restart_required = !g_restart_changes.empty();
+	}
+
 	// Commits or cancels a pending edit. Called from the HandleInput hook so it runs on the
 	// same frame the triggering key/click is swallowed (HandleInput returns true that
 	// frame), which prevents a submitting mouse click from also activating the row it lands
@@ -803,9 +942,16 @@ namespace big::mod_settings
 		{
 			if (g_edit_entry)
 			{
+				// Capture the session baseline before the first write so a later revert to it
+				// is recognised as "no net change".
+				capture_restart_baseline(g_edit_entry);
+
 				// set_serialized_value validates (e.g. numbers) and only stores/saves a
 				// valid value, so bad input for a number simply keeps the old value.
 				g_edit_entry->set_serialized_value(g_edit_buffer);
+
+				// If the author declared this setting restart-required, flag/clear the restart.
+				note_change_if_restart_required(g_edit_entry, g_edit_entry->get_serialized_value());
 			}
 			exit_edit_mode();
 			request_settings_rebuild();
@@ -1016,6 +1162,107 @@ namespace big::mod_settings
 		build_panel(screen, instant);
 	}
 
+	// Builds the restart-popup body text from the changes collected this session. Blank lines are a
+	// single non-breaking space (U+00A0): ShowText trims ASCII-whitespace-only lines (so "\n\n" and
+	// "\n \n" collapse) but keeps an nbsp line. A sacrificial trailing nbsp line is appended because
+	// the formatter also trims the LAST whitespace-only line, which would otherwise merge the blank
+	// before the outro into it. Intro/outro and each change entry are non-breaking so the
+	// width-greedy formatter keeps each on one line.
+	static std::string build_restart_message()
+	{
+		const std::string blank = "\xC2\xA0"; // nbsp: a whitespace line ShowText will not trim
+
+		std::string msg  = to_non_breaking("A restart is required because you changed these settings:");
+		msg             += "\n" + blank + "\n";
+		for (const auto& change : g_restart_changes)
+		{
+			msg += change.second;
+			msg += "\n";
+		}
+		msg += blank + "\n";
+		msg += to_non_breaking("The game will now close. Please restart it to apply the changes.");
+		msg += "\n" + blank; // sacrificial trailing blank so the one above the outro survives
+		return msg;
+	}
+
+	// Builds an empty EASTL SSO string (24-byte layout) in `buf` (>=24 bytes). Passed to the
+	// dialog ctor (message) and AddScreen (name); the real message is applied afterwards via
+	// ShowText. Layout: bytes[0..]=chars, byte[23]=remaining-capacity marker (23 - length).
+	static void make_eastl_sso(char* buf, const char* text)
+	{
+		std::size_t n = std::strlen(text);
+		if (n > 22)
+		{
+			n = 22;
+		}
+		std::memset(buf, 0, 24);
+		std::memcpy(buf, text, n);
+		buf[23] = static_cast<char>(23 - n);
+	}
+
+	// Shows the native single-button "restart required" message box (sgg::MessageDialog, the same
+	// box the game uses in the main menu for save/file errors). `message` is shown as the body
+	// text. Its only button closes the game (handled in the OnClicked hook) - a restart-required
+	// change must not be cancellable, since cancelling would have to undo the change. Returns true
+	// if the native dialog was shown; otherwise falls back to a MessageBox (OK closes the game).
+	static bool show_restart_dialog(void* screen_manager, const std::string& message)
+	{
+		if (screen_manager && g_message_dialog_ctor && g_add_screen)
+		{
+			void* dialog = _aligned_malloc(message_dialog_size, 8);
+			if (dialog)
+			{
+				std::memset(dialog, 0, message_dialog_size);
+
+				// The ctor builds every component (single button + text) and loads
+				// GUI/MessageDialog.sjson. Pass an empty message; the real (multi-line) text is
+				// applied below via ShowText so it need not be an eastl heap string.
+				char empty_message[24];
+				make_eastl_sso(empty_message, "");
+				g_message_dialog_ctor(dialog, screen_manager, empty_message);
+
+				auto* bytes = reinterpret_cast<char*>(dialog);
+
+				// Ensure the dialog is visible and modal over the options screen.
+				bytes[screen_removed_offset]     = 0;
+				bytes[screen_visible_offset]     = 1;
+				bytes[screen_block_input_offset] = 1;
+
+				// Set the title + body (raw text; the body carries the restart-causing settings).
+				if (g_show_text)
+				{
+					if (auto* title_box = *reinterpret_cast<void**>(bytes + dialog_title_offset))
+					{
+						g_show_text(title_box, "Restart Required");
+					}
+					if (auto* message_box = *reinterpret_cast<GUIComponent**>(bytes + dialog_message_offset))
+					{
+						// Shrink the body font: the sjson template renders at size 26; scale the
+						// live font handle's size ratios down before ShowText lays out the lines
+						// (the def's mFontSize is ignored once the template is loaded).
+						char* handle = reinterpret_cast<char*>(message_box) + textbox_font_handle_offset;
+						*reinterpret_cast<float*>(handle + font_handle_size_ratio_offset) *= restart_message_font_scale;
+						*reinterpret_cast<float*>(handle + font_handle_eng_size_ratio_offset) *= restart_message_font_scale;
+						g_show_text(message_box, message.c_str());
+					}
+				}
+
+				// Capture the confirm button so the OnClicked hook closes the game on press.
+				g_restart_confirm_button = *reinterpret_cast<GUIComponent**>(bytes + dialog_confirm_button_offset);
+
+				// Add at the END of the screen list so it draws on top of the options menu.
+				char empty_name[24];
+				make_eastl_sso(empty_name, "");
+				g_add_screen(screen_manager, dialog, true, empty_name);
+				return true;
+			}
+		}
+
+		MessageBoxW(nullptr, L"A changed mod setting requires a restart. The game will now close - please restart it.", L"Hell2Modding - Restart Required", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+		TerminateProcess(GetCurrentProcess(), 0);
+		return false;
+	}
+
 	static void* hook_MiscSettingsScreen_ctor(void* self, void* screen_manager, void* opened_from, void* profile_name)
 	{
 		// Reset state BEFORE running the original ctor: the original ctor immediately shows
@@ -1024,7 +1271,12 @@ namespace big::mod_settings
 		g_rows.clear();
 		g_view = View::mod_list;
 		g_view_stem.clear();
-		g_nav_pending = false;
+		g_nav_pending            = false;
+		g_restart_required       = false;
+		g_restart_prompt_shown   = false;
+		g_restart_confirm_button = nullptr;
+		g_restart_changes.clear();
+		g_restart_baselines.clear();
 		exit_edit_mode();
 
 		// The engine constructor returns `this`; forward it unchanged.
@@ -1071,6 +1323,13 @@ namespace big::mod_settings
 	// vectors is safe (this runs mid input iteration).
 	static bool hook_GUIComponentButton_OnClicked(GUIComponent* self, std::uint64_t location)
 	{
+		// Clicking the restart message box's button closes the game (forced restart).
+		if (self && self == g_restart_confirm_button)
+		{
+			big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
+			TerminateProcess(GetCurrentProcess(), 0);
+		}
+
 		RowKind kind = RowKind::mod_entry;
 		std::string stem;
 		toml_v2::config_file::config_entry_base* entry = nullptr;
@@ -1117,9 +1376,17 @@ namespace big::mod_settings
 				// Boolean settings toggle in place; other types open a freetext editor.
 				if (entry && entry->type() == typeid(bool))
 				{
+					// Capture the session baseline before the first write so a later revert to
+					// it (toggling off then on again) is recognised as "no net change".
+					capture_restart_baseline(entry);
+
 					const bool new_value = !entry->get_value_base<bool>();
 					entry->set_value_base<bool>(new_value);
 					set_toggle_graphic(self, new_value);
+
+					// If the author declared this setting restart-required, flag/clear the
+					// restart and record the change so the popup can list what forced it.
+					note_change_if_restart_required(entry, new_value ? "on" : "off");
 
 					// Toggling the mod's master "enabled" switch changes which other rows
 					// are greyed out, so rebuild the settings view on the next Update.
@@ -1214,7 +1481,30 @@ namespace big::mod_settings
 			commit_or_cancel_edit();
 			return true;
 		}
+
 		return big::g_hooking->get_original<hook_MiscSettingsScreen_HandleInput>()(self, input, x);
+	}
+
+	// Close funnel for the options screen: every way the user dismisses it (Escape key, controller
+	// B, or clicking the on-screen "Exit" button) converges here (MiscSettingsScreen::ExitScreen,
+	// vtable slot 7), before any fade/teardown and while mScreenManager is valid. If a restart is
+	// required, show the native message box and DO NOT run the original (veto the close): the box
+	// is modal over the still-open options screen and its button closes the game. A restart-required
+	// change must not be cancellable (that would require undoing the change), so the restart is
+	// forced. If the native dialog cannot be shown, the MessageBox fallback closes the game anyway.
+	static void hook_MiscSettingsScreen_ExitScreen(void* self)
+	{
+		if (g_restart_required && !g_restart_prompt_shown)
+		{
+			g_restart_prompt_shown = true;
+			void* screen_manager   = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + screen_manager_offset);
+			if (show_restart_dialog(screen_manager, build_restart_message()))
+			{
+				return;
+			}
+		}
+
+		big::g_hooking->get_original<hook_MiscSettingsScreen_ExitScreen>()(self);
 	}
 
 	void register_hooks()
@@ -1242,6 +1532,19 @@ namespace big::mod_settings
 		g_was_key_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasKeyPressed"].as_func<bool(void*, int)>();
 		g_push_back =
 		    big::hades2_symbol_to_address["eastl::vector<sgg::GUIComponent *,eastl::allocator_forge>::push_back"].as_func<void(void*, GUIComponent**)>();
+
+		// ShowText has a single overload, so it resolves by name.
+		g_show_text = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::ShowText"].as_func<void(void*, const char*)>();
+
+		// MessageDialog::MessageDialog and ScreenManager::AddScreen are overloaded, so the PDB
+		// symbol map cannot pick the wanted overload by name; resolve their DIA-validated RVAs
+		// off the button-ctor anchor (same approach as the g_push_back fallback below).
+		if (const auto anchor = big::hades2_symbol_to_address["sgg::GUIComponentButton::GUIComponentButton"])
+		{
+			const auto base       = anchor.as<uintptr_t>() - anchor_rva;
+			g_message_dialog_ctor = reinterpret_cast<message_dialog_ctor_fn>(base + message_dialog_ctor_rva);
+			g_add_screen          = reinterpret_cast<add_screen_fn>(base + add_screen_rva);
+		}
 
 		if (!g_push_back)
 		{
@@ -1299,6 +1602,19 @@ namespace big::mod_settings
 		{
 			LOG(WARNING) << "[mod_settings] sgg::MiscSettingsScreen::HandleInput not found; freetext editing may not "
 			                "block menu nav";
+		}
+
+		// Every close path (Escape key, controller B, clicking the on-screen Exit button) funnels
+		// through ExitScreen, so this is where the restart-required prompt is triggered.
+		const auto exit_screen = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ExitScreen"];
+		if (exit_screen)
+		{
+			static auto exit_screen_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_ExitScreen>("sgg::MiscSettingsScreen::ExitScreen", exit_screen);
+		}
+		else
+		{
+			LOG(WARNING) << "[mod_settings] sgg::MiscSettingsScreen::ExitScreen not found; the restart-required prompt "
+			                "will not appear";
 		}
 	}
 } // namespace big::mod_settings
