@@ -202,11 +202,12 @@ namespace big::mod_settings
 	static constexpr float row_pitch           = 54.0f;   // vertical distance between rows
 	static constexpr std::uint32_t rows_per_page = 8;
 
-	// Max characters shown in the right-column value (freetext + its edit cursor). A long value is
-	// right-aligned and grows left toward the left-aligned key label; capping it keeps the two from
-	// overlapping. Truncation keeps the TAIL with a leading ellipsis (the informative end of a path,
-	// and where the edit cursor sits). Tunable; ~30 clears typical key labels at the value font.
-	static constexpr std::size_t value_display_max_chars = 30;
+	// Approximate visual width budget for the right-column value (freetext + its edit caret), in
+	// "width units" where a typical medium glyph is 1.0. The menu font is variable-width, so a raw
+	// character count looks inconsistent (a run of 'W' is far wider than a run of 'i'); budgeting by
+	// summed glyph weight keeps the shown value a consistent WIDTH so it does not run left into the
+	// key label. ~30 units ~= 30 average glyphs, matching the previously tuned character cap.
+	static constexpr float value_display_max_width = 30.0f;
 
 	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
 	static constexpr std::uint64_t edit_cursor_blink_ms = 500;
@@ -303,9 +304,10 @@ namespace big::mod_settings
 	static toml_v2::config_file::config_entry_base* g_edit_entry = nullptr;
 
 	static std::string g_edit_buffer;
-	static bool g_edit_numeric = false; // restrict input to a numeric literal
-	static bool g_edit_confirm = false;
-	static bool g_edit_cancel  = false;
+	static std::size_t g_edit_cursor = 0;     // caret position as a byte index into g_edit_buffer
+	static bool g_edit_numeric       = false; // restrict input to a numeric literal
+	static bool g_edit_confirm       = false;
+	static bool g_edit_cancel        = false;
 
 	// Turns a config-file stem ("AuthorName-ModName") into a display name: drops the
 	// author (up to the first '-') and shows the mod name with '_' replaced by spaces.
@@ -341,20 +343,162 @@ namespace big::mod_settings
 		return out;
 	}
 
-	// Caps an over-long value string for the right-aligned value column so it does not run left into
+	// --- Text metrics + caret helpers (byte indices into a string; UTF-8 aware) ---
+
+	// Approximate width of a single byte in the value font, in the same units as
+	// value_display_max_width (medium glyph = 1.0). The menu font (P22UndergroundSCMedium) is
+	// variable-width; these rough classes are enough to fit values by visual width instead of raw
+	// character count (exact pixel measurement is intentionally avoided - it would need the engine's
+	// SpriteFont globals). A UTF-8 lead byte counts once as a medium glyph; continuation bytes add 0.
+	static float glyph_weight(unsigned char c)
+	{
+		if (c >= 0xC0)
+		{
+			return 1.0f; // UTF-8 lead byte: count the codepoint once
+		}
+		if (c >= 0x80)
+		{
+			return 0.0f; // UTF-8 continuation byte
+		}
+		switch (c)
+		{
+		case ' ':
+		case '!':
+		case '\'':
+		case ',':
+		case '.':
+		case ':':
+		case ';':
+		case '|':
+		case '`':
+		case '(':
+		case ')':
+		case '[':
+		case ']':
+		case '{':
+		case '}':
+		case 'i':
+		case 'j':
+		case 'l':
+		case 'I':
+		case 'f':
+		case 't':
+		case 'r':  return 0.5f; // narrow glyphs
+		case 'm':
+		case 'w':
+		case 'M':
+		case 'W':
+		case '@':
+		case '%':  return 1.5f; // wide glyphs
+		default:   return 1.0f;   // medium (digits, most letters)
+		}
+	}
+
+	// Summed approximate visual width of a string (see glyph_weight).
+	static float measure_width(const std::string& s)
+	{
+		float w = 0.0f;
+		for (char c : s)
+		{
+			w += glyph_weight(static_cast<unsigned char>(c));
+		}
+		return w;
+	}
+
+	// True for a "word" byte: ASCII alphanumeric, underscore, or any UTF-8 byte (>=0x80, so non-ASCII
+	// letters count as word characters). Used for Ctrl+Left/Right word skip.
+	static bool is_word_byte(char c)
+	{
+		const unsigned char u = static_cast<unsigned char>(c);
+		return (u >= '0' && u <= '9') || (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || u == '_' || u >= 0x80;
+	}
+
+	// Caret one codepoint to the left (skips UTF-8 continuation bytes so a multibyte char moves as
+	// a unit).
+	static std::size_t caret_prev(const std::string& s, std::size_t pos)
+	{
+		if (pos == 0)
+		{
+			return 0;
+		}
+		--pos;
+		while (pos > 0 && (static_cast<unsigned char>(s[pos]) & 0xC0) == 0x80)
+		{
+			--pos;
+		}
+		return pos;
+	}
+
+	// Caret one codepoint to the right.
+	static std::size_t caret_next(const std::string& s, std::size_t pos)
+	{
+		if (pos >= s.size())
+		{
+			return s.size();
+		}
+		++pos;
+		while (pos < s.size() && (static_cast<unsigned char>(s[pos]) & 0xC0) == 0x80)
+		{
+			++pos;
+		}
+		return pos;
+	}
+
+	// Caret to the start of the current/previous word (Ctrl+Left): skip any non-word bytes to the
+	// left, then the run of word bytes.
+	static std::size_t caret_prev_word(const std::string& s, std::size_t pos)
+	{
+		while (pos > 0 && !is_word_byte(s[pos - 1]))
+		{
+			--pos;
+		}
+		while (pos > 0 && is_word_byte(s[pos - 1]))
+		{
+			--pos;
+		}
+		return pos;
+	}
+
+	// Caret to the start of the next word (Ctrl+Right): skip the current run of word bytes, then the
+	// following non-word bytes.
+	static std::size_t caret_next_word(const std::string& s, std::size_t pos)
+	{
+		const std::size_t n = s.size();
+		while (pos < n && is_word_byte(s[pos]))
+		{
+			++pos;
+		}
+		while (pos < n && !is_word_byte(s[pos]))
+		{
+			++pos;
+		}
+		return pos;
+	}
+
+	// Caps an over-wide value string for the right-aligned value column so it does not run left into
 	// the option's key label. Keeps the TAIL with a leading ellipsis (most informative for a path,
-	// and where the append/backspace edit cursor sits). Operates on the logical (pre-escape) string;
-	// escape the result afterwards. The cut is nudged off any UTF-8 continuation byte.
+	// and where the append/backspace edit caret sits). Fits by summed glyph WIDTH, not character
+	// count, so wide/narrow text shows a consistent visual width. Operates on the logical (pre-escape)
+	// string; escape the result afterwards.
 	static std::string truncate_value(const std::string& text)
 	{
-		if (text.size() <= value_display_max_chars)
+		if (measure_width(text) <= value_display_max_width)
 		{
 			return text;
 		}
-		std::size_t start = text.size() - (value_display_max_chars - 3); // room for the "..." prefix
-		while (start < text.size() && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80)
+		const float avail = value_display_max_width - measure_width("..."); // leave room for the prefix
+		std::size_t start = text.size();
+		float used        = 0.0f;
+		while (start > 0)
 		{
-			++start; // don't start mid-codepoint
+			const std::size_t prev = caret_prev(text, start);
+			const float w          = measure_width(text.substr(prev, start - prev));
+			if (used + w > avail)
+			{
+				break;
+			}
+			used  += w;
+			start  = prev;
 		}
 		return "..." + text.substr(start);
 	}
@@ -968,9 +1112,87 @@ namespace big::mod_settings
 		return display;
 	}
 
+	// Renders the edit buffer with a caret marker at `cursor`, windowed by visual WIDTH so the caret
+	// stays visible and the whole string fits the value column (value_display_max_width) without
+	// running into the key label. The window grows outward from the caret (both sides) filling the
+	// budget by summed glyph width, reserving space for the caret and for whichever ellipses are
+	// actually shown. The caret is a blinking "|"/" "; hidden text is marked with a leading/trailing
+	// ellipsis. Each shown buffer segment is markup-escaped (a path may contain '\'); the caret and
+	// ellipses are literal.
+	static std::string render_edit_display(const std::string& buf, std::size_t cursor, bool blink_on)
+	{
+		const char* caret     = blink_on ? "|" : " ";
+		const std::size_t len = buf.size();
+		if (cursor > len)
+		{
+			cursor = len;
+		}
+
+		const float caret_w    = 0.6f; // reserve a little for the caret glyph
+		const float ellipsis_w = measure_width("...");
+
+		// Whole buffer (plus caret) fits: no truncation.
+		if (measure_width(buf) + caret_w <= value_display_max_width)
+		{
+			return escape_markup(buf.substr(0, cursor)) + caret + escape_markup(buf.substr(cursor));
+		}
+
+		// Grow a window [start, end) outward from the caret, one codepoint at a time, alternating
+		// left then right, while it still fits the budget (accounting for the ellipses each side will
+		// need). Left grows first each round so a right-aligned field shows preceding context.
+		std::size_t start = cursor;
+		std::size_t end   = cursor;
+		float used        = caret_w;
+		for (bool grew = true; grew;)
+		{
+			grew = false;
+
+			if (start > 0)
+			{
+				const std::size_t prev = caret_prev(buf, start);
+				const float add        = measure_width(buf.substr(prev, start - prev));
+				const float overhead   = (prev > 0 ? ellipsis_w : 0.0f) + (end < len ? ellipsis_w : 0.0f);
+				if (used + add + overhead <= value_display_max_width)
+				{
+					used  += add;
+					start  = prev;
+					grew   = true;
+				}
+			}
+
+			if (end < len)
+			{
+				const std::size_t next = caret_next(buf, end);
+				const float add        = measure_width(buf.substr(end, next - end));
+				const float overhead   = (start > 0 ? ellipsis_w : 0.0f) + (next < len ? ellipsis_w : 0.0f);
+				if (used + add + overhead <= value_display_max_width)
+				{
+					used += add;
+					end   = next;
+					grew  = true;
+				}
+			}
+		}
+
+		std::string out;
+		if (start > 0)
+		{
+			out += "...";
+		}
+		out += escape_markup(buf.substr(start, cursor - start));
+		out += caret;
+		out += escape_markup(buf.substr(cursor, end - cursor));
+		if (end < len)
+		{
+			out += "...";
+		}
+		return out;
+	}
+
 	// Accepts a character into a numeric edit buffer only if the result stays a plausible
-	// numeric literal: an optional leading sign, digits, at most one decimal point.
-	static bool numeric_char_ok(const std::string& buffer, char c)
+	// numeric literal: an optional leading sign (only at the front), digits, at most one decimal
+	// point. `cursor` is where the character would be inserted.
+	static bool numeric_char_ok(const std::string& buffer, std::size_t cursor, char c)
 	{
 		if (c >= '0' && c <= '9')
 		{
@@ -978,7 +1200,8 @@ namespace big::mod_settings
 		}
 		if (c == '-' || c == '+')
 		{
-			return buffer.empty(); // sign only as the first character
+			// A sign is valid only inserted at the very front, and only if no sign is there already.
+			return cursor == 0 && (buffer.empty() || (buffer.front() != '-' && buffer.front() != '+'));
 		}
 		if (c == '.')
 		{
@@ -987,11 +1210,12 @@ namespace big::mod_settings
 		return false;
 	}
 
-	// Window-procedure callback: while a freetext setting is being edited, capture typed
-	// characters into the edit buffer. Runs on the game's message-pump thread (same thread
-	// as Update). Printable characters arrive via WM_CHAR; Backspace via WM_KEYDOWN; a mouse
-	// click anywhere commits the edit (Enter/Escape are read from the game input in the
-	// HandleInput hook, which also blocks the menu from reacting).
+	// Window-procedure callback: while a freetext setting is being edited, capture typed characters
+	// and caret movement into the edit buffer. Runs on the game's message-pump thread (same thread
+	// as Update). Printable characters arrive via WM_CHAR (inserted at the caret); Backspace/Delete,
+	// arrow movement (with Ctrl for word skip), Home/End via WM_KEYDOWN; a mouse click anywhere
+	// commits the edit (Enter/Escape are read from the game input in the HandleInput hook, which
+	// also blocks the menu from reacting).
 	static void on_wndproc(HWND, UINT msg, WPARAM wparam, LPARAM)
 	{
 		if (!g_editing)
@@ -1006,12 +1230,40 @@ namespace big::mod_settings
 			return;
 		}
 
+		if (g_edit_cursor > g_edit_buffer.size())
+		{
+			g_edit_cursor = g_edit_buffer.size();
+		}
+
 		if (msg == WM_KEYDOWN)
 		{
-			// Only editing keys (Backspace) are handled here; Enter/Escape come from HandleInput.
-			if (wparam == VK_BACK && !g_edit_buffer.empty())
+			const bool ctrl = (GetKeyState(VK_CONTROL) & 0x80'00) != 0;
+			switch (wparam)
 			{
-				g_edit_buffer.pop_back();
+			case VK_BACK:
+				if (g_edit_cursor > 0)
+				{
+					const std::size_t prev = caret_prev(g_edit_buffer, g_edit_cursor);
+					g_edit_buffer.erase(prev, g_edit_cursor - prev);
+					g_edit_cursor = prev;
+				}
+				break;
+			case VK_DELETE:
+				if (g_edit_cursor < g_edit_buffer.size())
+				{
+					const std::size_t next = caret_next(g_edit_buffer, g_edit_cursor);
+					g_edit_buffer.erase(g_edit_cursor, next - g_edit_cursor);
+				}
+				break;
+			case VK_LEFT:
+				g_edit_cursor = ctrl ? caret_prev_word(g_edit_buffer, g_edit_cursor) : caret_prev(g_edit_buffer, g_edit_cursor);
+				break;
+			case VK_RIGHT:
+				g_edit_cursor = ctrl ? caret_next_word(g_edit_buffer, g_edit_cursor) : caret_next(g_edit_buffer, g_edit_cursor);
+				break;
+			case VK_HOME: g_edit_cursor = 0; break;
+			case VK_END:  g_edit_cursor = g_edit_buffer.size(); break;
+			default:      break;
 			}
 			return;
 		}
@@ -1024,11 +1276,12 @@ namespace big::mod_settings
 				return;
 			}
 			const char ch = static_cast<char>(c);
-			if (g_edit_numeric && !numeric_char_ok(g_edit_buffer, ch))
+			if (g_edit_numeric && !numeric_char_ok(g_edit_buffer, g_edit_cursor, ch))
 			{
 				return;
 			}
-			g_edit_buffer.push_back(ch);
+			g_edit_buffer.insert(g_edit_cursor, 1, ch);
+			++g_edit_cursor;
 		}
 	}
 
@@ -1056,6 +1309,7 @@ namespace big::mod_settings
 		g_edit_component = value_component;
 		g_edit_entry     = entry;
 		g_edit_buffer    = entry ? entry->get_serialized_value() : std::string{};
+		g_edit_cursor    = g_edit_buffer.size(); // caret starts at the end
 		g_edit_numeric   = entry && entry->type() != typeid(std::string);
 		g_edit_confirm   = false;
 		g_edit_cancel    = false;
@@ -1066,8 +1320,10 @@ namespace big::mod_settings
 		g_editing        = false;
 		g_edit_component = nullptr;
 		g_edit_entry     = nullptr;
-		g_edit_confirm   = false;
-		g_edit_cancel    = false;
+		g_edit_buffer.clear();
+		g_edit_cursor  = 0;
+		g_edit_confirm = false;
+		g_edit_cancel  = false;
 	}
 
 	// Requests an in-place rebuild of the current settings view (to reflect a committed or
@@ -1193,16 +1449,14 @@ namespace big::mod_settings
 		return false;
 	}
 
-	// Live-updates the edited value display (right column) with a blinking cursor. Called from
-	// Update while editing is active; g_edit_component is the row's value component.
+	// Live-updates the edited value display (right column) with a movable, blinking caret. Called
+	// from Update while editing is active; g_edit_component is the row's value component.
 	static void update_edit_label()
 	{
 		if (g_edit_component && g_set_label)
 		{
-			const bool cursor_on = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
-			// Cap to the tail (where the cursor is), escape (a path may contain '\'), then append the
-			// raw blink cursor.
-			const std::string label = escape_markup(truncate_value(g_edit_buffer)) + (cursor_on ? "|" : " ");
+			const bool cursor_on    = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
+			const std::string label = render_edit_display(g_edit_buffer, g_edit_cursor, cursor_on);
 			g_set_label(g_edit_component, label.c_str());
 		}
 	}
