@@ -12,9 +12,8 @@ namespace big::mod_settings
 	// Author-declared metadata for a single setting, extracted from its config.lua description
 	// table by rom.mod_settings.load and consulted by the settings menu. Only settings whose
 	// description is a rich table have an entry; the rest fall back to type-based rendering. Every
-	// field is an author-only input that cannot be inferred from the config value (the widget kind
-	// itself IS inferred from the value + `values`, so there is deliberately no `type` field here).
-	// All fields are optional (see the has_* flags).
+	// field is an author-only input that cannot be inferred from the config value; the widget kind
+	// itself is inferred from the value and `values`. All fields are optional (see the has_* flags).
 	struct setting_metadata
 	{
 		std::string name;        // display-name override (empty -> prettified key)

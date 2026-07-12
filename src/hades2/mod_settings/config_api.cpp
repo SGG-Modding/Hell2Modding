@@ -26,12 +26,10 @@ using namespace al;
 namespace big::mod_settings
 {
 	// Author-declared per-setting metadata registry, populated from each mod's config.lua by
-	// rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Holds the widget type,
-	// numeric bounds, enum options, display name, ordering, and the restart-required flag that the
+	// rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Holds the display-name
+	// override, numeric bounds, enum options, ordering, and the restart-required flag that the
 	// settings menu reads to pick and drive a widget. Only settings whose config.lua description is
-	// a rich table are registered; the rest fall back to type-based rendering. The restart flag
-	// replaces the old sjson-hook auto-detection, which could not see a mod that starts disabled
-	// (it registers no hooks until enabled), and never covered restarts needed for other reasons.
+	// a rich table are registered; the rest fall back to type-based rendering.
 	static std::mutex g_metadata_mutex;
 	static std::map<std::string, setting_metadata> g_setting_metadata;
 

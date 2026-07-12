@@ -215,7 +215,7 @@ namespace big::mod_settings
 	// "width units" where a typical medium glyph is 1.0. The menu font is variable-width, so a raw
 	// character count looks inconsistent (a run of 'W' is far wider than a run of 'i'); budgeting by
 	// summed glyph weight keeps the shown value a consistent WIDTH so it does not run left into the
-	// key label. ~30 units ~= 30 average glyphs, matching the previously tuned character cap.
+	// key label. ~30 units is roughly 30 average glyphs wide.
 	static constexpr float value_display_max_width = 30.0f;
 
 	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
@@ -225,7 +225,6 @@ namespace big::mod_settings
 	enum class RowKind
 	{
 		mod_entry, // opens that mod's settings
-		back,      // returns to the mod list
 		setting,   // edits one config entry
 		action,    // a button that runs an action (e.g. Apply/Reset)
 	};
@@ -1560,18 +1559,12 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
-	// Level 2: a Back row followed by one row per config entry belonging to `stem`. Boolean
-	// entries render as native toggle rows; other types render as a left-aligned key with a
-	// right-aligned, freetext-editable value (two components). A boolean "enabled" entry (if
-	// present) is pinned to the top; when it is off, every other setting is greyed out and
-	// made non-interactable.
+	// Level 2: one row per config entry belonging to `stem`. Boolean entries render as native toggle
+	// rows; other types render as a left-aligned key with a right-aligned, freetext-editable value
+	// (two components). A boolean "enabled" entry (if present) is pinned to the top; when it is off,
+	// every other setting is greyed out and made non-interactable.
 	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem)
 	{
-		if (auto* row = make_text_row(screen, "< Back"))
-		{
-			g_rows.push_back({row, RowKind::back, stem, {}});
-		}
-
 		// Gather this mod's entries. The config map is ordered alphabetically by (section, key), which
 		// is the current appearance order and the fallback for rows without an author-declared order.
 		struct panel_entry
@@ -1895,7 +1888,6 @@ namespace big::mod_settings
 			switch (row->kind)
 			{
 			case RowKind::mod_entry: confirm = "{SL} SELECT"; break;
-			case RowKind::back:      confirm = "{SL} SELECT"; break;
 			case RowKind::setting:
 				if (row->entry && row->entry->type() == typeid(bool))
 				{
@@ -1918,11 +1910,10 @@ namespace big::mod_settings
 			}
 		}
 
-		// Drive the Confirm prompt's visibility ourselves. Native only fades it in (OnOptionMouseOver)
-		// for its OWN option rows, which never fires for our custom rows, so it would otherwise stay
-		// invisible until first forced (e.g. by editing a field). Show it with its glyph whenever we
-		// have a hint, hide it when we don't. mFadeOpacity is the field the draw gate reads; native
-		// Update rewrites mHidden each frame, so both are set here (this runs after the original Update).
+		// Drive the Confirm prompt's visibility ourselves: native only fades it in (OnOptionMouseOver)
+		// for its OWN option rows, which never fires for our custom rows. Show it with its glyph
+		// whenever we have a hint, hide it when we don't. mFadeOpacity is the field the draw gate
+		// reads; native Update rewrites mHidden each frame, so both are set here (after the original Update).
 		if (menu->m_confirm_button)
 		{
 			if (confirm.empty())
@@ -1952,7 +1943,7 @@ namespace big::mod_settings
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer
-		// is no longer meaningful; force the description box to refresh next frame.
+		// is stale; force the description box to refresh next frame.
 		g_last_description_component = nullptr;
 
 		// Preserve the current scroll offset across an in-place refresh (same view/mod, e.g.
@@ -2351,11 +2342,6 @@ namespace big::mod_settings
 				g_pending_stem = matched_row.stem;
 				g_nav_pending  = true;
 				break;
-			case RowKind::back:
-				g_pending_view = View::mod_list;
-				g_pending_stem.clear();
-				g_nav_pending = true;
-				break;
 			case RowKind::setting:
 			{
 				auto* entry = matched_row.entry;
@@ -2529,7 +2515,7 @@ namespace big::mod_settings
 		{
 			if (g_view != View::mod_settings)
 			{
-				return; // reset removed in the mod list; do nothing (and do not play the native reset)
+				return; // reset is unavailable in the mod list; do nothing (and do not play the native reset)
 			}
 			perform_reset();
 		}
