@@ -99,13 +99,17 @@ namespace big::mod_settings::sgg
 		char m_pad_mo[0x68];
 		GUIComponent* m_mouse_over_component;     // +0xC0
 		eastl_vector<GUIComponent*> m_components; // +0xC8
-		char m_pad_sel[0xD0];
-		GUIComponent* m_selected_component; // +0x1B0
+		char m_pad_prompts[0xC0];                 // 0xE0 .. 0x1A0
+		GUIComponent* m_confirm_button;           // +0x1A0 (bottom "Confirm/Select/Toggle" prompt)
+		GUIComponent* m_cancel_button;            // +0x1A8 (bottom "Exit/Back" prompt)
+		GUIComponent* m_selected_component;       // +0x1B0
 	};
 
 	static_assert(offsetof(MenuScreen, m_anchor) == 0x50);
 	static_assert(offsetof(MenuScreen, m_mouse_over_component) == 0xC0);
 	static_assert(offsetof(MenuScreen, m_components) == 0xC8);
+	static_assert(offsetof(MenuScreen, m_confirm_button) == 0x1'A0);
+	static_assert(offsetof(MenuScreen, m_cancel_button) == 0x1'A8);
 	static_assert(offsetof(MenuScreen, m_selected_component) == 0x1'B0);
 
 	// sgg::MiscSettingsScreen, the native tabbed options screen. The category buttons are
@@ -130,8 +134,10 @@ namespace big::mod_settings::sgg
 		GUIComponentButton* m_debug_options_button; // +0x3F8
 		char m_pad_d[0x08];
 		eastl_vector<GUIComponent*> m_options; // +0x408
-		char m_pad_e[0x40];
-		GUIComponent* m_description_box; // +0x460
+		char m_pad_e[0x20];                    // 0x420 .. 0x440
+		GUIComponent* m_defaults_button;       // +0x440 (bottom "Reset" prompt)
+		char m_pad_f[0x18];                    // 0x448 .. 0x460
+		GUIComponent* m_description_box;       // +0x460
 	};
 
 	static_assert(offsetof(MiscSettingsScreen, m_page_start_index) == 0x3'44);
@@ -144,5 +150,6 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(MiscSettingsScreen, m_editor_options_button) == 0x3'C8);
 	static_assert(offsetof(MiscSettingsScreen, m_debug_options_button) == 0x3'F8);
 	static_assert(offsetof(MiscSettingsScreen, m_options) == 0x4'08);
+	static_assert(offsetof(MiscSettingsScreen, m_defaults_button) == 0x4'40);
 	static_assert(offsetof(MiscSettingsScreen, m_description_box) == 0x4'60);
 } // namespace big::mod_settings::sgg

@@ -207,9 +207,9 @@ namespace big::mod_settings
 	static constexpr float value_text_offset_x = 15.0f; // right-justify the value; right edge aligns with the toggle's
 	static constexpr float numbox_location_x   = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
 	static constexpr float button_center_x     = 1130.0f; // centered action button X (clear of the scrollbar)
-	static constexpr float row_base_y          = 315.0f;  // first row's Y (aligns with the tab column)
-	static constexpr float row_pitch           = 54.0f;   // vertical distance between rows
-	static constexpr std::uint32_t rows_per_page = 8;
+	static constexpr float row_base_y          = 300.0f;  // first row's Y - matches the vanilla option templates
+	static constexpr float row_pitch           = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
+	static constexpr std::uint32_t rows_per_page = 10;    // vanilla ItemsPerPage = 10
 
 	// Approximate visual width budget for the right-column value (freetext + its edit caret), in
 	// "width units" where a typical medium glyph is 1.0. The menu font is variable-width, so a raw
@@ -305,6 +305,7 @@ namespace big::mod_settings
 	static bool g_nav_pending  = false;
 	static View g_pending_view = View::mod_list;
 	static std::string g_pending_stem;
+	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav
 
 	// Freetext edit state (number/string settings). A click enters edit mode; typed input
 	// is captured in the window procedure and applied on the game thread in the Update hook.
@@ -1840,6 +1841,114 @@ namespace big::mod_settings
 		box->m_fade_target  = show ? 1.0f : 0.0f;
 	}
 
+	// Last label we wrote to each bottom-prompt button, so SetDisplayName is only called when the
+	// label actually changes (avoids re-laying out the text every frame). Cleared when we leave the
+	// Mods tab so the native labels take back over and re-entering re-applies ours.
+	static std::string g_prompt_confirm_label;
+	static std::string g_prompt_cancel_label;
+
+	// Sets a bottom-prompt button's label (GUIComponentButton::SetDisplayName) only when it changes
+	// from what we last set. The key glyph is driven by the button's bound control, not the label, so
+	// it stays correct (Enter for Confirm, Esc for Cancel) regardless of the text.
+	static void set_prompt_label(GUIComponent* button, std::string& cache, const char* text)
+	{
+		if (!button || !g_set_label || cache == text)
+		{
+			return;
+		}
+		cache.assign(text);
+		g_set_label(button, text);
+	}
+
+	// Retunes the options screen's bottom button prompts for the Mods tab per context, and hides the
+	// native Reset prompt where it must not apply. Called every frame from the Update hook (after the
+	// original, which sets the native prompts on focus/hover/category events). Off the Mods tab it
+	// only clears our caches and leaves the native prompts untouched.
+	static void sync_prompts(MiscSettingsScreen* screen, bool on_mods_tab)
+	{
+		if (!on_mods_tab)
+		{
+			g_prompt_confirm_label.clear();
+			g_prompt_cancel_label.clear();
+			return;
+		}
+
+		auto* menu = reinterpret_cast<MenuScreen*>(screen);
+
+		// The native prompt strings embed a glyph token that the text box expands to the device-
+		// appropriate key icon: "{CN}" = the Cancel control (Esc / B), "{SL}" = the Select/Confirm
+		// control (Enter / A). We prepend the same token to our custom labels so the icon is kept
+		// (a raw string with no token renders text only). Labels are upper-case to match the game.
+		// Cancel (Esc): "CANCEL" while editing a field; "BACK" inside a mod's settings (Esc returns to
+		// the mod list, see the ExitScreen hook); "EXIT" at the mod list (closes the options screen).
+		const char* cancel = g_editing ? "{CN} CANCEL" : (g_view == View::mod_settings ? "{CN} BACK" : "{CN} EXIT");
+		set_prompt_label(menu->m_cancel_button, g_prompt_cancel_label, cancel);
+
+		// Confirm (Enter): "SUBMIT" while editing; otherwise a verb matching the highlighted row.
+		std::string confirm;
+		if (g_editing)
+		{
+			confirm = "{SL} SUBMIT";
+		}
+		else if (PanelRow* row = find_row(active_row_component(screen)))
+		{
+			switch (row->kind)
+			{
+			case RowKind::mod_entry: confirm = "{SL} SELECT"; break;
+			case RowKind::back:      confirm = "{SL} SELECT"; break;
+			case RowKind::setting:
+				if (row->entry && row->entry->type() == typeid(bool))
+				{
+					confirm = "{SL} TOGGLE";
+				}
+				else if (row->is_enum)
+				{
+					confirm = "{SL} SET";
+				}
+				else if (row->is_stepper)
+				{
+					confirm = "{SL} SELECT";
+				}
+				else
+				{
+					confirm = "{SL} EDIT"; // freetext value
+				}
+				break;
+			case RowKind::action: confirm = "{SL} SELECT"; break;
+			}
+		}
+
+		// Drive the Confirm prompt's visibility ourselves. Native only fades it in (OnOptionMouseOver)
+		// for its OWN option rows, which never fires for our custom rows, so it would otherwise stay
+		// invisible until first forced (e.g. by editing a field). Show it with its glyph whenever we
+		// have a hint, hide it when we don't. mFadeOpacity is the field the draw gate reads; native
+		// Update rewrites mHidden each frame, so both are set here (this runs after the original Update).
+		if (menu->m_confirm_button)
+		{
+			if (confirm.empty())
+			{
+				menu->m_confirm_button->m_fade_opacity = 0.0f;
+				menu->m_confirm_button->m_fade_target  = 0.0f;
+			}
+			else
+			{
+				set_prompt_label(menu->m_confirm_button, g_prompt_confirm_label, confirm.c_str());
+				menu->m_confirm_button->m_hidden       = false;
+				menu->m_confirm_button->m_fade_opacity = 1.0f;
+				menu->m_confirm_button->m_fade_target  = 1.0f;
+			}
+		}
+
+		// Reset prompt: shown only inside a single mod's settings (resets that mod) and not while
+		// editing. It is hidden in the mod list/overview so users cannot reset every mod's config by
+		// accident (the RestoreDefaults hook also swallows the shortcut there).
+		if (screen->m_defaults_button)
+		{
+			const bool show_reset               = (g_view == View::mod_settings) && !g_editing;
+			screen->m_defaults_button->m_hidden = !show_reset;
+		}
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer
@@ -1916,11 +2025,69 @@ namespace big::mod_settings
 	// keeps the fade-in.
 	static void apply_nav(MiscSettingsScreen* screen)
 	{
-		const bool instant = (g_pending_view == g_view) && (g_pending_stem == g_view_stem);
+		// A Reset forces a top (non-instant) rebuild even though the view is unchanged, so the
+		// restored rows and the scrollbar stay in sync - an in-place rebuild that preserves a
+		// scrolled position would leave the stale page-1 rows visible (see the scroll-model notes).
+		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem);
+		g_nav_reset_to_top = false;
 
 		g_view      = g_pending_view;
 		g_view_stem = g_pending_stem;
 		build_panel(screen, instant);
+	}
+
+	// Restores the current mod's config entries (g_view_stem) to their config.lua defaults (see
+	// get_setting_default), saving each change and flagging any restart-required ones. Only ever
+	// resets the one mod whose settings are open - never every mod - so it is called only from the
+	// mod-settings view. Only settings bound via rom.mod_settings.load carry a captured default;
+	// anything else (raw rom.config or big::config) is left untouched. Returns true if any value
+	// actually changed.
+	static bool reset_settings_to_defaults()
+	{
+		bool any_changed = false;
+		for (auto* cfg : toml_v2::config_file::g_config_files)
+		{
+			if (!cfg || cfg->m_config_file_stem_as_str.empty() || cfg->m_config_file_stem_as_str != g_view_stem)
+			{
+				continue;
+			}
+			const std::string& guid = cfg->m_config_file_stem_as_str;
+			for (auto& [def, entry] : cfg->m_entries)
+			{
+				if (!entry)
+				{
+					continue;
+				}
+				auto* e = entry.get();
+
+				const auto def_val = get_setting_default(guid, def.m_section, def.m_key);
+				if (!def_val || e->get_serialized_value() == *def_val)
+				{
+					continue;
+				}
+				capture_restart_baseline(e);
+				e->set_serialized_value(*def_val); // auto-saves + fires on_setting_changed
+				note_change_if_restart_required(e, e->get_serialized_value());
+				any_changed = true;
+			}
+		}
+		return any_changed;
+	}
+
+	// Handles a Reset activation on the Mods tab: restores the in-scope settings to their config.lua
+	// defaults, then (in a mod's settings view, where the changed values are on screen) queues a top
+	// rebuild so the widgets show the restored values. Safe to call from input/click context because
+	// the rebuild is deferred to the Update hook.
+	static void perform_reset()
+	{
+		const bool changed = reset_settings_to_defaults();
+		if (changed && g_view == View::mod_settings)
+		{
+			g_pending_view     = g_view;
+			g_pending_stem     = g_view_stem;
+			g_nav_pending      = true;
+			g_nav_reset_to_top = true;
+		}
 	}
 
 	// Builds the restart-popup body text from the changes collected this session. Blank lines are a
@@ -2036,12 +2203,15 @@ namespace big::mod_settings
 		g_view = View::mod_list;
 		g_view_stem.clear();
 		g_nav_pending            = false;
+		g_nav_reset_to_top       = false;
 		g_restart_required       = false;
 		g_restart_prompt_shown   = false;
 		g_restart_confirm_button = nullptr;
 		g_restart_changes.clear();
 		g_restart_baselines.clear();
 		g_last_description_component = nullptr;
+		g_prompt_confirm_label.clear();
+		g_prompt_cancel_label.clear();
 		exit_edit_mode();
 
 		// The engine constructor returns `this`; forward it unchanged.
@@ -2274,6 +2444,10 @@ namespace big::mod_settings
 			sync_description_box(screen);
 		}
 
+		// Retune the bottom prompt buttons per context (off the Mods tab this only clears our
+		// caches and leaves the native prompts alone).
+		sync_prompts(screen, on_mods_tab);
+
 		return result;
 	}
 
@@ -2315,6 +2489,19 @@ namespace big::mod_settings
 	// forced. If the native dialog cannot be shown, the MessageBox fallback closes the game anyway.
 	static void hook_MiscSettingsScreen_ExitScreen(void* self)
 	{
+		// Inside a mod's settings, Esc / controller B / the on-screen Back button navigates back to
+		// the mod list instead of closing the whole options screen (mirrors the native category
+		// drill-down, where the same button reads "Back"). Only the mod-list view actually closes.
+		auto* screen = static_cast<MiscSettingsScreen*>(self);
+		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
+		if (on_mods_tab && g_view == View::mod_settings)
+		{
+			g_pending_view = View::mod_list;
+			g_pending_stem.clear();
+			g_nav_pending = true;
+			return; // veto the close; apply_nav swaps back to the mod list next Update
+		}
+
 		if (g_restart_required && !g_restart_prompt_shown)
 		{
 			g_restart_prompt_shown = true;
@@ -2326,6 +2513,28 @@ namespace big::mod_settings
 		}
 
 		big::g_hooking->get_original<hook_MiscSettingsScreen_ExitScreen>()(self);
+	}
+
+	// Reset choke-point: sgg::MiscSettingsScreen::RestoreDefaults (virtual slot 21) is the single
+	// handler for both the [I]/MenuInfo control and a mouse click on the on-screen Reset button. On
+	// our Mods tab the native reset is a no-op (our rows' mDataValue is not a ConfigOptionsField key).
+	// Inside a single mod's settings we run our own reset of that mod's config and still call the
+	// original for the native confirm animation + sound and glyph refresh (on our tab it touches no
+	// real game settings). In the mod list/overview we swallow it entirely: Reset is intentionally
+	// unavailable there (its prompt is hidden too) so users can't reset every mod's config by mistake.
+	static void hook_MiscSettingsScreen_RestoreDefaults(void* self)
+	{
+		auto* screen = static_cast<MiscSettingsScreen*>(self);
+		if (screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button))
+		{
+			if (g_view != View::mod_settings)
+			{
+				return; // reset removed in the mod list; do nothing (and do not play the native reset)
+			}
+			perform_reset();
+		}
+
+		big::g_hooking->get_original<hook_MiscSettingsScreen_RestoreDefaults>()(self);
 	}
 
 	void register_hooks()
@@ -2463,6 +2672,19 @@ namespace big::mod_settings
 		{
 			LOG(WARNING) << "[mod_settings] sgg::MiscSettingsScreen::ExitScreen not found; the restart-required prompt "
 			                "will not appear";
+		}
+
+		// Optional: the on-screen "Reset" button ([I]/MenuInfo control or mouse) funnels through
+		// RestoreDefaults. Without it the Mods tab still works; Reset just won't restore mod defaults.
+		const auto restore_defaults = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::RestoreDefaults"];
+		if (restore_defaults)
+		{
+			static auto restore_defaults_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_RestoreDefaults>("sgg::MiscSettingsScreen::RestoreDefaults", restore_defaults);
+		}
+		else
+		{
+			LOG(WARNING) << "[mod_settings] sgg::MiscSettingsScreen::RestoreDefaults not found; the Reset button will "
+			                "not reset mod settings";
 		}
 	}
 } // namespace big::mod_settings

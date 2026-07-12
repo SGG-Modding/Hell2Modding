@@ -1,6 +1,7 @@
 #include "mod_settings.hpp"
 
 #include <algorithm>
+#include <any>
 #include <cctype>
 #include <climits>
 #include <format>
@@ -9,6 +10,7 @@
 #include <lua/lua_module.hpp>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <toml_v2/config_file.hpp>
 #include <tuple>
@@ -39,6 +41,11 @@ namespace big::mod_settings
 	// order, because Lua pairs() and the alphabetical config map both lose the config.lua order.
 	static std::map<std::string, int> g_appearance_order;
 
+	// Serialized config.lua default for every bound key (whether or not it has a rich metadata
+	// table), captured at load. The settings menu's Reset action restores a setting to this value.
+	// Keyed the same way as g_setting_metadata (guid + '\0' + section + '\0' + key).
+	static std::map<std::string, std::string> g_setting_default;
+
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
 	{
 		std::string k;
@@ -63,6 +70,10 @@ namespace big::mod_settings
 		for (auto it = g_appearance_order.begin(); it != g_appearance_order.end();)
 		{
 			it = (it->first.rfind(prefix, 0) == 0) ? g_appearance_order.erase(it) : std::next(it);
+		}
+		for (auto it = g_setting_default.begin(); it != g_setting_default.end();)
+		{
+			it = (it->first.rfind(prefix, 0) == 0) ? g_setting_default.erase(it) : std::next(it);
 		}
 	}
 
@@ -89,6 +100,17 @@ namespace big::mod_settings
 		std::scoped_lock lock(g_metadata_mutex);
 		const auto it = g_appearance_order.find(metadata_key(guid, section, key));
 		return it != g_appearance_order.end() ? it->second : INT_MAX;
+	}
+
+	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_setting_default.find(metadata_key(guid, section, key));
+		if (it == g_setting_default.end())
+		{
+			return std::nullopt;
+		}
+		return it->second;
 	}
 
 	// Finds the byte offset of a key's definition ("<key> =") in config.lua source, whole-word and
@@ -366,7 +388,7 @@ namespace big::mod_settings
 	// description is a rich table has its metadata extracted into `meta_out` (keyed by section+key).
 	// config_file::bind adopts a value already saved in the .cfg, preserving user edits, and binds
 	// under section "config" so the .cfg stays byte-compatible with what SGG_Modding-Chalk wrote.
-	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out)
+	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out, std::vector<std::tuple<std::string, std::string, std::string>>& defaults_out)
 	{
 		sol::table desc_tbl;
 		const bool has_desc = desc_obj.is<sol::table>();
@@ -390,15 +412,32 @@ namespace big::mod_settings
 			}
 
 			const sol::type vt = value_obj.get_type();
+			std::optional<std::any> default_any;
 			switch (vt)
 			{
 			case sol::type::table:
-				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out);
+				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out, defaults_out);
 				break;
-			case sol::type::boolean: cf->bind(section, key, value_obj.as<bool>(), describe(desc)); break;
-			case sol::type::number:  cf->bind(section, key, value_obj.as<double>(), describe(desc)); break;
-			case sol::type::string:  cf->bind(section, key, value_obj.as<std::string>(), describe(desc)); break;
-			default:                 continue;
+			case sol::type::boolean:
+				cf->bind(section, key, value_obj.as<bool>(), describe(desc));
+				default_any = std::any(value_obj.as<bool>());
+				break;
+			case sol::type::number:
+				cf->bind(section, key, value_obj.as<double>(), describe(desc));
+				default_any = std::any(value_obj.as<double>());
+				break;
+			case sol::type::string:
+				cf->bind(section, key, value_obj.as<std::string>(), describe(desc));
+				default_any = std::any(value_obj.as<std::string>());
+				break;
+			default: continue;
+			}
+
+			// Capture the config.lua default, serialized exactly as the entry serializes its own
+			// value, so the menu's Reset can round-trip it back through set_serialized_value.
+			if (default_any)
+			{
+				defaults_out.emplace_back(section, key, toml_v2::toml_type_converter::convert_to_string(*default_any));
 			}
 
 			// Only a rich description table carries metadata; a nested value is a sub-section (its
@@ -469,9 +508,10 @@ namespace big::mod_settings
 		// Bind the defaults into the config_file (section root "config", matching Chalk) and collect
 		// each rich setting's metadata, then persist the file.
 		std::vector<collected_metadata> collected;
+		std::vector<std::tuple<std::string, std::string, std::string>> collected_defaults; // (section, key, serialized)
 		if (defaults.is<sol::table>())
 		{
-			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", collected);
+			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", collected, collected_defaults);
 		}
 		cf->save();
 
@@ -508,6 +548,10 @@ namespace big::mod_settings
 			for (auto& cm : collected)
 			{
 				g_setting_metadata[metadata_key(guid, cm.section, cm.key)] = std::move(cm.meta);
+			}
+			for (auto& [section, key, serialized] : collected_defaults)
+			{
+				g_setting_default[metadata_key(guid, section, key)] = std::move(serialized);
 			}
 			int rank = 0;
 			for (const auto& [off, section, key] : by_offset)

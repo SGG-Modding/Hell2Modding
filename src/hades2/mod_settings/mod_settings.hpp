@@ -53,4 +53,9 @@ namespace big::mod_settings
 	// have no author-declared `order` in config-file order. Returns INT_MAX for keys not bound via
 	// rom.mod_settings.load (e.g. Chalk-bound), so they fall back to the config map order.
 	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key);
+
+	// Returns the config.lua default (serialized like the config entry's value) for a setting bound
+	// via rom.mod_settings.load, or std::nullopt for keys with no captured default. Used by the
+	// settings menu's Reset action to restore a setting to what config.lua declared.
+	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key);
 } // namespace big::mod_settings
