@@ -1104,12 +1104,44 @@ namespace big::mod_settings
 		}
 	}
 
-	// Setting key as a display string (underscores become spaces).
+	// Setting key as a display string: underscores become spaces, and camelCase / PascalCase word
+	// boundaries are split ("z_ThisConfigKey" -> "z This Config Key"). An acronym run splits before
+	// its final capital when that capital starts a lowercase word ("HTTPServer" -> "HTTP Server").
+	// Authors can override this entirely with `display_name`.
 	static std::string key_to_display(const std::string& key)
 	{
-		std::string display = key;
-		std::replace(display.begin(), display.end(), '_', ' ');
-		return display;
+		const auto is_upper = [](char c)
+		{
+			return c >= 'A' && c <= 'Z';
+		};
+		const auto is_lower = [](char c)
+		{
+			return c >= 'a' && c <= 'z';
+		};
+
+		std::string out;
+		out.reserve(key.size() + 8);
+		for (std::size_t i = 0; i < key.size(); ++i)
+		{
+			const char c = key[i];
+			if (c == '_')
+			{
+				out.push_back(' ');
+				continue;
+			}
+			if (!out.empty() && out.back() != ' ')
+			{
+				const char prev           = key[i - 1];
+				const bool lower_to_upper = is_lower(prev) && is_upper(c);
+				const bool acronym_boundary = is_upper(prev) && is_upper(c) && (i + 1 < key.size()) && is_lower(key[i + 1]);
+				if (lower_to_upper || acronym_boundary)
+				{
+					out.push_back(' ');
+				}
+			}
+			out.push_back(c);
+		}
+		return out;
 	}
 
 	// Renders the edit buffer with a caret marker at `cursor`, windowed by visual WIDTH so the caret
