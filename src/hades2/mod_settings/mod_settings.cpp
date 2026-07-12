@@ -113,6 +113,10 @@ namespace big::mod_settings
 	// label, value text, left/right arrows). Template instantiation, so resolved by RVA off the anchor.
 	static constexpr std::uintptr_t numbox_factory_rva = 0x17'A5'30;
 
+	// eastl::vector<GUIComponent*>::push_back, used only as a fallback when the named PDB symbol is
+	// missing (it is sometimes emitted inline). Resolved off the same button-ctor anchor.
+	static constexpr std::uintptr_t push_back_rva = 0x14'1E'D0;
+
 	// sgg::GUIComponentNumBox field offsets (DIA-validated on the current Ship build). sizeof 0x5D0;
 	// derives directly from GUIComponent (not GUIComponentButton).
 	static constexpr std::size_t numbox_value_offset = 0x5'40;      // mNumberValue      (float)
@@ -178,6 +182,11 @@ namespace big::mod_settings
 	static numbox_factory_fn g_numbox_factory           = nullptr;
 	static numbox_set_range_fn g_numbox_set_range       = nullptr;
 	static numbox_set_value_fn g_numbox_set_value       = nullptr;
+
+	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has
+	// resolved for the running game build. While false no hooks are installed and the tab is absent;
+	// it also gates process-global side effects (the wndproc callback) as a safety net.
+	static bool g_feature_enabled = false;
 
 	// sgg::KeyboardButtonId values used for edit confirm/cancel (validated in the PDB).
 	static constexpr int key_escape   = 0;
@@ -1321,7 +1330,7 @@ namespace big::mod_settings
 	static void ensure_wndproc_registered()
 	{
 		static bool registered = false;
-		if (registered || !g_renderer)
+		if (registered || !g_renderer || !g_feature_enabled)
 		{
 			return;
 		}
@@ -2321,62 +2330,105 @@ namespace big::mod_settings
 
 	void register_hooks()
 	{
-		const auto ctor             = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::MiscSettingsScreen"];
-		const auto do_show_category = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::DoShowCategory"];
-
-		if (!ctor || !do_show_category)
+		// Resolve every engine symbol, RVA and offset the Mods tab depends on up front. The symbol map
+		// is built from the game's live PDB, so if the game updates and a required function moved or was
+		// renamed it resolves to null here; likewise the hardcoded RVAs and struct offsets this feature
+		// was reverse-engineered against only match one specific Ship build. If anything required is
+		// missing we log exactly what and install NO hooks, so the tab is cleanly skipped instead of
+		// crashing the game. The rom.mod_settings Lua config API is wired separately (bind_config_api)
+		// and keeps working regardless, so mods can still author and read their config.
+		std::vector<const char*> missing;
+		const auto require = [&](const char* name) -> gmAddress
 		{
-			LOG(WARNING) << "[mod_settings] MiscSettingsScreen symbols not found; Mods options tab unavailable";
-			return;
-		}
+			const auto addr = big::hades2_symbol_to_address[name];
+			if (!addr)
+			{
+				missing.push_back(name);
+			}
+			return addr;
+		};
 
-		g_set_label = big::hades2_symbol_to_address["sgg::GUIComponentButton::SetDisplayName"].as_func<void(void*, const char*)>();
-		g_button_ctor = big::hades2_symbol_to_address["sgg::GUIComponentButton::GUIComponentButton"].as_func<void*(void*, void*)>();
-		g_apply_data = big::hades2_symbol_to_address["sgg::MenuScreen::ApplyDataToComponent"].as_func<void(void*, GUIComponent*)>();
-		g_update_scroll = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::UpdateScrollState"].as_func<void(void*)>();
-		g_set_animation = big::hades2_symbol_to_address["sgg::GUIComponentButton::SetAnimation"].as_func<void(void*, std::uint32_t)>();
-		g_hash_lookup = big::hades2_symbol_to_address["sgg::HashGuid::Lookup"].as_func<HashGuid*(HashGuid*, const char*, std::size_t)>();
-		g_setup_component = big::hades2_symbol_to_address["sgg::ComponentData::SetupComponent"].as_func<void(void*, void*)>();
-		g_set_normal_texture = big::hades2_symbol_to_address["sgg::GUIComponentButton::SetNormalTexture"].as_func<void(void*, std::uint32_t, bool)>();
-		g_set_selected_texture = big::hades2_symbol_to_address["sgg::GUIComponentButton::SetSelectedTexture"].as_func<void(void*, std::uint32_t)>();
-		g_button_dtor = big::hades2_symbol_to_address["sgg::GUIComponentButton::~GUIComponentButton"].as_func<void(void*)>();
-		g_disable = big::hades2_symbol_to_address["sgg::GUIComponentButton::Disable"].as_func<void(void*)>();
-		g_was_key_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasKeyPressed"].as_func<bool(void*, int)>();
+		// Functions we hook (installed below, once everything checks out).
+		const auto ctor             = require("sgg::MiscSettingsScreen::MiscSettingsScreen");
+		const auto do_show_category = require("sgg::MiscSettingsScreen::DoShowCategory");
+		const auto on_clicked       = require("sgg::GUIComponentButton::OnClicked");
+		const auto update           = require("sgg::MiscSettingsScreen::Update");
+		const auto handle_input     = require("sgg::MiscSettingsScreen::HandleInput");
+		const auto set_number_value = require("sgg::GUIComponentNumBox::SetNumberValue");
+
+		// Engine helpers called while building and editing rows. A null call here would crash, so every
+		// one is required. The button ctor doubles as the RVA anchor for the templated/overloaded
+		// helpers resolved further down.
+		const auto anchor = require("sgg::GUIComponentButton::GUIComponentButton");
+		g_button_ctor     = anchor.as_func<void*(void*, void*)>();
+		g_set_label       = require("sgg::GUIComponentButton::SetDisplayName").as_func<void(void*, const char*)>();
+		g_apply_data      = require("sgg::MenuScreen::ApplyDataToComponent").as_func<void(void*, GUIComponent*)>();
+		g_update_scroll   = require("sgg::MiscSettingsScreen::UpdateScrollState").as_func<void(void*)>();
+		g_set_animation   = require("sgg::GUIComponentButton::SetAnimation").as_func<void(void*, std::uint32_t)>();
+		g_hash_lookup     = require("sgg::HashGuid::Lookup").as_func<HashGuid*(HashGuid*, const char*, std::size_t)>();
+		g_setup_component = require("sgg::ComponentData::SetupComponent").as_func<void(void*, void*)>();
+		g_set_normal_texture = require("sgg::GUIComponentButton::SetNormalTexture").as_func<void(void*, std::uint32_t, bool)>();
+		g_was_key_pressed  = require("sgg::InputHandler::WasKeyPressed").as_func<bool(void*, int)>();
+		g_show_text        = require("sgg::GUIComponentTextBox::ShowText").as_func<void(void*, const char*)>();
+		g_numbox_set_range = require("sgg::GUIComponentNumBox::SetRange").as_func<void(void*, float, float)>();
+		g_numbox_set_value = set_number_value.as_func<void(void*, float, bool)>();
+
 		g_push_back =
 		    big::hades2_symbol_to_address["eastl::vector<sgg::GUIComponent *,eastl::allocator_forge>::push_back"].as_func<void(void*, GUIComponent**)>();
 
-		// ShowText has a single overload, so it resolves by name.
-		g_show_text = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::ShowText"].as_func<void(void*, const char*)>();
+		// Optional helpers: every call site is null-guarded, so their absence only degrades a visual or
+		// teardown detail (never crashes) and must not gate the feature.
 		g_get_lines = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GetLines"].as_func<void*(void*)>();
-		// GUIComponentNumBox setters are single-overload named symbols; the factory is a template
-		// instantiation, so it is resolved by RVA off the anchor in the block below.
-		g_numbox_set_range = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetRange"].as_func<void(void*, float, float)>();
-		g_numbox_set_value = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetNumberValue"].as_func<void(void*, float, bool)>();
+		g_set_selected_texture = big::hades2_symbol_to_address["sgg::GUIComponentButton::SetSelectedTexture"].as_func<void(void*, std::uint32_t)>();
+		g_button_dtor = big::hades2_symbol_to_address["sgg::GUIComponentButton::~GUIComponentButton"].as_func<void(void*)>();
+		g_disable = big::hades2_symbol_to_address["sgg::GUIComponentButton::Disable"].as_func<void(void*)>();
 
-		// MessageDialog::MessageDialog and ScreenManager::AddScreen are overloaded, so the PDB
-		// symbol map cannot pick the wanted overload by name; resolve their DIA-validated RVAs
-		// off the button-ctor anchor (same approach as the g_push_back fallback below).
-		if (const auto anchor = big::hades2_symbol_to_address["sgg::GUIComponentButton::GUIComponentButton"])
+		// The num-box factory (a template instantiation) and the restart-dialog ctor / AddScreen
+		// overloads cannot be picked by name from the PDB, so they are addressed by hardcoded RVA off
+		// the button-ctor anchor. Those RVAs - and every struct offset this feature uses - are valid
+		// only for the Ship build they were captured from. Fingerprint that build by checking the
+		// anchor sits at its known module RVA (game base taken from the live process). A mismatch means
+		// the game changed and our RVAs/offsets can no longer be trusted, so disable the whole tab.
+		uintptr_t game_base   = 0;
+		std::size_t game_size = 0;
+		::module_info_helper::get_module_base_and_size(&game_base, &game_size, nullptr);
+		const bool build_matches = anchor && game_base && (anchor.as<uintptr_t>() - game_base == anchor_rva);
+
+		// push_back is a named PDB symbol but is occasionally emitted inline; fall back to its RVA.
+		if (!g_push_back && build_matches)
 		{
-			const auto base       = anchor.as<uintptr_t>() - anchor_rva;
-			g_message_dialog_ctor = reinterpret_cast<message_dialog_ctor_fn>(base + message_dialog_ctor_rva);
-			g_add_screen          = reinterpret_cast<add_screen_fn>(base + add_screen_rva);
-			g_numbox_factory      = reinterpret_cast<numbox_factory_fn>(base + numbox_factory_rva);
+			g_push_back = reinterpret_cast<push_back_fn>(anchor.as<uintptr_t>() - anchor_rva + push_back_rva);
 		}
-
 		if (!g_push_back)
 		{
-			const auto anchor = big::hades2_symbol_to_address["sgg::GUIComponentButton::GUIComponentButton"];
-			if (anchor)
-			{
-				g_push_back = reinterpret_cast<push_back_fn>(anchor.as<uintptr_t>() - 0x11'5c'70 + 0x14'1e'd0);
-			}
+			missing.push_back("eastl::vector<sgg::GUIComponent *,eastl::allocator_forge>::push_back");
 		}
 
-		if (!g_button_ctor || !g_push_back || !g_apply_data || !g_set_label || !g_setup_component)
+		if (!missing.empty() || !build_matches)
 		{
-			LOG(WARNING) << "[mod_settings] engine row helpers unresolved (ctor=" << (g_button_ctor != nullptr) << " push_back=" << (g_push_back != nullptr) << " apply=" << (g_apply_data != nullptr) << " label=" << (g_set_label != nullptr) << " setup=" << (g_setup_component != nullptr) << ")";
+			std::string detail;
+			for (const auto* name : missing)
+			{
+				detail += "\n    - missing symbol: ";
+				detail += name;
+			}
+			if (!build_matches)
+			{
+				detail += "\n    - build fingerprint mismatch (button ctor not at the expected RVA; game updated?)";
+			}
+			LOG(WARNING) << "[mod_settings] Mods options tab disabled for this game build; the in-game mod-settings "
+			                "editor is skipped. The rom.mod_settings Lua config API is unaffected."
+			             << detail;
+			return;
 		}
+
+		// Build verified and every required symbol resolved: derive the RVA-relative helpers and hook.
+		const auto anchor_base = anchor.as<uintptr_t>() - anchor_rva;
+		g_message_dialog_ctor  = reinterpret_cast<message_dialog_ctor_fn>(anchor_base + message_dialog_ctor_rva);
+		g_add_screen           = reinterpret_cast<add_screen_fn>(anchor_base + add_screen_rva);
+		g_numbox_factory       = reinterpret_cast<numbox_factory_fn>(anchor_base + numbox_factory_rva);
+
+		g_feature_enabled = true;
 
 		static auto ctor_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_ctor>(
 		    "sgg::MiscSettingsScreen::MiscSettingsScreen",
@@ -2385,55 +2437,20 @@ namespace big::mod_settings
 		    "sgg::MiscSettingsScreen::DoShowCategory",
 		    do_show_category);
 
-		const auto on_clicked = big::hades2_symbol_to_address["sgg::GUIComponentButton::OnClicked"];
-		if (on_clicked)
-		{
-			static auto onclick_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentButton_OnClicked>(
-			    "sgg::GUIComponentButton::OnClicked",
-			    on_clicked);
-		}
-		else
-		{
-			LOG(WARNING)
-			    << "[mod_settings] sgg::GUIComponentButton::OnClicked not found; mod rows will not be clickable";
-		}
-
-		const auto set_number_value = big::hades2_symbol_to_address["sgg::GUIComponentNumBox::SetNumberValue"];
-		if (set_number_value)
-		{
-			static auto snv_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentNumBox_SetNumberValue>(
-			    "sgg::GUIComponentNumBox::SetNumberValue",
-			    set_number_value);
-		}
-		else
-		{
-			LOG(WARNING) << "[mod_settings] sgg::GUIComponentNumBox::SetNumberValue not found; number-box edits will "
-			                "not persist";
-		}
-
-		const auto update = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::Update"];
-		if (update)
-		{
-			static auto update_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_Update>(
-			    "sgg::MiscSettingsScreen::Update",
-			    update);
-		}
-		else
-		{
-			LOG(WARNING)
-			    << "[mod_settings] sgg::MiscSettingsScreen::Update not found; mod-row navigation is unavailable";
-		}
-
-		const auto handle_input = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::HandleInput"];
-		if (handle_input)
-		{
-			static auto handle_input_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_HandleInput>("sgg::MiscSettingsScreen::HandleInput", handle_input);
-		}
-		else
-		{
-			LOG(WARNING) << "[mod_settings] sgg::MiscSettingsScreen::HandleInput not found; freetext editing may not "
-			                "block menu nav";
-		}
+		// All required by the checks above, so install unconditionally. OnClicked and SetNumberValue are
+		// global (they fire for every button / num-box in the game); their callbacks filter to our rows
+		// via find_row, so installing them is a no-op for the rest of the game's UI.
+		static auto onclick_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentButton_OnClicked>(
+		    "sgg::GUIComponentButton::OnClicked",
+		    on_clicked);
+		static auto snv_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentNumBox_SetNumberValue>(
+		    "sgg::GUIComponentNumBox::SetNumberValue",
+		    set_number_value);
+		static auto update_hook =
+		    hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_Update>("sgg::MiscSettingsScreen::Update", update);
+		static auto handle_input_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_HandleInput>(
+		    "sgg::MiscSettingsScreen::HandleInput",
+		    handle_input);
 
 		// Every close path (Escape key, controller B, clicking the on-screen Exit button) funnels
 		// through ExitScreen, so this is where the restart-required prompt is triggered.
