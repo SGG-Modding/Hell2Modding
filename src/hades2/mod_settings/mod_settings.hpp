@@ -47,4 +47,9 @@ namespace big::mod_settings
 	// Returns the author-declared metadata for a setting, or std::nullopt when the setting has no
 	// rich metadata table (in which case the menu renders it with type-based defaults).
 	std::optional<setting_metadata> get_setting_metadata(const std::string& guid, const std::string& section, const std::string& key);
+
+	// Rank of a setting's definition in its config.lua source (0 = first). Used to order rows that
+	// have no author-declared `order` in config-file order. Returns INT_MAX for keys not bound via
+	// rom.mod_settings.load (e.g. Chalk-bound), so they fall back to the config map order.
+	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key);
 } // namespace big::mod_settings

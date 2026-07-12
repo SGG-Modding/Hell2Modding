@@ -3,6 +3,7 @@
 #include "sgg_gui.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -201,6 +202,12 @@ namespace big::mod_settings
 	static constexpr float row_pitch           = 54.0f;   // vertical distance between rows
 	static constexpr std::uint32_t rows_per_page = 8;
 
+	// Max characters shown in the right-column value (freetext + its edit cursor). A long value is
+	// right-aligned and grows left toward the left-aligned key label; capping it keeps the two from
+	// overlapping. Truncation keeps the TAIL with a leading ellipsis (the informative end of a path,
+	// and where the edit cursor sits). Tunable; ~30 clears typical key labels at the value font.
+	static constexpr std::size_t value_display_max_chars = 30;
+
 	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
 	static constexpr std::uint64_t edit_cursor_blink_ms = 500;
 
@@ -309,6 +316,47 @@ namespace big::mod_settings
 		std::string name = (dash == std::string::npos) ? stem : stem.substr(dash + 1);
 		std::replace(name.begin(), name.end(), '_', ' ');
 		return name;
+	}
+
+	// Escapes the characters the game's text parser (GUIComponentTextBox::Parse) treats as markup,
+	// so arbitrary user text - config values (e.g. Windows paths with '\'), display names and
+	// descriptions - renders verbatim instead of being mangled. The parser reads '\' as an escape
+	// lead that consumes the following word ("D:\Program..." -> "D: ...") and '[' ']' as inline-tag
+	// delimiters whose contents are dropped ("[deprecated] x" -> " x"). A leading backslash makes
+	// each literal (\\ -> \, \[ -> [, \] -> ]); backslash MUST be escaped first. ('{' and '@' are
+	// also markup leads but have no literal escape in the parser, so are left as-is - they are rare
+	// in config text and, unlike '\'/'[', do not silently eat surrounding characters.)
+	static std::string escape_markup(const std::string& text)
+	{
+		std::string out;
+		out.reserve(text.size() + 8);
+		for (char c : text)
+		{
+			if (c == '\\' || c == '[' || c == ']')
+			{
+				out.push_back('\\');
+			}
+			out.push_back(c);
+		}
+		return out;
+	}
+
+	// Caps an over-long value string for the right-aligned value column so it does not run left into
+	// the option's key label. Keeps the TAIL with a leading ellipsis (most informative for a path,
+	// and where the append/backspace edit cursor sits). Operates on the logical (pre-escape) string;
+	// escape the result afterwards. The cut is nudged off any UTF-8 continuation byte.
+	static std::string truncate_value(const std::string& text)
+	{
+		if (text.size() <= value_display_max_chars)
+		{
+			return text;
+		}
+		std::size_t start = text.size() - (value_display_max_chars - 3); // room for the "..." prefix
+		while (start < text.size() && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80)
+		{
+			++start; // don't start mid-codepoint
+		}
+		return "..." + text.substr(start);
 	}
 
 	static GUIComponent* mods_category_button(MiscSettingsScreen* screen)
@@ -682,8 +730,8 @@ namespace big::mod_settings
 		return std::isfinite(v) && v == std::floor(v);
 	}
 
-	// Overrides a num-box's centered value text (its mValueTextBox) with raw text. Used for enum
-	// rows to show the option label instead of the raw index the box tracks internally.
+	// Overrides a num-box's centered value text (its mValueTextBox) with an enum option label. The
+	// label is escaped so paths/brackets in the option text render verbatim (see escape_markup).
 	static void set_numbox_value_text(GUIComponent* numbox, const char* text)
 	{
 		if (!g_show_text || !numbox)
@@ -692,7 +740,7 @@ namespace big::mod_settings
 		}
 		if (void* value_tb = *reinterpret_cast<void**>(reinterpret_cast<char*>(numbox) + numbox_value_text_offset))
 		{
-			g_show_text(value_tb, text);
+			g_show_text(value_tb, escape_markup(text).c_str());
 		}
 	}
 
@@ -905,7 +953,7 @@ namespace big::mod_settings
 
 		for (const auto& [display, stem] : mods)
 		{
-			if (auto* row = make_text_row(screen, display.c_str()))
+			if (auto* row = make_text_row(screen, escape_markup(display).c_str()))
 			{
 				g_rows.push_back({row, RowKind::mod_entry, stem, {}});
 			}
@@ -1151,8 +1199,10 @@ namespace big::mod_settings
 	{
 		if (g_edit_component && g_set_label)
 		{
-			const bool cursor_on    = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
-			const std::string label = g_edit_buffer + (cursor_on ? "|" : " ");
+			const bool cursor_on = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
+			// Cap to the tail (where the cursor is), escape (a path may contain '\'), then append the
+			// raw blink cursor.
+			const std::string label = escape_markup(truncate_value(g_edit_buffer)) + (cursor_on ? "|" : " ");
 			g_set_label(g_edit_component, label.c_str());
 		}
 	}
@@ -1175,8 +1225,18 @@ namespace big::mod_settings
 			g_rows.push_back({row, RowKind::back, stem, {}});
 		}
 
-		// Gather this mod's entries, keeping map order, and locate the master "enabled" one.
-		std::vector<std::pair<std::string, toml_v2::config_file::config_entry_base*>> entries; // (key, entry)
+		// Gather this mod's entries. The config map is ordered alphabetically by (section, key), which
+		// is the current appearance order and the fallback for rows without an author-declared order.
+		struct panel_entry
+		{
+			std::string key;
+			toml_v2::config_file::config_entry_base* entry = nullptr;
+			bool has_order                                 = false;
+			double order                                   = 0.0;
+			int appearance                                 = INT_MAX; // config.lua source rank (fallback order)
+		};
+
+		std::vector<panel_entry> entries;
 		toml_v2::config_file::config_entry_base* enabled_entry = nullptr;
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
@@ -1190,7 +1250,16 @@ namespace big::mod_settings
 				{
 					continue;
 				}
-				entries.emplace_back(key.m_key, entry.get());
+				panel_entry pe;
+				pe.key        = key.m_key;
+				pe.entry      = entry.get();
+				pe.appearance = get_setting_appearance_order(stem, key.m_section, key.m_key);
+				if (const auto meta = get_setting_metadata(stem, key.m_section, key.m_key); meta && meta->has_order)
+				{
+					pe.has_order = true;
+					pe.order     = meta->order;
+				}
+				entries.push_back(std::move(pe));
 				if (!enabled_entry && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
 				{
 					enabled_entry = entry.get();
@@ -1198,18 +1267,42 @@ namespace big::mod_settings
 			}
 		}
 
-		// Pin the enabled entry to the top; the rest keep their order.
+		// Row order: the master "enabled" toggle is always pinned to the top; then rows with an
+		// author-declared `order` (ascending); then rows with no `order`. Within each of those two
+		// groups, and to break equal `order` values, rows fall back to their config.lua source order
+		// (appearance rank). stable_sort keeps any remaining ties in the config-map order.
 		std::stable_sort(entries.begin(),
 		                 entries.end(),
-		                 [&](const auto& a, const auto& b)
+		                 [&](const panel_entry& a, const panel_entry& b)
 		                 {
-			                 return (a.second == enabled_entry) && (b.second != enabled_entry);
+			                 const bool a_enabled = (a.entry == enabled_entry);
+			                 const bool b_enabled = (b.entry == enabled_entry);
+			                 if (a_enabled != b_enabled)
+			                 {
+				                 return a_enabled; // enabled toggle first
+			                 }
+			                 if (a_enabled)
+			                 {
+				                 return false; // only one enabled entry exists
+			                 }
+			                 if (a.has_order != b.has_order)
+			                 {
+				                 return a.has_order; // ordered rows before unordered ones
+			                 }
+			                 if (a.has_order && a.order != b.order)
+			                 {
+				                 return a.order < b.order;
+			                 }
+			                 return a.appearance < b.appearance; // equal/absent order -> config.lua source order
 		                 });
 
 		const bool mod_enabled = !enabled_entry || enabled_entry->get_value_base<bool>();
 
-		for (const auto& [key, entry] : entries)
+		for (const auto& row_src : entries)
 		{
+			const std::string& key = row_src.key;
+			auto* entry            = row_src.entry;
+
 			const bool is_enabled_row = (entry == enabled_entry);
 			const bool disabled       = !is_enabled_row && !mod_enabled;
 
@@ -1219,7 +1312,7 @@ namespace big::mod_settings
 			{
 				continue;
 			}
-			const std::string label = (meta && !meta->name.empty()) ? meta->name : key_to_display(key);
+			const std::string label = escape_markup((meta && !meta->name.empty()) ? meta->name : key_to_display(key));
 
 			// An enum (metadata `values`) renders as a native number box cycling its label list; a
 			// numeric setting with author-declared min AND max renders as a native number box over
@@ -1271,7 +1364,7 @@ namespace big::mod_settings
 				if (row)
 				{
 					const std::string v = entry ? entry->get_serialized_value() : std::string{};
-					value               = make_value_display(screen, v.c_str(), disabled);
+					value = make_value_display(screen, escape_markup(truncate_value(v)).c_str(), disabled);
 				}
 			}
 
@@ -1380,7 +1473,9 @@ namespace big::mod_settings
 		if (active != g_last_description_component)
 		{
 			g_last_description_component = active;
-			g_show_text(box, show ? description->c_str() : "");
+			// Escape markup so paths/brackets in the description render verbatim (see escape_markup).
+			const std::string shown = show ? escape_markup(*description) : std::string{};
+			g_show_text(box, shown.c_str());
 
 			// ShowText only marks the lines dirty; the layout (and text height, which the box's
 			// justification uses to place the text) is otherwise recomputed lazily at draw time,
@@ -1562,7 +1657,10 @@ namespace big::mod_settings
 						char* handle = reinterpret_cast<char*>(message_box) + textbox_font_handle_offset;
 						*reinterpret_cast<float*>(handle + font_handle_size_ratio_offset) *= restart_message_font_scale;
 						*reinterpret_cast<float*>(handle + font_handle_eng_size_ratio_offset) *= restart_message_font_scale;
-						g_show_text(message_box, message.c_str());
+						// Escape markup so a path value (e.g. hadesGameFolder) with '\' or brackets in
+						// the changed-settings list renders verbatim (see escape_markup).
+						const std::string shown = escape_markup(message);
+						g_show_text(message_box, shown.c_str());
 					}
 				}
 

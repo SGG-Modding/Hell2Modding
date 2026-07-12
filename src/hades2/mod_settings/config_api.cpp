@@ -1,11 +1,17 @@
 #include "mod_settings.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <climits>
 #include <format>
+#include <fstream>
 #include <lua/lua_manager.hpp>
 #include <lua/lua_module.hpp>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <toml_v2/config_file.hpp>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -26,6 +32,12 @@ namespace big::mod_settings
 	// (it registers no hooks until enabled), and never covered restarts needed for other reasons.
 	static std::mutex g_metadata_mutex;
 	static std::map<std::string, setting_metadata> g_setting_metadata;
+
+	// Per-setting appearance order (rank of a key's definition in config.lua), populated for EVERY
+	// bound key (not just those with rich metadata). Keyed the same way as g_setting_metadata. The
+	// menu uses it to order rows that have no author-declared `order` in their config-file source
+	// order, because Lua pairs() and the alphabetical config map both lose the config.lua order.
+	static std::map<std::string, int> g_appearance_order;
 
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
 	{
@@ -48,6 +60,10 @@ namespace big::mod_settings
 		{
 			it = (it->first.rfind(prefix, 0) == 0) ? g_setting_metadata.erase(it) : std::next(it);
 		}
+		for (auto it = g_appearance_order.begin(); it != g_appearance_order.end();)
+		{
+			it = (it->first.rfind(prefix, 0) == 0) ? g_appearance_order.erase(it) : std::next(it);
+		}
 	}
 
 	bool setting_requires_restart(const std::string& guid, const std::string& section, const std::string& key)
@@ -66,6 +82,47 @@ namespace big::mod_settings
 			return std::nullopt;
 		}
 		return it->second;
+	}
+
+	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_appearance_order.find(metadata_key(guid, section, key));
+		return it != g_appearance_order.end() ? it->second : INT_MAX;
+	}
+
+	// Finds the byte offset of a key's definition ("<key> =") in config.lua source, whole-word and
+	// not "==", or npos. The first match is the key's place in the returned `config` defaults table
+	// (defined before configDesc), which is the author's intended display order. Occurrences inside
+	// strings/prose don't match because they are not followed by a bare '='.
+	static std::size_t find_key_definition(const std::string& src, const std::string& key)
+	{
+		auto is_ident = [](char c)
+		{
+			return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+		};
+
+		for (std::size_t pos = src.find(key); pos != std::string::npos; pos = src.find(key, pos + 1))
+		{
+			if (pos > 0 && is_ident(src[pos - 1]))
+			{
+				continue; // not a word boundary on the left (e.g. "my_key" when searching "key")
+			}
+			std::size_t after = pos + key.size();
+			if (after < src.size() && is_ident(src[after]))
+			{
+				continue; // not a word boundary on the right
+			}
+			while (after < src.size() && (src[after] == ' ' || src[after] == '\t'))
+			{
+				++after;
+			}
+			if (after < src.size() && src[after] == '=' && (after + 1 >= src.size() || src[after + 1] != '='))
+			{
+				return pos;
+			}
+		}
+		return std::string::npos;
 	}
 
 	// Extracts a description string from a config.lua description value, which may be a plain string
@@ -144,10 +201,11 @@ namespace big::mod_settings
 		setting_metadata m;
 		m.description = describe(desc);
 
-		sol::object name = desc["name"];
-		if (name.get_type() == sol::type::string)
+		// Display-name override (`display_name`); empty -> the menu prettifies the key.
+		sol::object display_name = desc["display_name"];
+		if (display_name.get_type() == sol::type::string)
 		{
-			m.name = name.as<std::string>();
+			m.name = display_name.as<std::string>();
 		}
 
 		sol::object min_field = desc["min"];
@@ -411,13 +469,44 @@ namespace big::mod_settings
 		}
 		cf->save();
 
-		// Register this mod's setting metadata (replacing any from a previous load of the same mod).
+		// Read config.lua source to recover the author's key order (Lua pairs() and the alphabetical
+		// config map both lose it), then rank every bound key by where it is defined.
+		std::string source_text;
+		{
+			std::ifstream file(config_lua_path, std::ios::binary);
+			if (file)
+			{
+				std::ostringstream ss;
+				ss << file.rdbuf();
+				source_text = ss.str();
+			}
+		}
+		std::vector<std::tuple<std::size_t, std::string, std::string>> by_offset; // (offset, section, key)
+		for (const auto& [def, entry] : cf->m_entries)
+		{
+			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, def.m_key);
+			by_offset.emplace_back(off, def.m_section, def.m_key);
+		}
+		std::stable_sort(by_offset.begin(),
+		                 by_offset.end(),
+		                 [](const auto& a, const auto& b)
+		                 {
+			                 return std::get<0>(a) < std::get<0>(b);
+		                 });
+
+		// Register this mod's setting metadata + appearance order (replacing any from a previous load
+		// of the same mod).
 		{
 			std::scoped_lock lock(g_metadata_mutex);
 			clear_metadata_for(guid);
 			for (auto& cm : collected)
 			{
 				g_setting_metadata[metadata_key(guid, cm.section, cm.key)] = std::move(cm.meta);
+			}
+			int rank = 0;
+			for (const auto& [off, section, key] : by_offset)
+			{
+				g_appearance_order[metadata_key(guid, section, key)] = rank++;
 			}
 		}
 
