@@ -1358,15 +1358,6 @@ namespace big::mod_settings
 		g_edit_cancel  = false;
 	}
 
-	// Requests an in-place rebuild of the current settings view (to reflect a committed or
-	// reverted edit) on the next Update.
-	static void request_settings_rebuild()
-	{
-		g_pending_view = g_view;
-		g_pending_stem = g_view_stem;
-		g_nav_pending  = true;
-	}
-
 	// Replaces each ASCII space with a non-breaking space (U+00A0, UTF-8 0xC2 0xA0). The message
 	// textbox auto-wraps at breakable spaces (computed at the template font size, before our font
 	// scaling), which would split a single logical line; non-breaking spaces keep it on one line.
@@ -1447,6 +1438,18 @@ namespace big::mod_settings
 		g_restart_required = !g_restart_changes.empty();
 	}
 
+	// Refreshes a freetext row's right-column value display to show `serialized`, formatted exactly
+	// as build_mod_settings renders it (width-truncated with a leading ellipsis, then markup-escaped).
+	// Used to reflect a committed or cancelled edit in place, without a panel rebuild.
+	static void refresh_value_display(GUIComponent* value_component, const std::string& serialized)
+	{
+		if (value_component && g_set_label)
+		{
+			const std::string disp = escape_markup(truncate_value(serialized));
+			g_set_label(value_component, disp.c_str());
+		}
+	}
+
 	// Commits or cancels a pending edit. Called from the HandleInput hook so it runs on the
 	// same frame the triggering key/click is swallowed (HandleInput returns true that
 	// frame), which prevents a submitting mouse click from also activating the row it lands
@@ -1504,15 +1507,26 @@ namespace big::mod_settings
 
 				// If the author declared this setting restart-required, flag/clear the restart.
 				note_change_if_restart_required(g_edit_entry, g_edit_entry->get_serialized_value());
+
+				// Reflect the committed value in the right-hand display in place. Do NOT rebuild the
+				// panel here: a rebuild frees and recreates every row, which snaps the visible page
+				// back to the top while the scrollbar keeps the scrolled position, so the rows and
+				// the scrollbar desync until the next manual scroll. Only this one value changed, so
+				// just update its label (the native number-box rows persist the same in-place way).
+				refresh_value_display(g_edit_component, g_edit_entry->get_serialized_value());
 			}
 			exit_edit_mode();
-			request_settings_rebuild();
 			return true;
 		}
 		if (g_edit_cancel)
 		{
+			// Restore the display to the unchanged value (the live caret label was transient); no
+			// rebuild, for the same scroll-preservation reason as the commit path above.
+			if (g_edit_entry)
+			{
+				refresh_value_display(g_edit_component, g_edit_entry->get_serialized_value());
+			}
 			exit_edit_mode();
-			request_settings_rebuild();
 			return true;
 		}
 		return false;
