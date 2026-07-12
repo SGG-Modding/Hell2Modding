@@ -438,9 +438,10 @@ namespace big::mod_settings
 				defaults_out.emplace_back(section, key, toml_v2::toml_type_converter::convert_to_string(*default_any));
 			}
 
-			// Only a rich description table carries metadata; a nested value is a sub-section (its
-			// table holds child descriptions, not this key's metadata) and is handled by recursion.
-			if (vt != sol::type::table && desc.is<sol::table>())
+			// A rich description table carries metadata. For a leaf it is the setting's metadata; for a
+			// nested group (a table value) it is group-level metadata (e.g. order/display_name/hidden)
+			// declared alongside the child descriptions. Registered under (section, key) either way.
+			if (desc.is<sol::table>())
 			{
 				meta_out.push_back({section, key, extract_metadata(desc.as<sol::table>())});
 			}

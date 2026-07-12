@@ -211,6 +211,12 @@ namespace big::mod_settings
 	static constexpr float row_pitch           = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
 	static constexpr std::uint32_t rows_per_page = 10;    // vanilla ItemsPerPage = 10
 
+	// Config sections. Both rom.mod_settings.load and Chalk bind a mod's settings under the root
+	// "config" section; nested groups are dot-separated child sections (e.g. "config.biome_pool").
+	static const std::string root_section = "config";
+	// Chalk writes a placeholder entry with this key per section so empty groups persist; skip it.
+	static constexpr const char* section_empty_key = "...";
+
 	// Approximate visual width budget for the right-column value (freetext + its edit caret), in
 	// "width units" where a typical medium glyph is 1.0. The menu font is variable-width, so a raw
 	// character count looks inconsistent (a run of 'W' is far wider than a run of 'i'); budgeting by
@@ -225,6 +231,7 @@ namespace big::mod_settings
 	enum class RowKind
 	{
 		mod_entry, // opens that mod's settings
+		group,     // opens a nested config group (a child section)
 		setting,   // edits one config entry
 		action,    // a button that runs an action (e.g. Apply/Reset)
 	};
@@ -266,6 +273,9 @@ namespace big::mod_settings
 		bool is_enum = false;
 		std::vector<std::string> enum_values;
 		std::vector<std::string> enum_labels;
+
+		// Group rows (RowKind::group) only: the child config section this row drills into.
+		std::string target_section;
 	};
 
 	static std::vector<PanelRow> g_rows;
@@ -300,10 +310,12 @@ namespace big::mod_settings
 	};
 
 	static View g_view = View::mod_list;
-	static std::string g_view_stem; // mod whose settings are shown (mod_settings view)
+	static std::string g_view_stem;    // mod whose settings are shown (mod_settings view)
+	static std::string g_view_section; // config section shown within that mod (mod_settings view)
 	static bool g_nav_pending  = false;
 	static View g_pending_view = View::mod_list;
 	static std::string g_pending_stem;
+	static std::string g_pending_section;
 	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav
 
 	// Freetext edit state (number/string settings). A click enters edit mode; typed input
@@ -327,6 +339,25 @@ namespace big::mod_settings
 		std::string name = (dash == std::string::npos) ? stem : stem.substr(dash + 1);
 		std::replace(name.begin(), name.end(), '_', ' ');
 		return name;
+	}
+
+	// The mod's Thunderstore manifest description, shown in the description box while its row in the
+	// mod list is highlighted. Empty when no loaded module matches the stem.
+	static std::string mod_description_from_stem(const std::string& stem)
+	{
+		if (!big::g_lua_manager)
+		{
+			return {};
+		}
+		std::scoped_lock guard(big::g_lua_manager->m_module_lock);
+		for (const auto& module : big::g_lua_manager->m_modules)
+		{
+			if (module && module->guid() == stem)
+			{
+				return module->manifest().description;
+			}
+		}
+		return {};
 	}
 
 	// Escapes the characters the game's text parser (GUIComponentTextBox::Parse) treats as markup,
@@ -1108,7 +1139,9 @@ namespace big::mod_settings
 		{
 			if (auto* row = make_text_row(screen, escape_markup(display).c_str()))
 			{
-				g_rows.push_back({row, RowKind::mod_entry, stem, {}});
+				PanelRow pr{row, RowKind::mod_entry, stem, {}};
+				pr.description = mod_description_from_stem(stem);
+				g_rows.push_back(std::move(pr));
 			}
 		}
 	}
@@ -1559,25 +1592,32 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
-	// Level 2: one row per config entry belonging to `stem`. Boolean entries render as native toggle
-	// rows; other types render as a left-aligned key with a right-aligned, freetext-editable value
-	// (two components). A boolean "enabled" entry (if present) is pinned to the top; when it is off,
-	// every other setting is greyed out and made non-interactable.
-	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem)
+	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`.
+	// Leaf entries render as setting rows (bool -> toggle, enum/bounded number -> num box, else a
+	// freetext value); each direct child section renders as a group row that drills into it. At the
+	// root section a boolean "enabled" entry (if present) is pinned to the top; when it is off, every
+	// other row is greyed out and made non-interactable.
+	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem, const std::string& section)
 	{
-		// Gather this mod's entries. The config map is ordered alphabetically by (section, key), which
-		// is the current appearance order and the fallback for rows without an author-declared order.
-		struct panel_entry
+		// A menu item is either a leaf setting directly in `section`, or a direct child group (a
+		// nested sub-section such as "config.biome_pool" while viewing "config").
+		struct panel_item
 		{
-			std::string key;
-			toml_v2::config_file::config_entry_base* entry = nullptr;
-			bool has_order                                 = false;
-			double order                                   = 0.0;
-			int appearance                                 = INT_MAX; // config.lua source rank (fallback order)
+			bool is_group = false;
+			std::string key;                                          // leaf key, or the group's last path segment
+			toml_v2::config_file::config_entry_base* entry = nullptr; // leaf only
+			std::string child_section;                                // group only (full "config.x.y" path)
+			bool has_order  = false;
+			double order    = 0.0;
+			int appearance  = INT_MAX; // config.lua source rank (fallback order)
+			bool is_enabled = false;   // the mod's master "enabled" toggle (root section only)
 		};
 
-		std::vector<panel_entry> entries;
+		std::vector<panel_item> items;
+		std::map<std::string, panel_item> groups; // child section path -> group item (keeps its min appearance)
 		toml_v2::config_file::config_entry_base* enabled_entry = nullptr;
+		const std::string section_prefix                       = section + ".";
+
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
 			if (!cfg || cfg->m_config_file_stem_as_str != stem)
@@ -1586,42 +1626,92 @@ namespace big::mod_settings
 			}
 			for (auto& [key, entry] : cfg->m_entries)
 			{
-				if (!entry)
+				if (!entry || key.m_key == section_empty_key)
 				{
 					continue;
 				}
-				panel_entry pe;
-				pe.key        = key.m_key;
-				pe.entry      = entry.get();
-				pe.appearance = get_setting_appearance_order(stem, key.m_section, key.m_key);
-				if (const auto meta = get_setting_metadata(stem, key.m_section, key.m_key); meta && meta->has_order)
-				{
-					pe.has_order = true;
-					pe.order     = meta->order;
-				}
-				entries.push_back(std::move(pe));
-				if (!enabled_entry && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+
+				// The mod's master switch lives in the root section; track it whatever section is
+				// being shown, so nested rows are greyed when the mod is disabled.
+				if (!enabled_entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
 				{
 					enabled_entry = entry.get();
+				}
+
+				if (key.m_section == section)
+				{
+					panel_item it;
+					it.key        = key.m_key;
+					it.entry      = entry.get();
+					it.appearance = get_setting_appearance_order(stem, key.m_section, key.m_key);
+					if (const auto meta = get_setting_metadata(stem, key.m_section, key.m_key); meta && meta->has_order)
+					{
+						it.has_order = true;
+						it.order     = meta->order;
+					}
+					items.push_back(std::move(it));
+				}
+				else if (key.m_section.rfind(section_prefix, 0) == 0)
+				{
+					// A descendant section: the direct child under `section` is the first path segment
+					// after the prefix. Collapse its whole subtree into one group row, ranked by its
+					// earliest-defined descendant.
+					const std::string rest       = key.m_section.substr(section_prefix.size());
+					const std::string child      = rest.substr(0, rest.find('.'));
+					const std::string child_path = section_prefix + child;
+					const int app                = get_setting_appearance_order(stem, key.m_section, key.m_key);
+					const auto git               = groups.find(child_path);
+					if (git == groups.end())
+					{
+						panel_item g;
+						g.is_group      = true;
+						g.key           = child;
+						g.child_section = child_path;
+						g.appearance    = app;
+						if (const auto meta = get_setting_metadata(stem, section, child); meta && meta->has_order)
+						{
+							g.has_order = true;
+							g.order     = meta->order;
+						}
+						groups.emplace(child_path, std::move(g));
+					}
+					else if (app < git->second.appearance)
+					{
+						git->second.appearance = app;
+					}
 				}
 			}
 		}
 
-		// Row order: the master "enabled" toggle is always pinned to the top; then rows with an
-		// author-declared `order` (ascending); then rows with no `order`. Within each of those two
-		// groups, and to break equal `order` values, rows fall back to their config.lua source order
-		// (appearance rank). stable_sort keeps any remaining ties in the config-map order.
-		std::stable_sort(entries.begin(),
-		                 entries.end(),
-		                 [&](const panel_entry& a, const panel_entry& b)
+		for (auto& kv : groups)
+		{
+			items.push_back(std::move(kv.second));
+		}
+
+		const bool mod_enabled = !enabled_entry || enabled_entry->get_value_base<bool>();
+		if (section == root_section && enabled_entry)
+		{
+			for (auto& it : items)
+			{
+				if (it.entry == enabled_entry)
+				{
+					it.is_enabled = true;
+				}
+			}
+		}
+
+		// Row order: the master "enabled" toggle is pinned to the top; then rows with an author
+		// `order` (ascending); then the rest. Ties and absent order fall back to config.lua source
+		// order (a group's rank is its earliest-defined descendant's).
+		std::stable_sort(items.begin(),
+		                 items.end(),
+		                 [](const panel_item& a, const panel_item& b)
 		                 {
-			                 const bool a_enabled = (a.entry == enabled_entry);
-			                 const bool b_enabled = (b.entry == enabled_entry);
-			                 if (a_enabled != b_enabled)
+			                 if (a.is_enabled != b.is_enabled)
 			                 {
-				                 return a_enabled; // enabled toggle first
+				                 return a.is_enabled; // enabled toggle first
 			                 }
-			                 if (a_enabled)
+			                 if (a.is_enabled)
 			                 {
 				                 return false; // only one enabled entry exists
 			                 }
@@ -1633,18 +1723,43 @@ namespace big::mod_settings
 			                 {
 				                 return a.order < b.order;
 			                 }
+			                 if (!a.has_order && a.is_group != b.is_group)
+			                 {
+				                 return a.is_group; // with no explicit order, groups are pinned above settings
+			                 }
 			                 return a.appearance < b.appearance; // equal/absent order -> config.lua source order
 		                 });
 
-		const bool mod_enabled = !enabled_entry || enabled_entry->get_value_base<bool>();
-
-		for (const auto& row_src : entries)
+		for (const auto& it : items)
 		{
-			const std::string& key = row_src.key;
-			auto* entry            = row_src.entry;
-
-			const bool is_enabled_row = (entry == enabled_entry);
+			const bool is_enabled_row = it.is_enabled;
 			const bool disabled       = !is_enabled_row && !mod_enabled;
+
+			// A nested group drills into its child section when clicked/activated.
+			if (it.is_group)
+			{
+				const auto gmeta = get_setting_metadata(stem, section, it.key);
+				if (gmeta && gmeta->hidden)
+				{
+					continue;
+				}
+				const std::string glabel = escape_markup((gmeta && !gmeta->name.empty()) ? gmeta->name : key_to_display(it.key));
+				if (auto* row = make_text_row(screen, glabel.c_str(), disabled))
+				{
+					PanelRow pr{row, RowKind::group, stem, {}};
+					pr.disabled       = disabled;
+					pr.target_section = it.child_section;
+					if (gmeta)
+					{
+						pr.description = gmeta->description;
+					}
+					g_rows.push_back(std::move(pr));
+				}
+				continue;
+			}
+
+			const std::string& key = it.key;
+			auto* entry            = it.entry;
 
 			// Author metadata (if any) can rename the row, hide it, and (later) pick its widget.
 			const auto meta = get_setting_metadata(stem, entry->m_definition.m_section, entry->m_definition.m_key);
@@ -1888,6 +2003,7 @@ namespace big::mod_settings
 			switch (row->kind)
 			{
 			case RowKind::mod_entry: confirm = "{SL} SELECT"; break;
+			case RowKind::group:     confirm = "{SL} SELECT"; break;
 			case RowKind::setting:
 				if (row->entry && row->entry->type() == typeid(bool))
 				{
@@ -1966,7 +2082,7 @@ namespace big::mod_settings
 
 		if (g_view == View::mod_settings && !g_view_stem.empty())
 		{
-			build_mod_settings(screen, g_view_stem);
+			build_mod_settings(screen, g_view_stem, g_view_section.empty() ? root_section : g_view_section);
 		}
 		else
 		{
@@ -2019,11 +2135,12 @@ namespace big::mod_settings
 		// A Reset forces a top (non-instant) rebuild even though the view is unchanged, so the
 		// restored rows and the scrollbar stay in sync - an in-place rebuild that preserves a
 		// scrolled position would leave the stale page-1 rows visible (see the scroll-model notes).
-		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem);
+		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
 		g_nav_reset_to_top = false;
 
-		g_view      = g_pending_view;
-		g_view_stem = g_pending_stem;
+		g_view         = g_pending_view;
+		g_view_stem    = g_pending_stem;
+		g_view_section = g_pending_section;
 		build_panel(screen, instant);
 	}
 
@@ -2076,6 +2193,7 @@ namespace big::mod_settings
 		{
 			g_pending_view     = g_view;
 			g_pending_stem     = g_view_stem;
+			g_pending_section  = g_view_section;
 			g_nav_pending      = true;
 			g_nav_reset_to_top = true;
 		}
@@ -2193,6 +2311,8 @@ namespace big::mod_settings
 		g_rows.clear();
 		g_view = View::mod_list;
 		g_view_stem.clear();
+		g_view_section.clear();
+		g_pending_section.clear();
 		g_nav_pending            = false;
 		g_nav_reset_to_top       = false;
 		g_restart_required       = false;
@@ -2233,6 +2353,7 @@ namespace big::mod_settings
 			// via the Update hook, not by re-entering the category.
 			g_view = View::mod_list;
 			g_view_stem.clear();
+			g_view_section.clear();
 			g_nav_pending = false;
 			exit_edit_mode();
 			build_panel(screen);
@@ -2338,9 +2459,16 @@ namespace big::mod_settings
 			switch (matched_row.kind)
 			{
 			case RowKind::mod_entry:
-				g_pending_view = View::mod_settings;
-				g_pending_stem = matched_row.stem;
-				g_nav_pending  = true;
+				g_pending_view    = View::mod_settings;
+				g_pending_stem    = matched_row.stem;
+				g_pending_section = root_section;
+				g_nav_pending     = true;
+				break;
+			case RowKind::group:
+				g_pending_view    = View::mod_settings;
+				g_pending_stem    = matched_row.stem;
+				g_pending_section = matched_row.target_section;
+				g_nav_pending     = true;
 				break;
 			case RowKind::setting:
 			{
@@ -2366,9 +2494,10 @@ namespace big::mod_settings
 					// are greyed out, so rebuild the settings view on the next Update.
 					if (matched_row.is_enabled_toggle)
 					{
-						g_pending_view = View::mod_settings;
-						g_pending_stem = matched_row.stem;
-						g_nav_pending  = true;
+						g_pending_view    = View::mod_settings;
+						g_pending_stem    = matched_row.stem;
+						g_pending_section = g_view_section;
+						g_nav_pending     = true;
 					}
 				}
 				else if (entry)
@@ -2475,17 +2604,28 @@ namespace big::mod_settings
 	// forced. If the native dialog cannot be shown, the MessageBox fallback closes the game anyway.
 	static void hook_MiscSettingsScreen_ExitScreen(void* self)
 	{
-		// Inside a mod's settings, Esc / controller B / the on-screen Back button navigates back to
-		// the mod list instead of closing the whole options screen (mirrors the native category
-		// drill-down, where the same button reads "Back"). Only the mod-list view actually closes.
+		// Inside a mod's settings, Esc / controller B / the on-screen Back button steps up one level:
+		// a nested group returns to its parent section, and the root returns to the mod list. Only the
+		// mod-list view actually closes the options screen.
 		auto* screen = static_cast<MiscSettingsScreen*>(self);
 		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
 		if (on_mods_tab && g_view == View::mod_settings)
 		{
-			g_pending_view = View::mod_list;
-			g_pending_stem.clear();
+			const auto dot = g_view_section.rfind('.');
+			if (dot != std::string::npos)
+			{
+				g_pending_view    = View::mod_settings;
+				g_pending_stem    = g_view_stem;
+				g_pending_section = g_view_section.substr(0, dot);
+			}
+			else
+			{
+				g_pending_view = View::mod_list;
+				g_pending_stem.clear();
+				g_pending_section.clear();
+			}
 			g_nav_pending = true;
-			return; // veto the close; apply_nav swaps back to the mod list next Update
+			return; // veto the close; apply_nav applies the new view next Update
 		}
 
 		if (g_restart_required && !g_restart_prompt_shown)
