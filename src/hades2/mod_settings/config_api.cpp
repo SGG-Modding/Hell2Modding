@@ -253,6 +253,12 @@ namespace big::mod_settings
 			m.hidden = hidden_field.as<bool>();
 		}
 
+		sol::object freetext_field = desc["freetext"];
+		if (freetext_field.is<bool>())
+		{
+			m.freetext = freetext_field.as<bool>();
+		}
+
 		m.restart_required = description_requires_restart(desc);
 
 		return m;

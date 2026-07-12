@@ -1465,6 +1465,43 @@ namespace big::mod_settings
 				// valid value, so bad input for a number simply keeps the old value.
 				g_edit_entry->set_serialized_value(g_edit_buffer);
 
+				// Clamp/snap a bounded number typed via freetext to match what the stepper would
+				// produce: keep it within [min, max] and, if a step is declared, snap to the nearest
+				// grid point min + k*step. (The native stepper enforces both; freetext does it on
+				// commit.) set_serialized_value above already parsed/validated the number.
+				if (g_edit_entry->type() == typeid(double))
+				{
+					const auto meta = get_setting_metadata(g_edit_entry->m_config_file->m_config_file_stem_as_str,
+					                                       g_edit_entry->m_definition.m_section,
+					                                       g_edit_entry->m_definition.m_key);
+					if (meta && (meta->has_min || meta->has_max || meta->has_step))
+					{
+						double v = g_edit_entry->get_value_base<double>();
+
+						const auto clamp_range = [&](double x)
+						{
+							if (meta->has_min && x < meta->min)
+							{
+								x = meta->min;
+							}
+							if (meta->has_max && x > meta->max)
+							{
+								x = meta->max;
+							}
+							return x;
+						};
+
+						v = clamp_range(v);
+						if (meta->has_step && meta->step > 0.0)
+						{
+							const double base = meta->has_min ? meta->min : 0.0;
+							v                 = base + std::round((v - base) / meta->step) * meta->step;
+							v                 = clamp_range(v); // snapping may overshoot a bound
+						}
+						g_edit_entry->set_value_base<double>(v);
+					}
+				}
+
 				// If the author declared this setting restart-required, flag/clear the restart.
 				note_change_if_restart_required(g_edit_entry, g_edit_entry->get_serialized_value());
 			}
@@ -1602,11 +1639,12 @@ namespace big::mod_settings
 
 			// An enum (metadata `values`) renders as a native number box cycling its label list; a
 			// numeric setting with author-declared min AND max renders as a native number box over
-			// its range (like the FPS-limit option); other numbers stay freetext-editable with a
+			// its range (like the FPS-limit option) UNLESS the author set `freetext` (e.g. for a very
+			// large range better typed than stepped); other numbers stay freetext-editable with a
 			// plain right-column value label.
 			const bool is_number  = entry->type() == typeid(double);
 			const bool is_enum    = meta && !meta->values.empty();
-			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max;
+			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max && !meta->freetext;
 			const double step     = (meta && meta->has_step) ? meta->step : 1.0;
 
 			// Enum option lists (serialized values + parallel labels), resolved once so the widget and
