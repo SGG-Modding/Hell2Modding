@@ -1390,8 +1390,9 @@ namespace big::mod_settings
 	// Turns an identifier into a friendly display string: underscores become spaces, and camelCase /
 	// PascalCase word boundaries are split ("z_ThisConfigKey" -> "z This Config Key"). An acronym run
 	// splits before its final capital when that capital starts a lowercase word ("HTTPServer" ->
-	// "HTTP Server"). Used for both setting keys and mod names (via display_name_from_stem). Authors
-	// can override this entirely with `display_name`.
+	// "HTTP Server"). The first letter is capitalized ("enabled" -> "Enabled"). Used for both setting
+	// keys and mod names (via display_name_from_stem). Authors can override this entirely with
+	// `display_name`.
 	static std::string key_to_display(const std::string& key)
 	{
 		const auto is_upper = [](char c)
@@ -1424,6 +1425,20 @@ namespace big::mod_settings
 				}
 			}
 			out.push_back(c);
+		}
+
+		// Capitalize the first letter so a key/mod name with no author display_name still reads as a
+		// proper title ("enabled" -> "Enabled").
+		for (char& c : out)
+		{
+			if (c != ' ')
+			{
+				if (is_lower(c))
+				{
+					c = static_cast<char>(c - ('a' - 'A'));
+				}
+				break;
+			}
 		}
 		return out;
 	}
