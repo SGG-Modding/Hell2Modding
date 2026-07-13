@@ -124,6 +124,18 @@ namespace big::mod_settings
 	// missing (it is sometimes emitted inline). Resolved off the same button-ctor anchor.
 	static constexpr std::uintptr_t push_back_rva = 0x14'1E'D0;
 
+	// sgg::MenuScreen::TeleportCursorTo(this, GUIComponent*) - the 2-arg overload that drops the
+	// controller/keyboard free-form cursor onto a component - and sgg::ConfigOptions::UseMouse, the
+	// global bool that is false in controller/keyboard mode. Both addressed by RVA off the anchor.
+	static constexpr std::uintptr_t teleport_cursor_rva  = 0x14'03'A0;
+	static constexpr std::uintptr_t config_use_mouse_rva = 0x83'69'15;
+
+	// &sgg::Controls::Cancel (the remappable Back/Cancel action that folds together controller B and
+	// keyboard Esc) and &sgg::Controls::Select (controller A + Enter); their first int is the id
+	// indexing InputHandler's control-state array.
+	static constexpr std::uintptr_t config_cancel_rva = 0x55'12'20;
+	static constexpr std::uintptr_t config_select_rva = 0x55'1D'80;
+
 	// sgg::GUIComponentNumBox field offsets (DIA-validated on the current Ship build). sizeof 0x5D0;
 	// derives directly from GUIComponent (not GUIComponentButton).
 	static constexpr std::size_t numbox_value_offset = 0x5'40;      // mNumberValue      (float)
@@ -185,6 +197,9 @@ namespace big::mod_settings
 	using gui_component_ctor_fn  = void (*)(void* self, std::uint64_t location_packed);
 	using slider_defaults_fn     = void (*)(void* slider);
 	using slider_set_fraction_fn = void (*)(void* slider, float fraction, bool notify);
+	using teleport_cursor_fn     = void (*)(void* menu_screen, GUIComponent* component);
+	using component_focused_fn   = void (*)(void* misc_settings_screen, GUIComponent* component);
+	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -219,7 +234,13 @@ namespace big::mod_settings
 	static gui_component_ctor_fn g_textbox_ctor         = nullptr;
 	static slider_defaults_fn g_slider_defaults         = nullptr;
 	static slider_set_fraction_fn g_slider_set_fraction = nullptr;
-	static std::uintptr_t g_slider_vtable = 0; // runtime slider vftable address (anchor_base + slider_vtable_rva)
+	static std::uintptr_t g_slider_vtable       = 0; // runtime slider vftable address (anchor_base + slider_vtable_rva)
+	static teleport_cursor_fn g_teleport_cursor = nullptr; // drops the controller cursor on a row (initial focus)
+	static const bool* g_use_mouse              = nullptr; // sgg::ConfigOptions::UseMouse (false in controller mode)
+	static component_focused_fn g_component_focused = nullptr; // focuses a row so it receives stick input + green
+	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
+	static const void* g_controls_cancel            = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
+	static const void* g_controls_select            = nullptr; // &sgg::Controls::Select (controller A / Enter)
 
 	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has
 	// resolved for the running game build. While false no hooks are installed and the tab is absent;
@@ -2313,6 +2334,63 @@ namespace big::mod_settings
 		}
 	}
 
+	// Focuses the first selectable row so the controller/keyboard cursor lands on it, as a native
+	// category does when shown. The engine's DoShowCategory teleports the free-form cursor onto
+	// mOptions[0] and clears mCategoryFocused (switching from tab to option navigation) only when the
+	// option list is already populated at that point; our rows are appended afterwards, so it is
+	// skipped - leaving the screen in tab-navigation mode, which is why the stick never reaches the
+	// rows (no highlight, sliders ignore left/right) until the tab is selected a second time. Mouse
+	// mode is left untouched (the mouse drives hover itself; teleporting would yank the pointer).
+	static void focus_first_row(MiscSettingsScreen* screen)
+	{
+		if (!g_teleport_cursor || (g_use_mouse && *g_use_mouse))
+		{
+			return;
+		}
+		for (const auto& row : g_rows)
+		{
+			GUIComponent* c = row.component;
+			if (c && !row.disabled && c->m_is_useable && !c->m_hidden)
+			{
+				g_teleport_cursor(screen, c);       // drop the cursor on the row; next Update focuses it
+				screen->m_category_focused = false; // hand navigation from the tab bar to the option rows
+				return;
+			}
+		}
+	}
+
+	// Queues a one-level back navigation inside a mod's settings: a nested group returns to its parent
+	// section, and the root returns to the mod list. Applied next Update via apply_nav.
+	static void request_back_nav()
+	{
+		const auto dot = g_view_section.rfind('.');
+		if (dot != std::string::npos)
+		{
+			g_pending_view    = View::mod_settings;
+			g_pending_stem    = g_view_stem;
+			g_pending_section = g_view_section.substr(0, dot);
+		}
+		else
+		{
+			g_pending_view = View::mod_list;
+			g_pending_stem.clear();
+			g_pending_section.clear();
+		}
+		g_nav_pending = true;
+	}
+
+	// True if a remappable control (e.g. Back/Cancel = controller B + keyboard Esc, or Select =
+	// controller A + Enter) was pressed this frame. Bit 0x4 of the control's state is "was pressed"
+	// (edge, not held).
+	static bool control_pressed(void* input, const void* control)
+	{
+		if (!input || !g_input_get_state || !control)
+		{
+			return false;
+		}
+		return (g_input_get_state(input, control) & 0x4u) != 0;
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer
@@ -2382,6 +2460,14 @@ namespace big::mod_settings
 
 		// Value displays are not laid out by the scroll pass; place them on their key rows now.
 		sync_value_columns();
+
+		// On a real view change (tab entry, drilling into a mod, going back), drop the cursor on the
+		// first row so it highlights immediately like a native category. Skipped on in-place refreshes
+		// so committing an edit or toggling "enabled" does not yank focus back to the top.
+		if (!instant)
+		{
+			focus_first_row(screen);
+		}
 	}
 
 	// Applies a queued navigation (mod list <-> a mod's settings) by rebuilding the panel.
@@ -2682,10 +2768,16 @@ namespace big::mod_settings
 
 	// Value-change hook for our native slider rows. GUIComponentSlider::SetFraction is called with
 	// notify=true on every user drag / left-right adjust (the native handler also rewrites the value
-	// text to a percentage). We run the original, then, for our rows, snap the post-clamp fraction to
-	// the setting's step, persist the mapped [min,max] value on change, and restore the real value text.
-	// notify is false only for our own initial paint (make_slider_row), so filtering on it skips that.
-	// Fires for the native audio sliders too, hence the find_row filter.
+	// text to a percentage). We run the original, then, for our rows, map the post-clamp fraction to the
+	// [min,max] value, snap that to the setting's step for storage/display, and restore the real value
+	// text. notify is false only for our own initial paint (make_slider_row), so filtering on it skips
+	// that. Fires for the native audio sliders too, hence the find_row filter.
+	//
+	// We deliberately leave mFraction continuous (we do NOT write the snapped value back to it): the
+	// native adjust accumulates a small per-frame delta into mFraction, so re-snapping it each frame
+	// would discard any delta smaller than half a step and a partial stick deflection would never move
+	// the slider. The fill therefore tracks the stick smoothly (as the vanilla sliders do) while the
+	// stored value and the value text snap to step.
 	static void hook_GUIComponentSlider_SetFraction(void* self, float fraction, bool notify)
 	{
 		big::g_hooking->get_original<hook_GUIComponentSlider_SetFraction>()(self, fraction, notify);
@@ -2706,7 +2798,7 @@ namespace big::mod_settings
 		const double step_v = row->stepper_step;
 		const double range  = max_v - min_v;
 
-		// Post-clamp fraction the original just wrote, mapped back to the value, snapped to step.
+		// Continuous post-clamp fraction the original just wrote, mapped to the value and snapped to step.
 		const float f = *reinterpret_cast<float*>(reinterpret_cast<char*>(self) + slider_fraction_offset);
 		double v      = min_v + static_cast<double>(f) * range;
 		if (step_v > 0.0 && range > 0.0)
@@ -2721,10 +2813,6 @@ namespace big::mod_settings
 		{
 			v = max_v;
 		}
-
-		// Rest the bar on the snapped position by writing mFraction straight back. Calling SetFraction
-		// again would re-enter this hook, so we set the field directly (the fill redraws from it).
-		*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + slider_fraction_offset) = (range > 0.0) ? static_cast<float>((v - min_v) / range) : 0.0f;
 
 		if (row->entry->get_value_base<double>() != v)
 		{
@@ -2885,13 +2973,21 @@ namespace big::mod_settings
 		return result;
 	}
 
-	// While a freetext setting is being edited, read Enter (confirm) and Escape (cancel)
-	// from the game's own per-frame input, commit/cancel here, then swallow the screen's
-	// input handling entirely so menu navigation and the Escape-to-close do not react.
-	// Committing here (rather than in Update) is important: HandleInput returns true this
-	// frame, so a submitting mouse click is swallowed and cannot also activate the row it
-	// lands on. Returning true without calling the original bypasses the whole close chain
-	// (the base MenuScreen::HandleInput is only reached via this function's tail-call).
+	// While a freetext setting is being edited, read Enter (confirm) and Escape (cancel) from the game's
+	// own per-frame input, commit/cancel here, then swallow the screen's input handling entirely so menu
+	// navigation and the Escape-to-close do not react. Committing here (rather than in Update) is
+	// important: HandleInput returns true this frame, so a submitting mouse click is swallowed and cannot
+	// also activate the row it lands on. Returning true without calling the original bypasses the whole
+	// close chain (the base MenuScreen::HandleInput is only reached via this function's tail-call).
+	//
+	// Not editing, controller/keyboard, nothing entered yet: we drive two per-option behaviours the
+	// native focus delegates would (which our injected rows lack). Select (A / Enter) enters a slider or
+	// enum row so the stick then adjusts it; the native code exits it on the next A/B. And inside a mod's
+	// settings, Back/Cancel (controller B / keyboard Esc) steps back one level - in option-navigation
+	// mode the native Cancel handler returns the cursor to the tab bar instead of reaching our ExitScreen
+	// back-nav, so we detect it here (before the original) and run the back-nav ourselves. Both swallow
+	// the press. When a widget is already entered we do nothing: native routes the stick to it and exits
+	// on A/B.
 	static bool hook_MiscSettingsScreen_HandleInput(void* self, void* input, float x)
 	{
 		if (g_editing)
@@ -2909,6 +3005,32 @@ namespace big::mod_settings
 			}
 			commit_or_cancel_edit();
 			return true;
+		}
+
+		auto* screen = static_cast<MiscSettingsScreen*>(self);
+		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
+		if (on_mods_tab && !(g_use_mouse && *g_use_mouse) && !screen->m_component_focused)
+		{
+			auto* menu = reinterpret_cast<MenuScreen*>(screen);
+
+			// Select enters a slider / enum row (so the stick adjusts it); toggles and buttons are left
+			// to the native component pass.
+			if (g_component_focused && control_pressed(input, g_controls_select))
+			{
+				PanelRow* row = find_row(menu->m_mouse_over_component);
+				if (row && !row->disabled && (row->is_slider || row->is_enum))
+				{
+					g_component_focused(screen, menu->m_mouse_over_component);
+					return true; // consume the enter press
+				}
+			}
+
+			// Back/Cancel steps back one level instead of the native return-to-tab-bar / close.
+			if (g_view == View::mod_settings && !g_nav_pending && control_pressed(input, g_controls_cancel))
+			{
+				request_back_nav();
+				return true;
+			}
 		}
 
 		return big::g_hooking->get_original<hook_MiscSettingsScreen_HandleInput>()(self, input, x);
@@ -2930,20 +3052,7 @@ namespace big::mod_settings
 		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
 		if (on_mods_tab && g_view == View::mod_settings)
 		{
-			const auto dot = g_view_section.rfind('.');
-			if (dot != std::string::npos)
-			{
-				g_pending_view    = View::mod_settings;
-				g_pending_stem    = g_view_stem;
-				g_pending_section = g_view_section.substr(0, dot);
-			}
-			else
-			{
-				g_pending_view = View::mod_list;
-				g_pending_stem.clear();
-				g_pending_section.clear();
-			}
-			g_nav_pending = true;
+			request_back_nav();
 			return; // veto the close; apply_nav applies the new view next Update
 		}
 
@@ -3049,6 +3158,13 @@ namespace big::mod_settings
 		const auto slider_set_fraction = big::hades2_symbol_to_address["sgg::GUIComponentSlider::SetFraction"];
 		g_slider_set_fraction          = slider_set_fraction.as_func<void(void*, float, bool)>();
 
+		// Controller focus: ComponentFocused makes a row the focused option (so the stick reaches it),
+		// GetState reads the Back/Cancel control edge for our drilldown back-nav. Both by name; the
+		// Controls::Cancel address is RVA-relative (resolved below). Optional - their absence only
+		// degrades controller support, not the tab.
+		g_component_focused = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ComponentFocused"].as_func<void(void*, GUIComponent*)>();
+		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
+
 		// The num-box factory (a template instantiation) and the restart-dialog ctor / AddScreen
 		// overloads cannot be picked by name from the PDB, so they are addressed by hardcoded RVA off
 		// the button-ctor anchor. Those RVAs - and every struct offset this feature uses - are valid
@@ -3094,6 +3210,10 @@ namespace big::mod_settings
 		g_add_screen           = reinterpret_cast<add_screen_fn>(anchor_base + add_screen_rva);
 		g_numbox_factory       = reinterpret_cast<numbox_factory_fn>(anchor_base + numbox_factory_rva);
 		g_slider_vtable        = anchor_base + slider_vtable_rva;
+		g_teleport_cursor      = reinterpret_cast<teleport_cursor_fn>(anchor_base + teleport_cursor_rva);
+		g_use_mouse            = reinterpret_cast<const bool*>(anchor_base + config_use_mouse_rva);
+		g_controls_cancel      = reinterpret_cast<const void*>(anchor_base + config_cancel_rva);
+		g_controls_select      = reinterpret_cast<const void*>(anchor_base + config_select_rva);
 
 		g_feature_enabled = true;
 

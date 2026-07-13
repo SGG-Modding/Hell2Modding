@@ -132,12 +132,13 @@ namespace big::mod_settings::sgg
 		GUIComponentButton* m_editor_options_button;  // +0x3C8
 		char m_pad_c[0x28];
 		GUIComponentButton* m_debug_options_button; // +0x3F8
-		char m_pad_d[0x08];
-		eastl_vector<GUIComponent*> m_options; // +0x408
-		char m_pad_e[0x20];                    // 0x420 .. 0x440
-		GUIComponent* m_defaults_button;       // +0x440 (bottom "Reset" prompt)
-		char m_pad_f[0x18];                    // 0x448 .. 0x460
-		GUIComponent* m_description_box;       // +0x460
+		bool m_category_focused;                    // +0x400 (false = option navigation, true = tab navigation)
+		char m_pad_d[0x07];                         // 0x401 .. 0x408
+		eastl_vector<GUIComponent*> m_options;      // +0x408
+		char m_pad_e[0x20];                         // 0x420 .. 0x440
+		GUIComponent* m_defaults_button;            // +0x440 (bottom "Reset" prompt)
+		char m_pad_f[0x18];                         // 0x448 .. 0x460
+		GUIComponent* m_description_box;            // +0x460
 	};
 
 	static_assert(offsetof(MiscSettingsScreen, m_page_start_index) == 0x3'44);
@@ -149,6 +150,7 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(MiscSettingsScreen, m_credits_options_button) == 0x3'C0);
 	static_assert(offsetof(MiscSettingsScreen, m_editor_options_button) == 0x3'C8);
 	static_assert(offsetof(MiscSettingsScreen, m_debug_options_button) == 0x3'F8);
+	static_assert(offsetof(MiscSettingsScreen, m_category_focused) == 0x4'00);
 	static_assert(offsetof(MiscSettingsScreen, m_options) == 0x4'08);
 	static_assert(offsetof(MiscSettingsScreen, m_defaults_button) == 0x4'40);
 	static_assert(offsetof(MiscSettingsScreen, m_description_box) == 0x4'60);
