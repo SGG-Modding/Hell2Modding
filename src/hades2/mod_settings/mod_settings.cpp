@@ -337,15 +337,18 @@ namespace big::mod_settings
 	static bool g_edit_confirm       = false;
 	static bool g_edit_cancel        = false;
 
-	// Turns a config-file stem ("AuthorName-ModName") into a display name: drops the
-	// author (up to the first '-') and shows the mod name with '_' replaced by spaces.
-	// "SGG_Modding-Chalk" -> "Chalk"; "NikkelM-Zagreus_Journey" -> "Zagreus Journey".
+	// Turns a config-file stem ("AuthorName-ModName") into a display name: drops the author (up to
+	// the first '-') and runs the mod name through key_to_display, so '_' becomes a space and
+	// camelCase / PascalCase word boundaries are split - the same friendly-name logic used for
+	// setting keys. "SGG_Modding-Chalk" -> "Chalk"; "NikkelM-Zagreus_Journey" -> "Zagreus Journey";
+	// "zerp-DreamDiveTweaks" -> "Dream Dive Tweaks".
+	static std::string key_to_display(const std::string& key); // shared friendly-name logic, defined below
+
 	static std::string display_name_from_stem(const std::string& stem)
 	{
-		const auto dash  = stem.find('-');
-		std::string name = (dash == std::string::npos) ? stem : stem.substr(dash + 1);
-		std::replace(name.begin(), name.end(), '_', ' ');
-		return name;
+		const auto dash        = stem.find('-');
+		const std::string name = (dash == std::string::npos) ? stem : stem.substr(dash + 1);
+		return key_to_display(name);
 	}
 
 	// The mod's Thunderstore manifest description, shown in the description box while its row in the
@@ -1155,10 +1158,11 @@ namespace big::mod_settings
 		}
 	}
 
-	// Setting key as a display string: underscores become spaces, and camelCase / PascalCase word
-	// boundaries are split ("z_ThisConfigKey" -> "z This Config Key"). An acronym run splits before
-	// its final capital when that capital starts a lowercase word ("HTTPServer" -> "HTTP Server").
-	// Authors can override this entirely with `display_name`.
+	// Turns an identifier into a friendly display string: underscores become spaces, and camelCase /
+	// PascalCase word boundaries are split ("z_ThisConfigKey" -> "z This Config Key"). An acronym run
+	// splits before its final capital when that capital starts a lowercase word ("HTTPServer" ->
+	// "HTTP Server"). Used for both setting keys and mod names (via display_name_from_stem). Authors
+	// can override this entirely with `display_name`.
 	static std::string key_to_display(const std::string& key)
 	{
 		const auto is_upper = [](char c)
