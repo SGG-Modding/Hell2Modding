@@ -1128,6 +1128,11 @@ namespace big::mod_settings
 			{
 				continue;
 			}
+			// H2M's own framework config is not a mod the user configures here.
+			if (cfg->m_config_file_stem_as_str == "Hell2Modding-Hell2Modding-General")
+			{
+				continue;
+			}
 			if (std::find(stems.begin(), stems.end(), cfg->m_config_file_stem_as_str) == stems.end())
 			{
 				stems.push_back(cfg->m_config_file_stem_as_str);
