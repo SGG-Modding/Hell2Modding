@@ -89,6 +89,14 @@ namespace big::mod_settings::sgg
 	inline constexpr std::size_t gui_component_button_owner_offset = 0x5'A0;
 	inline constexpr std::size_t gui_component_button_size         = 0x5'B0;
 
+	// Byte offset of GUIComponentButton::mDisplayNameId (sgg::HashGuid: a 32-bit interned-string id).
+	// The engine derives a button's visible label from this id: GUIComponentButton::UseDefaultText
+	// resolves the id back to its interned string, looks that up in the localized text data, and sets
+	// the label from the result (falling back to the raw string on a miss). UseDefaultText re-runs on
+	// every localization pass, including a live language change, so this id - not any string handed to
+	// SetDisplayName - is what determines the persistent label.
+	inline constexpr std::size_t gui_component_button_display_name_id_offset = 0x1'68;
+
 	// sgg::MenuScreen, the base of MiscSettingsScreen. mComponents owns every live widget
 	// that is drawn and hit-tested; freed components are dropped from it. mAnchor is the
 	// base location the engine gives freshly created option components.

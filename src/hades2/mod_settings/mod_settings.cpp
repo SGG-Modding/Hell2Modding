@@ -633,6 +633,22 @@ namespace big::mod_settings
 		button->m_hidden     = false;
 		button->m_is_useable = true;
 
+		// Point the button's localization id at "Mods" so the engine's own label pipeline resolves it.
+		// The reused button ships with DisplayNameId "MiscSettingsScreen_EditorOptions" (-> "Editor");
+		// interning "Mods" and writing its id into mDisplayNameId makes GUIComponentButton::UseDefaultText
+		// re-derive "Mods" natively - including after a language change, which re-runs that derivation and
+		// would otherwise revert the tab to "Editor". "Mods" has no text-data entry, so the lookup misses
+		// and the engine renders the raw key ("Mods") verbatim in every language.
+		if (g_hash_lookup)
+		{
+			HashGuid id{};
+			g_hash_lookup(&id, "Mods", 4);
+			*reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(button) + sgg::gui_component_button_display_name_id_offset) = id.m_id;
+		}
+
+		// Apply the label now for the initial display: the original constructor already rendered the
+		// native "Editor" text from the old id, and UseDefaultText only re-derives on the next
+		// localization pass. Subsequent language changes are handled by the id above, not here.
 		if (g_set_label)
 		{
 			g_set_label(button, "Mods");
