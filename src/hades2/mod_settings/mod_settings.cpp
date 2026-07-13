@@ -137,6 +137,26 @@ namespace big::mod_settings
 	static constexpr std::size_t numbox_right_arrow_offset   = 0x5'A0; // mRightArrow       (GUIComponentAnimation*)
 	static constexpr std::size_t numbox_label_text_offset = 0x5'A8; // mTextBox          (GUIComponentTextBox*, the label)
 	static constexpr std::size_t numbox_sizeof = 0x5'D0;
+
+	// sgg::GUIComponentSlider (the horizontal drag bar used by the audio-volume options). DIA-validated
+	// on the current Ship build; sizeof 0x5B0, derives directly from GUIComponent. It is a pure 0..1
+	// fraction control (no min/max/step fields) - the value is mFraction and the fill graphic redraws
+	// from it. The game has no factory for it (DoShowCategory hand-rolls the allocation + the four
+	// sub-components), so make_slider_row replicates that construction.
+	static constexpr std::uintptr_t slider_vtable_rva = 0x4D'8A'48; // ??_7GUIComponentSlider@sgg@@6B@ (off the anchor)
+	static constexpr std::size_t slider_sizeof        = 0x5'B0;
+	static constexpr std::size_t image_sizeof         = 0x5'78; // sgg::GUIComponentImage (mBacking / mFill)
+	static constexpr std::size_t textbox_sizeof       = 0x6'C0; // sgg::GUIComponentTextBox (mLabel / mValueTextBox)
+	static constexpr std::size_t menu_screen_container_offset = 0x50; // owner + 0x50 = the IGUIComponentContainer base
+	static constexpr std::size_t slider_parent_offset = 0x3'90; // GUIComponent::mParentContainer (SetParent writes here)
+	static constexpr std::size_t slider_owner_offset      = 0x5'40; // mOwner          (MenuScreen*)
+	static constexpr std::size_t slider_on_changed_offset = 0x5'58; // mOnValueChanged (vector begin/end/cap, 3 qwords)
+	static constexpr std::size_t slider_backing_offset = 0x5'70; // mBacking        (GUIComponentImage*, bar background)
+	static constexpr std::size_t slider_fill_offset    = 0x5'78; // mFill           (GUIComponentImage*, progress fill)
+	static constexpr std::size_t slider_label_offset   = 0x5'90; // mLabel          (GUIComponentTextBox*, left label)
+	static constexpr std::size_t slider_value_text_offset = 0x5'98; // mValueTextBox   (GUIComponentTextBox*, right value)
+	static constexpr std::size_t slider_fraction_offset = 0x5'A4;   // mFraction       (float, normalized 0..1 value)
+
 	// Scalar deleting destructor slot in the GUIComponent vtable. Called with flags=0 it destructs
 	// and frees any owned sub-components without the final operator delete, so we then _aligned_free.
 	static constexpr std::size_t vtable_deleting_dtor_offset = 0x1'88;
@@ -160,6 +180,11 @@ namespace big::mod_settings
 	using numbox_factory_fn      = void* (*)(const char* file, int line, const char* tag, void** screen);
 	using numbox_set_range_fn    = void (*)(void* num_box, float min, float max);
 	using numbox_set_value_fn    = void (*)(void* num_box, float value, bool notify);
+	// GUIComponent-derived constructors take the initial location as a Vec2 passed by value (packed
+	// into a single 64-bit register); 0 is the origin. Used to hand-build a slider and its sub-components.
+	using gui_component_ctor_fn  = void (*)(void* self, std::uint64_t location_packed);
+	using slider_defaults_fn     = void (*)(void* slider);
+	using slider_set_fraction_fn = void (*)(void* slider, float fraction, bool notify);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -189,6 +214,12 @@ namespace big::mod_settings
 	static numbox_factory_fn g_numbox_factory           = nullptr;
 	static numbox_set_range_fn g_numbox_set_range       = nullptr;
 	static numbox_set_value_fn g_numbox_set_value       = nullptr;
+	static gui_component_ctor_fn g_gui_component_ctor   = nullptr;
+	static gui_component_ctor_fn g_image_ctor           = nullptr;
+	static gui_component_ctor_fn g_textbox_ctor         = nullptr;
+	static slider_defaults_fn g_slider_defaults         = nullptr;
+	static slider_set_fraction_fn g_slider_set_fraction = nullptr;
+	static std::uintptr_t g_slider_vtable = 0; // runtime slider vftable address (anchor_base + slider_vtable_rva)
 
 	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has
 	// resolved for the running game build. While false no hooks are installed and the tab is absent;
@@ -213,10 +244,11 @@ namespace big::mod_settings
 	static constexpr float row_text_offset_x   = -900.0f; // left-justify the label to the option-name column
 	static constexpr float value_text_offset_x = 15.0f; // right-justify the value; right edge aligns with the toggle's
 	static constexpr float numbox_location_x   = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
-	static constexpr float button_center_x     = 1130.0f; // centered action button X (clear of the scrollbar)
-	static constexpr float row_base_y          = 300.0f;  // first row's Y - matches the vanilla option templates
-	static constexpr float row_pitch           = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
-	static constexpr std::uint32_t rows_per_page = 10;    // vanilla ItemsPerPage = 10
+	static constexpr float slider_location_x = 1330.0f; // native OptionSlider X (bar + value clear the scrollbar; the template's label offset puts the name in the option-name column)
+	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
+	static constexpr float row_base_y            = 300.0f;  // first row's Y - matches the vanilla option templates
+	static constexpr float row_pitch             = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
+	static constexpr std::uint32_t rows_per_page = 10;      // vanilla ItemsPerPage = 10
 
 	// Config sections. Both rom.mod_settings.load and Chalk bind a mod's settings under the root
 	// "config" section; nested groups are dot-separated child sections (e.g. "config.biome_pool").
@@ -265,13 +297,20 @@ namespace big::mod_settings
 		// left-column key). Not in mOptions; positioned to follow `component` each frame.
 		GUIComponent* value_component = nullptr;
 
-		// Numeric stepper (bounded number setting: metadata has both min and max). Left/right
-		// adjusts the value by `stepper_step`, clamped to [stepper_min, stepper_max]; a mouse
-		// click increments and wraps. When false, a numeric setting uses the freetext editor.
+		// Bounded number setting (metadata has both min and max). Rendered as a native slider (drag
+		// bar) spanning [stepper_min, stepper_max] and snapped to stepper_step; is_slider marks that.
+		// If the slider cannot be built it falls back to a number-box stepper (is_stepper) that steps
+		// by stepper_step. A number without bounds uses the freetext editor instead.
+		bool is_slider      = false;
 		bool is_stepper     = false;
 		double stepper_min  = 0.0;
 		double stepper_max  = 0.0;
 		double stepper_step = 1.0;
+
+		// Number-display options (slider value text): is_percentage shows a 0..1 value as 0..100 and
+		// appends "%"; show_as_percentage only appends "%".
+		bool show_as_percentage = false;
+		bool is_percentage      = false;
 
 		// Enum cycler (metadata has `values`). Rendered as a native number box over the index
 		// 0..labels-1 whose value text is overridden to the label (like the game's own enum
@@ -1035,6 +1074,165 @@ namespace big::mod_settings
 		return nb;
 	}
 
+	// Formats a numeric setting value for display. is_pct shows a 0..1 value as 0..100 and appends "%";
+	// show_as_pct only appends "%" (no scaling). Setting both is the same as is_pct alone. The value is
+	// rounded to the display step's precision so scaling by 100 does not surface floating-point noise,
+	// then trailing zeros are trimmed ("53", "0.5", "50%").
+	static std::string format_setting_display(double value, bool show_as_pct, bool is_pct, double step)
+	{
+		double shown           = is_pct ? value * 100.0 : value;
+		const double disp_step = is_pct ? step * 100.0 : step;
+
+		// Decimal places implied by the display step (0.01 -> 2, 1 -> 0), capped for sanity.
+		int decimals = 0;
+		if (disp_step > 0.0)
+		{
+			double s = disp_step;
+			while (decimals < 6 && std::abs(s - std::round(s)) > 1e-9)
+			{
+				s *= 10.0;
+				++decimals;
+			}
+		}
+		const double scale = std::pow(10.0, decimals);
+		shown              = std::round(shown * scale) / scale;
+
+		std::string out = std::to_string(shown); // fixed 6-decimal form, e.g. "53.000000"
+		if (out.find('.') != std::string::npos)
+		{
+			const std::size_t last = out.find_last_not_of('0');
+			out.erase((out[last] == '.') ? last : last + 1); // drop trailing zeros (and a bare '.')
+		}
+		if (show_as_pct || is_pct)
+		{
+			out += "%";
+		}
+		return out;
+	}
+
+	// Sets the slider's right-hand value text (mValueTextBox). The native drag handler rewrites this to
+	// a percentage on every change, so we re-apply the setting's real value after each user edit.
+	static void set_slider_value_text(GUIComponent* slider, const char* text)
+	{
+		if (!g_show_text || !slider)
+		{
+			return;
+		}
+		if (void* value_tb = *reinterpret_cast<void**>(reinterpret_cast<char*>(slider) + slider_value_text_offset))
+		{
+			g_show_text(value_tb, text);
+		}
+	}
+
+	// Builds a native sgg::GUIComponentSlider row - the horizontal drag bar the audio-volume options
+	// use - for a bounded numeric setting. The slider stores a normalized 0..1 fraction; we map the
+	// setting's [min,max] onto it and snap drags to `step` in the SetFraction hook. The engine has no
+	// factory for this type, so this replicates the construction DoShowCategory performs for the volume
+	// rows: allocate the block, run the base GUIComponent constructor, install the slider vtable, zero
+	// the fields Defaults leaves untouched, run Defaults, then allocate and construct the four owned
+	// sub-components (bar background, fill, label, value text). Named "OptionSlider" so
+	// ApplyDataToComponent applies the matching sjson template (bar graphics, colours, FadeSpeed, label
+	// styling). Teardown mirrors the num-box: destroy_rows routes it through the vtable deleting
+	// destructor (which frees the sub-components) then _aligned_free. Returns null if any required engine
+	// helper is missing, in which case the caller falls back to a number-box stepper.
+	static GUIComponent* make_slider_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool show_as_pct, bool is_pct, bool disabled)
+	{
+		if (!g_gui_component_ctor || !g_image_ctor || !g_textbox_ctor || !g_slider_defaults || !g_slider_set_fraction || !g_slider_vtable || !g_apply_data || !g_show_text)
+		{
+			return nullptr;
+		}
+
+		char* s = static_cast<char*>(_aligned_malloc(slider_sizeof, 8));
+		if (!s)
+		{
+			return nullptr;
+		}
+		std::memset(s, 0, slider_sizeof);
+
+		// Base GUIComponent constructor (location passed by value; 0 = origin, overridden below by
+		// ApplyDataToComponent / finalize_row), then install the slider vtable over the base one.
+		g_gui_component_ctor(s, 0);
+		*reinterpret_cast<std::uintptr_t*>(s) = g_slider_vtable;
+
+		// Defaults does not initialise mOnValueChanged or mValueTextBox, so zero them (the block is
+		// freshly malloc'd) before Defaults runs and before anything reads them.
+		std::memset(s + slider_on_changed_offset, 0, 3 * sizeof(void*));
+		*reinterpret_cast<void**>(s + slider_label_offset)      = nullptr;
+		*reinterpret_cast<void**>(s + slider_value_text_offset) = nullptr;
+
+		g_slider_defaults(s);
+		*reinterpret_cast<void**>(s + slider_owner_offset) = screen;
+
+		// Four owned sub-components, each allocated then constructed at the origin (as the game does):
+		// two images (bar background + fill) and two text boxes (left label + right value).
+		char* backing = static_cast<char*>(_aligned_malloc(image_sizeof, 8));
+		char* fill    = static_cast<char*>(_aligned_malloc(image_sizeof, 8));
+		char* lbl     = static_cast<char*>(_aligned_malloc(textbox_sizeof, 8));
+		char* val     = static_cast<char*>(_aligned_malloc(textbox_sizeof, 8));
+		if (!backing || !fill || !lbl || !val)
+		{
+			_aligned_free(backing);
+			_aligned_free(fill);
+			_aligned_free(lbl);
+			_aligned_free(val);
+			_aligned_free(s);
+			return nullptr;
+		}
+		g_image_ctor(backing, 0);
+		g_image_ctor(fill, 0);
+		g_textbox_ctor(lbl, 0);
+		g_textbox_ctor(val, 0);
+		*reinterpret_cast<void**>(s + slider_backing_offset)    = backing;
+		*reinterpret_cast<void**>(s + slider_fill_offset)       = fill;
+		*reinterpret_cast<void**>(s + slider_label_offset)      = lbl;
+		*reinterpret_cast<void**>(s + slider_value_text_offset) = val;
+
+		// Parent container, matching DoShowCategory. SetParent is a plain setter (writes
+		// mParentContainer), so a direct write is equivalent and avoids a vtable call.
+		*reinterpret_cast<void**>(s + slider_parent_offset) = reinterpret_cast<char*>(screen) + menu_screen_container_offset;
+
+		// Name the slider and its value box so ApplyDataToComponent applies the OptionSlider /
+		// OptionSliderValueText templates (bar graphics, colours, FadeSpeed and the label styling).
+		set_sso_string(s + gui_component_name_offset, "OptionSlider");
+		set_sso_string(val + gui_component_name_offset, "OptionSliderValueText");
+
+		if (disabled)
+		{
+			set_def_text_grey(reinterpret_cast<GUIComponent*>(s)); // grey before ApplyData so it reaches the text boxes
+		}
+
+		g_apply_data(reinterpret_cast<MenuScreen*>(screen), reinterpret_cast<GUIComponent*>(s));
+
+		// Override the template's row grid (Y=300, Spacing=45) so the bar lines up with the other rows.
+		{
+			char* def                                    = s + component_def_offset;
+			*reinterpret_cast<float*>(def + def_y)       = row_base_y;
+			*reinterpret_cast<float*>(def + def_spacing) = row_pitch;
+		}
+
+		if (void* label_tb = *reinterpret_cast<void**>(s + slider_label_offset))
+		{
+			g_show_text(label_tb, label);
+		}
+
+		// Paint the starting value: map [min,max] -> 0..1 and set the fraction without notifying (so the
+		// SetFraction hook does not treat it as a user edit), then show the real value (not a percentage).
+		const double range = max_v - min_v;
+		const float frac   = (range > 0.0) ? static_cast<float>((initial - min_v) / range) : 0.0f;
+		g_slider_set_fraction(s, frac, false);
+		set_slider_value_text(reinterpret_cast<GUIComponent*>(s),
+		                      format_setting_display(initial, show_as_pct, is_pct, step_v).c_str());
+
+		if (disabled)
+		{
+			reinterpret_cast<GUIComponent*>(s)->m_is_useable = false; // not focusable / not draggable
+		}
+
+		finalize_row(screen, reinterpret_cast<GUIComponent*>(s));
+		reinterpret_cast<GUIComponent*>(s)->m_location_x = slider_location_x; // override finalize_row's default
+		return reinterpret_cast<GUIComponent*>(s);
+	}
+
 	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail
 	// down in place - the same unlink the engine's DoShowCategory performs. No-op if not
 	// present; the backing storage is left owned by the vector.
@@ -1060,7 +1258,7 @@ namespace big::mod_settings
 	{
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
 
-		auto unlink_and_free = [&](GUIComponent* comp, bool in_options, bool is_numbox)
+		auto unlink_and_free = [&](GUIComponent* comp, bool in_options, bool owns_subcomponents)
 		{
 			if (!comp)
 			{
@@ -1093,11 +1291,12 @@ namespace big::mod_settings
 				vector_erase(screen->m_options, comp);
 			}
 
-			if (is_numbox)
+			if (owns_subcomponents)
 			{
-				// GUIComponentNumBox is not a GUIComponentButton; destruct it through its own vtable
-				// so its five sub-components (box/label/value/arrows) are freed too. flags=0 destructs
-				// without the final operator delete, so we still _aligned_free the block ourselves.
+				// The num-box and slider are not GUIComponentButtons; destruct through the component's
+				// own vtable so its owned sub-components (num-box: box/label/value/arrows; slider:
+				// background/fill/label/value) are freed too. flags=0 destructs without the final
+				// operator delete, so we still _aligned_free the block ourselves.
 				void** vtbl = *reinterpret_cast<void***>(comp);
 				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset / sizeof(void*)]);
 				dtor(comp, 0);
@@ -1111,7 +1310,7 @@ namespace big::mod_settings
 
 		for (const auto& row : g_rows)
 		{
-			unlink_and_free(row.component, true, row.is_stepper || row.is_enum);
+			unlink_and_free(row.component, true, row.is_stepper || row.is_enum || row.is_slider);
 			unlink_and_free(row.value_component, false, false);
 		}
 
@@ -1819,6 +2018,7 @@ namespace big::mod_settings
 
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
+			bool built_slider   = false;
 			if (entry->type() == typeid(bool))
 			{
 				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
@@ -1829,7 +2029,17 @@ namespace big::mod_settings
 			}
 			else if (is_stepper)
 			{
-				row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
+				// Bounded number: a slider (drag bar) like the audio-volume rows, snapped to step. Fall
+				// back to a number-box stepper if the slider cannot be built on this game build.
+				row = make_slider_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, disabled);
+				if (row)
+				{
+					built_slider = true;
+				}
+				else
+				{
+					row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
+				}
 			}
 			else
 			{
@@ -1859,10 +2069,13 @@ namespace big::mod_settings
 				}
 				else if (is_stepper)
 				{
-					pr.is_stepper   = true;
-					pr.stepper_min  = meta->min;
-					pr.stepper_max  = meta->max;
-					pr.stepper_step = step;
+					pr.is_slider          = built_slider;
+					pr.is_stepper         = !built_slider;
+					pr.stepper_min        = meta->min;
+					pr.stepper_max        = meta->max;
+					pr.stepper_step       = step;
+					pr.show_as_percentage = meta->show_as_percentage;
+					pr.is_percentage      = meta->is_percentage;
 				}
 
 				g_rows.push_back(pr);
@@ -2052,6 +2265,10 @@ namespace big::mod_settings
 				else if (row->is_enum)
 				{
 					confirm = "{SL} SET";
+				}
+				else if (row->is_slider)
+				{
+					confirm = "{SL} SET"; // matches the base-game volume sliders' prompt
 				}
 				else if (row->is_stepper)
 				{
@@ -2463,6 +2680,65 @@ namespace big::mod_settings
 		note_change_if_restart_required(row->entry, row->entry->get_serialized_value());
 	}
 
+	// Value-change hook for our native slider rows. GUIComponentSlider::SetFraction is called with
+	// notify=true on every user drag / left-right adjust (the native handler also rewrites the value
+	// text to a percentage). We run the original, then, for our rows, snap the post-clamp fraction to
+	// the setting's step, persist the mapped [min,max] value on change, and restore the real value text.
+	// notify is false only for our own initial paint (make_slider_row), so filtering on it skips that.
+	// Fires for the native audio sliders too, hence the find_row filter.
+	static void hook_GUIComponentSlider_SetFraction(void* self, float fraction, bool notify)
+	{
+		big::g_hooking->get_original<hook_GUIComponentSlider_SetFraction>()(self, fraction, notify);
+
+		if (!notify || !self)
+		{
+			return;
+		}
+
+		PanelRow* row = find_row(reinterpret_cast<GUIComponent*>(self));
+		if (!row || !row->is_slider || !row->entry || row->disabled)
+		{
+			return;
+		}
+
+		const double min_v  = row->stepper_min;
+		const double max_v  = row->stepper_max;
+		const double step_v = row->stepper_step;
+		const double range  = max_v - min_v;
+
+		// Post-clamp fraction the original just wrote, mapped back to the value, snapped to step.
+		const float f = *reinterpret_cast<float*>(reinterpret_cast<char*>(self) + slider_fraction_offset);
+		double v      = min_v + static_cast<double>(f) * range;
+		if (step_v > 0.0 && range > 0.0)
+		{
+			v = min_v + std::round((v - min_v) / step_v) * step_v;
+		}
+		if (v < min_v)
+		{
+			v = min_v;
+		}
+		else if (v > max_v)
+		{
+			v = max_v;
+		}
+
+		// Rest the bar on the snapped position by writing mFraction straight back. Calling SetFraction
+		// again would re-enter this hook, so we set the field directly (the fill redraws from it).
+		*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + slider_fraction_offset) = (range > 0.0) ? static_cast<float>((v - min_v) / range) : 0.0f;
+
+		if (row->entry->get_value_base<double>() != v)
+		{
+			capture_restart_baseline(row->entry);
+			row->entry->set_value_base<double>(v); // auto-saves via on_setting_changed
+			note_change_if_restart_required(row->entry, row->entry->get_serialized_value());
+		}
+
+		// Restore the real value in place of the percentage the original wrote (applying the setting's
+		// own percentage-display options).
+		set_slider_value_text(reinterpret_cast<GUIComponent*>(self),
+		                      format_setting_display(v, row->show_as_percentage, row->is_percentage, step_v).c_str());
+	}
+
 	// Button-click hook. GUIComponentButton overrides GUIComponent::OnClicked (vtable slot
 	// +0x100, the engine's terminal-click), so this is where our button rows' clicks land.
 	// For our rows the engine returns false (they have no bound activate function) but still
@@ -2761,6 +3037,18 @@ namespace big::mod_settings
 		g_button_dtor = big::hades2_symbol_to_address["sgg::GUIComponentButton::~GUIComponentButton"].as_func<void(void*)>();
 		g_disable = big::hades2_symbol_to_address["sgg::GUIComponentButton::Disable"].as_func<void(void*)>();
 
+		// Slider construction + drag hook (optional: if any is missing, bounded numbers fall back to the
+		// number-box stepper). The engine has no slider factory, so a slider is hand-built from the base
+		// GUIComponent / image / text-box constructors and Defaults - all resolved by name here.
+		// SetFraction is both the initial set and the drag hook (installed below); the slider vtable is
+		// addressed by RVA off the anchor once the build is verified.
+		g_gui_component_ctor = big::hades2_symbol_to_address["sgg::GUIComponent::GUIComponent"].as_func<void(void*, std::uint64_t)>();
+		g_image_ctor = big::hades2_symbol_to_address["sgg::GUIComponentImage::GUIComponentImage"].as_func<void(void*, std::uint64_t)>();
+		g_textbox_ctor = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GUIComponentTextBox"].as_func<void(void*, std::uint64_t)>();
+		g_slider_defaults = big::hades2_symbol_to_address["sgg::GUIComponentSlider::Defaults"].as_func<void(void*)>();
+		const auto slider_set_fraction = big::hades2_symbol_to_address["sgg::GUIComponentSlider::SetFraction"];
+		g_slider_set_fraction          = slider_set_fraction.as_func<void(void*, float, bool)>();
+
 		// The num-box factory (a template instantiation) and the restart-dialog ctor / AddScreen
 		// overloads cannot be picked by name from the PDB, so they are addressed by hardcoded RVA off
 		// the button-ctor anchor. Those RVAs - and every struct offset this feature uses - are valid
@@ -2805,6 +3093,7 @@ namespace big::mod_settings
 		g_message_dialog_ctor  = reinterpret_cast<message_dialog_ctor_fn>(anchor_base + message_dialog_ctor_rva);
 		g_add_screen           = reinterpret_cast<add_screen_fn>(anchor_base + add_screen_rva);
 		g_numbox_factory       = reinterpret_cast<numbox_factory_fn>(anchor_base + numbox_factory_rva);
+		g_slider_vtable        = anchor_base + slider_vtable_rva;
 
 		g_feature_enabled = true;
 
@@ -2824,6 +3113,13 @@ namespace big::mod_settings
 		static auto snv_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentNumBox_SetNumberValue>(
 		    "sgg::GUIComponentNumBox::SetNumberValue",
 		    set_number_value);
+
+		// Optional: persists user drags on our slider rows (filtered to our rows via find_row, so it is a
+		// no-op for the native audio sliders). If absent, bounded numbers render as the number-box stepper.
+		if (slider_set_fraction)
+		{
+			static auto set_fraction_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentSlider_SetFraction>("sgg::GUIComponentSlider::SetFraction", slider_set_fraction);
+		}
 		static auto update_hook =
 		    hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_Update>("sgg::MiscSettingsScreen::Update", update);
 		static auto handle_input_hook = hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_HandleInput>(

@@ -279,6 +279,17 @@ namespace big::mod_settings
 			m.freetext = freetext_field.as<bool>();
 		}
 
+		sol::object show_pct_field = desc["show_as_percentage"];
+		if (show_pct_field.is<bool>())
+		{
+			m.show_as_percentage = show_pct_field.as<bool>();
+		}
+		sol::object is_pct_field = desc["is_percentage"];
+		if (is_pct_field.is<bool>())
+		{
+			m.is_percentage = is_pct_field.as<bool>();
+		}
+
 		m.restart_required = description_requires_restart(desc);
 
 		return m;

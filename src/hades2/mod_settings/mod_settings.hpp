@@ -37,6 +37,12 @@ namespace big::mod_settings
 		bool hidden           = false; // author asked to omit this row entirely
 		bool restart_required = false; // change only takes effect after a game restart
 		bool freetext         = false; // force a bounded number to freetext entry (not the stepper)
+
+		// Number-display options (mainly for the slider). is_percentage shows a 0..1 value as 0..100 and
+		// appends "%"; show_as_percentage only appends "%" (no scaling). Setting show_as_percentage in
+		// addition to is_percentage is a no-op. The stored config value is never modified by either.
+		bool show_as_percentage = false;
+		bool is_percentage      = false;
 	};
 
 	// True if a mod author declared this setting as requiring a game restart to take effect
