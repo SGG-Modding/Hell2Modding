@@ -129,6 +129,9 @@ namespace big::mod_settings
 	// global bool that is false in controller/keyboard mode. Both addressed by RVA off the anchor.
 	static constexpr std::uintptr_t teleport_cursor_rva  = 0x14'03'A0;
 	static constexpr std::uintptr_t config_use_mouse_rva = 0x83'69'15;
+	// sgg::ConfigOptions::Language: eastl string holding the current display-language code (e.g. "en",
+	// "zh-TW"). Used to pick text/blank characters the current locale's font can render.
+	static constexpr std::uintptr_t config_language_rva = 0x83'69'20;
 
 	// &sgg::Controls::Cancel (the remappable Back/Cancel action that folds together controller B and
 	// keyboard Esc) and &sgg::Controls::Select (controller A + Enter); their first int is the id
@@ -237,6 +240,7 @@ namespace big::mod_settings
 	static std::uintptr_t g_slider_vtable       = 0; // runtime slider vftable address (anchor_base + slider_vtable_rva)
 	static teleport_cursor_fn g_teleport_cursor = nullptr; // drops the controller cursor on a row (initial focus)
 	static const bool* g_use_mouse              = nullptr; // sgg::ConfigOptions::UseMouse (false in controller mode)
+	static const char* g_config_language = nullptr; // sgg::ConfigOptions::Language (eastl SSO string, code chars at offset 0)
 	static component_focused_fn g_component_focused = nullptr; // focuses a row so it receives stick input + green
 	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
 	static const void* g_controls_cancel            = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
@@ -1638,27 +1642,6 @@ namespace big::mod_settings
 		g_edit_cancel  = false;
 	}
 
-	// Replaces each ASCII space with a non-breaking space (U+00A0, UTF-8 0xC2 0xA0). The message
-	// textbox auto-wraps at breakable spaces (computed at the template font size, before our font
-	// scaling), which would split a single logical line; non-breaking spaces keep it on one line.
-	static std::string to_non_breaking(const std::string& text)
-	{
-		std::string out;
-		out.reserve(text.size() + text.size() / 4);
-		for (char c : text)
-		{
-			if (c == ' ')
-			{
-				out += "\xC2\xA0";
-			}
-			else
-			{
-				out += c;
-			}
-		}
-		return out;
-	}
-
 	// Composite key ("<stem>\0<section>\0<key>") uniquely identifying a config entry across mods.
 	static std::string restart_change_key(toml_v2::config_file::config_entry_base* entry, const std::string& stem)
 	{
@@ -1682,6 +1665,18 @@ namespace big::mod_settings
 		}
 		const std::string key = restart_change_key(entry, stem);
 		g_restart_baselines.try_emplace(key, entry->get_serialized_value());
+	}
+
+	// The friendly display name for a setting: the author's `display_name` override when provided,
+	// otherwise the prettified key. Mirrors how the setting rows are labelled.
+	static std::string setting_display_name(const std::string& stem, const std::string& section, const std::string& key)
+	{
+		const auto meta = get_setting_metadata(stem, section, key);
+		if (meta && !meta->name.empty())
+		{
+			return meta->name;
+		}
+		return key_to_display(key);
 	}
 
 	// Records or clears a restart-required setting change after the value has been written. If the
@@ -1710,9 +1705,10 @@ namespace big::mod_settings
 		}
 		else
 		{
-			// Keep each mod/setting/value entry on one line (see to_non_breaking).
-			const std::string line = display_name_from_stem(stem) + ": " + key_to_display(entry->m_definition.m_key) + " (" + new_value_display + ")";
-			g_restart_changes[key] = to_non_breaking(line);
+			// Stored plain; word-wrapped with regular spaces for the dialog in build_restart_message.
+			const std::string line = display_name_from_stem(stem) + ": "
+			                         + setting_display_name(stem, entry->m_definition.m_section, entry->m_definition.m_key) + " (" + new_value_display + ")";
+			g_restart_changes[key] = line;
 		}
 
 		g_restart_required = !g_restart_changes.empty();
@@ -2544,26 +2540,57 @@ namespace big::mod_settings
 		}
 	}
 
-	// Builds the restart-popup body text from the changes collected this session. Blank lines are a
-	// single non-breaking space (U+00A0): ShowText trims ASCII-whitespace-only lines (so "\n\n" and
-	// "\n \n" collapse) but keeps an nbsp line. A sacrificial trailing nbsp line is appended because
-	// the formatter also trims the LAST whitespace-only line, which would otherwise merge the blank
-	// before the outro into it. Intro/outro and each change entry are non-breaking so the
-	// width-greedy formatter keeps each on one line.
+	// True when the game's current display language uses a CJK font (zh-CN, zh-TW, ja, ko). Those fonts
+	// have no glyph for the non-breaking space U+00A0 and draw a visible '*' instead, so the restart
+	// message uses regular spaces and a U+3000 blank for them. Every other language uses a
+	// Latin/Cyrillic/Greek font that renders U+00A0 invisibly - which is needed there to keep the
+	// (English) mod/setting entries from wrapping mid-line.
+	static bool current_language_is_cjk()
+	{
+		if (!g_config_language)
+		{
+			return false;
+		}
+		const char* code = g_config_language; // eastl SSO string: null-terminated code chars at offset 0
+		return std::strncmp(code, "zh", 2) == 0 || std::strncmp(code, "ja", 2) == 0 || std::strncmp(code, "ko", 2) == 0;
+	}
+
+	// Builds the restart-popup body text from the changes collected this session. The character choices
+	// depend on the current locale's font (see current_language_is_cjk): CJK locales use regular spaces
+	// and a U+3000 ideographic-space blank line; all others use non-breaking spaces (U+00A0), which keep
+	// each intro/entry/outro line whole under the width-greedy formatter and double as the blank line.
+	// Both blank characters survive ShowText's ASCII-whitespace-line trim; a sacrificial trailing blank
+	// is appended because the formatter also trims the last whitespace-only line.
 	static std::string build_restart_message()
 	{
-		const std::string blank = "\xC2\xA0"; // nbsp: a whitespace line ShowText will not trim
+		const bool cjk          = current_language_is_cjk();
+		const std::string blank = cjk ? "\xE3\x80\x80" : "\xC2\xA0"; // U+3000 (CJK) or U+00A0 (other)
 
-		std::string msg  = to_non_breaking("A restart is required because you changed these settings:");
+		const auto spaced = [cjk](const std::string& s) -> std::string
+		{
+			if (cjk)
+			{
+				return s; // regular spaces render in the CJK font; the entries fit without non-breaking
+			}
+			std::string out;
+			out.reserve(s.size() + s.size() / 4);
+			for (char c : s)
+			{
+				out += (c == ' ') ? std::string("\xC2\xA0") : std::string(1, c);
+			}
+			return out;
+		};
+
+		std::string msg  = spaced("A restart is required because you changed these settings:");
 		msg             += "\n" + blank + "\n";
 		for (const auto& change : g_restart_changes)
 		{
-			msg += change.second;
+			msg += spaced(change.second);
 			msg += "\n";
 		}
 		msg += blank + "\n";
-		msg += to_non_breaking("The game will now close. Please restart it to apply the changes.");
-		msg += "\n" + blank; // sacrificial trailing blank so the one above the outro survives
+		msg += spaced("The game will now close. Please restart it to apply the changes.");
+		msg += "\n" + blank;
 		return msg;
 	}
 
@@ -2949,7 +2976,23 @@ namespace big::mod_settings
 			// Only act while this screen is actually showing the Mods tab.
 			if (on_mods_tab)
 			{
-				apply_nav(screen);
+				// Stepping from a mod's settings back to the mod overview is the "done configuring this
+				// mod" point: if a restart-required setting changed this session, show the restart prompt
+				// now (it forces the restart) and stay on the current view under it, rather than
+				// returning to the overview. Only the final step out of the mod (to the list) triggers
+				// it; stepping between nested groups stays within mod_settings.
+				const bool leaving_mod = (g_view == View::mod_settings) && (g_pending_view == View::mod_list);
+				bool prompted          = false;
+				if (leaving_mod && g_restart_required && !g_restart_prompt_shown)
+				{
+					g_restart_prompt_shown = true;
+					void* screen_manager = *reinterpret_cast<void**>(reinterpret_cast<char*>(screen) + screen_manager_offset);
+					prompted = show_restart_dialog(screen_manager, build_restart_message());
+				}
+				if (!prompted)
+				{
+					apply_nav(screen);
+				}
 			}
 			g_nav_pending = false;
 		}
@@ -3025,7 +3068,10 @@ namespace big::mod_settings
 				}
 			}
 
-			// Back/Cancel steps back one level instead of the native return-to-tab-bar / close.
+			// Back/Cancel inside a mod's settings steps back one level (nested group -> parent section,
+			// root -> mod list) instead of the native return-to-tab-bar. In the mod list it is left to
+			// the native handler. The restart prompt is shown when stepping from a mod's settings back
+			// to the overview (see apply_nav).
 			if (g_view == View::mod_settings && !g_nav_pending && control_pressed(input, g_controls_cancel))
 			{
 				request_back_nav();
@@ -3212,6 +3258,7 @@ namespace big::mod_settings
 		g_slider_vtable        = anchor_base + slider_vtable_rva;
 		g_teleport_cursor      = reinterpret_cast<teleport_cursor_fn>(anchor_base + teleport_cursor_rva);
 		g_use_mouse            = reinterpret_cast<const bool*>(anchor_base + config_use_mouse_rva);
+		g_config_language      = reinterpret_cast<const char*>(anchor_base + config_language_rva);
 		g_controls_cancel      = reinterpret_cast<const void*>(anchor_base + config_cancel_rva);
 		g_controls_select      = reinterpret_cast<const void*>(anchor_base + config_select_rva);
 
