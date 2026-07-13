@@ -76,7 +76,14 @@ namespace big::mod_settings
 	static constexpr std::size_t def_sel_text_red       = 0x1'28; // mSelectedTextRed    (float)
 	static constexpr std::size_t def_sel_text_green     = 0x1'2C; // mSelectedTextGreen  (float)
 	static constexpr std::size_t def_sel_text_blue      = 0x1'30; // mSelectedTextBlue   (float)
-	static constexpr std::size_t def_spacing = 0x1'5C; // mSpacing (float) row pitch, read by UpdateScrollState
+	static constexpr std::size_t def_spacing    = 0x1'5C; // mSpacing (float) row pitch, read by UpdateScrollState
+	static constexpr std::size_t def_fade_speed = 0x2'1C; // mFadeSpeed (float) opacity ease rate (component +0x2C4)
+
+	// Opacity ease rate applied to every row so all row types fade at one uniform speed. The native
+	// OptionToggleButton / OptionNumBox templates use 10.0; CategoryOptionsButton (our text/value/
+	// group rows) declares none, so we set it explicitly. GUIComponent::Update moves mFadeOpacity
+	// toward mFadeTarget by dt * mFadeSpeed each frame, so this drives the fade timing.
+	static constexpr float row_fade_speed = 10.0f;
 
 	// Native sgg::MessageDialog (the single-button message box the game shows in the MAIN MENU for
 	// save/file errors, ShellText SaveErrorPC/FileAccessErrorPC). Unlike the Lua screen system it
@@ -613,6 +620,8 @@ namespace big::mod_settings
 
 		row->m_location_x   = row_location_x;
 		row->m_fade_opacity = 0.0f;
+		// Uniform opacity ease rate so every row type fades at the same native speed (see row_fade_speed).
+		*reinterpret_cast<float*>(reinterpret_cast<char*>(row) + component_def_offset + def_fade_speed) = row_fade_speed;
 	}
 
 	// Shows the on or off toggle graphic for a toggle row. The OptionToggleButton template
@@ -1852,6 +1861,28 @@ namespace big::mod_settings
 		}
 	}
 
+	// Matches the native category-switch transition: the incoming page fades in and there is no
+	// fade-out crossover. Native UpdateScrollState sets each on-page row's mFadeTarget to 1 and each
+	// off-page row's to 0, and GUIComponent::Update (driven by MenuScreen::Update, which the original
+	// runs before this) eases mFadeOpacity toward the target at dt * mFadeSpeed - so on-page rows are
+	// left entirely to the native ease. We only force off-page rows fully transparent so a row leaving
+	// the page vanishes at once instead of fading out on top of the incoming page. Rows are in
+	// m_options / g_rows order, so row i is on the current page when start <= i < start + rows_per_page.
+	static void sync_scroll_fade(MiscSettingsScreen* screen)
+	{
+		const std::size_t first = screen->m_page_start_index;
+		const std::size_t last  = first + rows_per_page;
+		for (std::size_t i = 0; i < g_rows.size(); ++i)
+		{
+			auto* comp = g_rows[i].component;
+			if (comp && !(i >= first && i < last))
+			{
+				comp->m_fade_opacity = 0.0f;
+				comp->m_fade_target  = 0.0f;
+			}
+		}
+	}
+
 	// Value displays are not in mOptions, so the engine's scroll pass does not lay them out.
 	// Mirror each value component onto its key row's current position and fade so the right
 	// column tracks scrolling and fade-in/out.
@@ -2103,15 +2134,13 @@ namespace big::mod_settings
 		screen->m_options_per_page = rows_per_page;
 		if (g_update_scroll)
 		{
-			g_update_scroll(screen);
+			g_update_scroll(screen); // sets each row's mFadeTarget: 1 on-page, 0 off-page
 		}
 
-		// For an in-place refresh (e.g. toggling the mod's "enabled" switch, which only
-		// changes greying) snap each row straight to its final visibility so the panel does
-		// not flash a fade-out/in. UpdateScrollState set the on-page rows' fade target to 1
-		// and off-page rows' to 0, so copying target->opacity gives the settled look at once.
 		if (instant)
 		{
+			// In-place refresh (e.g. toggling the mod's "enabled" switch, which only changes greying):
+			// snap each row straight to its final visibility so the panel does not flash a fade.
 			for (const auto& row : g_rows)
 			{
 				if (row.component)
@@ -2120,6 +2149,10 @@ namespace big::mod_settings
 				}
 			}
 		}
+		// A view change leaves the freshly built rows at mFadeOpacity 0 (finalize_row); the native
+		// ease (GUIComponent::Update) then fades the on-page rows in toward mFadeTarget == 1, matching
+		// the game's own category-switch transition. Off-page rows are held transparent in
+		// sync_scroll_fade.
 
 		// Value displays are not laid out by the scroll pass; place them on their key rows now.
 		sync_value_columns();
@@ -2555,6 +2588,7 @@ namespace big::mod_settings
 		// row's description in the native description box.
 		if (on_mods_tab)
 		{
+			sync_scroll_fade(screen);
 			sync_value_columns();
 			sync_description_box(screen);
 		}
