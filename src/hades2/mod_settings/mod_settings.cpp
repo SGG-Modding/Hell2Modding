@@ -14,6 +14,7 @@
 #include <malloc.h>
 #include <map>
 #include <memory/gm_address.hpp>
+#include <sstream>
 #include <string>
 #include <toml_v2/config_file.hpp>
 #include <vector>
@@ -2664,12 +2665,35 @@ namespace big::mod_settings
 		build_panel(screen, instant);
 	}
 
-	// Restores the current mod's config entries (g_view_stem) to their config.lua defaults (see
-	// get_setting_default), saving each change and flagging any restart-required ones. Only ever
-	// resets the one mod whose settings are open - never every mod - so it is called only from the
-	// mod-settings view. Only settings bound via rom.mod_settings.load carry a captured default;
-	// anything else (raw rom.config or big::config) is left untouched. Returns true if any value
-	// actually changed.
+	// The serialized default of a config entry, read from the entry itself via the public
+	// write_description (whose last output line is "# Default value: <serialized>"). Works for any entry
+	// regardless of who bound it, so it recovers defaults for Chalk-bound mods, which never went through
+	// rom.mod_settings.load and so have no captured default in get_setting_default. The serialized form
+	// uses the same converter as get_serialized_value, so it round-trips through set_serialized_value.
+	static std::optional<std::string> entry_default_serialized(toml_v2::config_file::config_entry_base* entry)
+	{
+		if (!entry)
+		{
+			return std::nullopt;
+		}
+		std::ostringstream ss;
+		entry->write_description(ss);
+		const std::string text          = ss.str();
+		static const std::string marker = "# Default value: ";
+		const auto pos                  = text.rfind(marker);
+		if (pos == std::string::npos)
+		{
+			return std::nullopt;
+		}
+		return text.substr(pos + marker.size());
+	}
+
+	// Restores the current mod's config entries (g_view_stem) to their defaults, saving each change and
+	// flagging any restart-required ones. Only ever resets the one mod whose settings are open - never
+	// every mod - so it is called only from the mod-settings view. The default comes from the config.lua
+	// value captured by rom.mod_settings.load when available, and otherwise from the config entry's own
+	// stored default (so Chalk-bound mods, which never go through load, still reset). Returns true if any
+	// value actually changed.
 	static bool reset_settings_to_defaults()
 	{
 		bool any_changed = false;
@@ -2688,7 +2712,13 @@ namespace big::mod_settings
 				}
 				auto* e = entry.get();
 
-				const auto def_val = get_setting_default(guid, def.m_section, def.m_key);
+				auto def_val = get_setting_default(guid, def.m_section, def.m_key);
+				if (!def_val)
+				{
+					// Not bound via rom.mod_settings.load (e.g. a Chalk mod): recover the default from
+					// the config entry itself.
+					def_val = entry_default_serialized(e);
+				}
 				if (!def_val || e->get_serialized_value() == *def_val)
 				{
 					continue;
