@@ -2775,6 +2775,27 @@ namespace big::mod_settings
 		}
 	}
 
+	// Allocates from the GAME's CRT heap (ucrtbase _aligned_malloc). We hand the resulting block to the
+	// game as a screen (a MessageDialog): the game's ScreenManager frees removed screens with
+	// ucrtbase's _aligned_free. H2M links the static CRT (/MT), so its own _aligned_malloc would place
+	// the block in a different heap; the game's _aligned_free would then decode the (identically
+	// formatted) alignment header and call the process free on a block that heap never owned, corrupting
+	// the heap. Allocating the screen here, from the same CRT that will free it, keeps the pair matched.
+	// Returns nullptr if ucrtbase or the symbol is unavailable (caller then does not show the dialog).
+	static void* game_crt_aligned_malloc(std::size_t size, std::size_t alignment)
+	{
+		using aligned_malloc_fn     = void*(__cdecl*)(std::size_t, std::size_t);
+		static aligned_malloc_fn fn = []() -> aligned_malloc_fn
+		{
+			if (HMODULE ucrt = GetModuleHandleW(L"ucrtbase.dll"))
+			{
+				return reinterpret_cast<aligned_malloc_fn>(GetProcAddress(ucrt, "_aligned_malloc"));
+			}
+			return nullptr;
+		}();
+		return fn ? fn(size, alignment) : nullptr;
+	}
+
 	// Shows the native single-button message box (sgg::MessageDialog, the same box the game uses in the
 	// main menu for save/file errors), modal over the options screen, with `title` as the heading and
 	// `message` as the body. When confirm_closes_game is true the confirm button is captured so the
@@ -2788,7 +2809,10 @@ namespace big::mod_settings
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
 		{
-			void* dialog = _aligned_malloc(message_dialog_size, 8);
+			// Allocate from the game's CRT: the ScreenManager frees this screen with ucrtbase's
+			// _aligned_free (see game_crt_aligned_malloc). Our own rows are the opposite - we both
+			// allocate and free them - so they stay on H2M's CRT; only this game-freed screen must not.
+			void* dialog = game_crt_aligned_malloc(message_dialog_size, 8);
 			if (dialog)
 			{
 				std::memset(dialog, 0, message_dialog_size);
@@ -2969,6 +2993,19 @@ namespace big::mod_settings
 	{
 		auto* screen = static_cast<MiscSettingsScreen*>(self);
 		const bool is_mods_tab = category_button && category_button == reinterpret_cast<void*>(screen->m_editor_options_button);
+
+		// Leaving the Mods tab for another category: tear our rows down FIRST, before the native
+		// category switch runs. The native switch only unlinks the outgoing category's mOptions entries
+		// from mComponents; our right-column value components are in mComponents but NOT mOptions (they
+		// are drawn, not paged), so the native teardown would leave them behind. They would then linger
+		// in mComponents on the other category - re-localized by a language change and walked by the
+		// native layout - which can corrupt unrelated widgets (e.g. a category button's label). Doing
+		// our own teardown here keeps mComponents clean for the native code; re-entering the tab rebuilds.
+		if (!is_mods_tab && !g_rows.empty())
+		{
+			destroy_rows(screen);
+			exit_edit_mode();
+		}
 
 		auto* result = big::g_hooking->get_original<hook_MiscSettingsScreen_DoShowCategory>()(self, category_button, category_flag);
 
