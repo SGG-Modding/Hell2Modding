@@ -397,6 +397,15 @@ namespace big::mod_settings
 	static std::string g_pending_section;
 	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav
 
+	// Preserve the mod-list scroll position and highlighted mod across a drill-in/back-out. When the
+	// user opens a mod from a scrolled-down mod list, g_mod_list_start_index records that scroll offset
+	// and g_mod_list_focus_stem the opened mod; returning to the list restores the offset and re-focuses
+	// that mod's row (instead of snapping back to the first page). g_restore_mod_list_position gates the
+	// restore so a fresh tab entry still starts at the top.
+	static std::uint32_t g_mod_list_start_index = 0;
+	static std::string g_mod_list_focus_stem;
+	static bool g_restore_mod_list_position = false;
+
 	// Freetext edit state (number/string settings). A click enters edit mode; typed input
 	// is captured in the window procedure and applied on the game thread in the Update hook.
 	static bool g_editing                                        = false;
@@ -2403,6 +2412,18 @@ namespace big::mod_settings
 	// skipped - leaving the screen in tab-navigation mode, which is why the stick never reaches the
 	// rows (no highlight, sliders ignore left/right) until the tab is selected a second time. Mouse
 	// mode is left untouched (the mouse drives hover itself; teleporting would yank the pointer).
+	// Drops the controller/keyboard cursor onto a specific row so the next Update focuses it (green +
+	// stick input). No-op in mouse mode (the mouse drives hover). The row must be selectable.
+	static void focus_row(MiscSettingsScreen* screen, GUIComponent* component)
+	{
+		if (!g_teleport_cursor || (g_use_mouse && *g_use_mouse) || !component)
+		{
+			return;
+		}
+		g_teleport_cursor(screen, component); // drop the cursor on the row; next Update focuses it
+		screen->m_category_focused = false;   // hand navigation from the tab bar to the option rows
+	}
+
 	static void focus_first_row(MiscSettingsScreen* screen)
 	{
 		if (!g_teleport_cursor || (g_use_mouse && *g_use_mouse))
@@ -2414,11 +2435,24 @@ namespace big::mod_settings
 			GUIComponent* c = row.component;
 			if (c && !row.disabled && c->m_is_useable && !c->m_hidden)
 			{
-				g_teleport_cursor(screen, c);       // drop the cursor on the row; next Update focuses it
-				screen->m_category_focused = false; // hand navigation from the tab bar to the option rows
+				focus_row(screen, c);
 				return;
 			}
 		}
+	}
+
+	// The mod-list row for a given mod stem (its mod_entry row), or nullptr if not present. Used to
+	// re-focus the mod the user just backed out of when returning to a scrolled mod list.
+	static GUIComponent* mod_row_for_stem(const std::string& stem)
+	{
+		for (const auto& row : g_rows)
+		{
+			if (row.kind == RowKind::mod_entry && row.stem == stem && row.component)
+			{
+				return row.component;
+			}
+		}
+		return nullptr;
 	}
 
 	// Queues a one-level back navigation inside a mod's settings: a nested group returns to its parent
@@ -2487,14 +2521,21 @@ namespace big::mod_settings
 		}
 
 		// Let the engine position, paginate and drive the scrollbar/arrows for the rows.
+		//
+		// Returning to the mod list from a mod's settings is a real view change (not instant), which
+		// would otherwise snap to the top. If the user opened the mod from a scrolled-down list, restore
+		// that scroll offset so they land back where they were, on the mod they just left.
+		const bool restoring_list = !instant && g_restore_mod_list_position && g_view == View::mod_list;
+
 		std::uint32_t start = 0;
-		if (instant)
+		if (instant || restoring_list)
 		{
 			// Clamp the preserved offset in case the row count shrank (e.g. a row became
 			// hidden), keeping a full page in view where possible.
 			const std::uint32_t row_count = static_cast<std::uint32_t>(g_rows.size());
 			const std::uint32_t max_start = row_count > rows_per_page ? row_count - rows_per_page : 0;
-			start                         = prev_start > max_start ? max_start : prev_start;
+			const std::uint32_t desired   = instant ? prev_start : g_mod_list_start_index;
+			start                         = desired > max_start ? max_start : desired;
 		}
 		screen->m_page_start_index = start;
 		screen->m_options_per_page = rows_per_page;
@@ -2525,10 +2566,25 @@ namespace big::mod_settings
 
 		// On a real view change (tab entry, drilling into a mod, going back), drop the cursor on the
 		// first row so it highlights immediately like a native category. Skipped on in-place refreshes
-		// so committing an edit or toggling "enabled" does not yank focus back to the top.
+		// so committing an edit or toggling "enabled" does not yank focus back to the top. When
+		// returning to a scrolled mod list, focus the mod the user backed out of (on the restored page)
+		// rather than the first row.
 		if (!instant)
 		{
-			focus_first_row(screen);
+			GUIComponent* restore_focus = restoring_list ? mod_row_for_stem(g_mod_list_focus_stem) : nullptr;
+			if (restore_focus)
+			{
+				focus_row(screen, restore_focus);
+			}
+			else
+			{
+				focus_first_row(screen);
+			}
+		}
+
+		if (restoring_list)
+		{
+			g_restore_mod_list_position = false;
 		}
 	}
 
@@ -2544,6 +2600,20 @@ namespace big::mod_settings
 		// scrolled position would leave the stale page-1 rows visible (see the scroll-model notes).
 		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
 		g_nav_reset_to_top = false;
+
+		// Opening a mod from the mod list: remember where the list was scrolled and which mod was
+		// opened, so backing out returns to that page with that mod highlighted (g_view is still the
+		// old view here, so m_page_start_index is the mod list's own scroll offset).
+		if (g_view == View::mod_list && g_pending_view == View::mod_settings)
+		{
+			g_mod_list_start_index = screen->m_page_start_index;
+			g_mod_list_focus_stem  = g_pending_stem;
+		}
+		// Returning to the mod list from a mod's settings: restore that saved scroll/focus.
+		if (g_view == View::mod_settings && g_pending_view == View::mod_list)
+		{
+			g_restore_mod_list_position = true;
+		}
 
 		g_view         = g_pending_view;
 		g_view_stem    = g_pending_stem;
@@ -2769,8 +2839,11 @@ namespace big::mod_settings
 		g_view_stem.clear();
 		g_view_section.clear();
 		g_pending_section.clear();
-		g_nav_pending            = false;
-		g_nav_reset_to_top       = false;
+		g_nav_pending               = false;
+		g_nav_reset_to_top          = false;
+		g_restore_mod_list_position = false;
+		g_mod_list_start_index      = 0;
+		g_mod_list_focus_stem.clear();
 		g_restart_required       = false;
 		g_restart_prompt_shown   = false;
 		g_restart_confirm_button = nullptr;
