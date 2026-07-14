@@ -404,14 +404,22 @@ namespace big::mod_settings
 	static std::string g_pending_section;
 	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav
 
-	// Preserve the mod-list scroll position and highlighted mod across a drill-in/back-out. When the
-	// user opens a mod from a scrolled-down mod list, g_mod_list_start_index records that scroll offset
-	// and g_mod_list_focus_stem the opened mod; returning to the list restores the offset and re-focuses
-	// that mod's row (instead of snapping back to the first page). g_restore_mod_list_position gates the
-	// restore so a fresh tab entry still starts at the top.
-	static std::uint32_t g_mod_list_start_index = 0;
-	static std::string g_mod_list_focus_stem;
-	static bool g_restore_mod_list_position = false;
+	// Navigation restore stack: one entry per drill-in level (the mod list into a mod, or a section into
+	// a child group). Each records the parent view's scroll offset and the identity of the row drilled
+	// through, so backing out restores that scroll and re-selects that row instead of snapping to the
+	// top. focus_stem identifies a mod row (returning to the mod list); focus_section identifies a group
+	// row by its target section (returning to a parent section). g_pending_restore holds the entry
+	// popped by the current back-navigation for build_panel to consume.
+	struct NavRestore
+	{
+		std::uint32_t scroll_index = 0;
+		std::string focus_stem;
+		std::string focus_section;
+	};
+
+	static std::vector<NavRestore> g_nav_stack;
+	static NavRestore g_pending_restore;
+	static bool g_has_pending_restore = false;
 
 	// Freetext edit state (number/string settings). A click enters edit mode; typed input
 	// is captured in the window procedure and applied on the game thread in the Update hook.
@@ -2448,13 +2456,21 @@ namespace big::mod_settings
 		}
 	}
 
-	// The mod-list row for a given mod stem (its mod_entry row), or nullptr if not present. Used to
-	// re-focus the mod the user just backed out of when returning to a scrolled mod list.
-	static GUIComponent* mod_row_for_stem(const std::string& stem)
+	// The row a pending back-navigation should re-focus: the mod_entry row of the mod that was open
+	// (focus_stem set), or the group row that drills into the section that was open (focus_section set).
+	// Exactly one of the two fields is set per restore. Returns nullptr if that row is not in the freshly
+	// built view (e.g. it was removed since).
+	static GUIComponent* restore_target_row(const NavRestore& r)
 	{
 		for (const auto& row : g_rows)
 		{
-			if (row.kind == RowKind::mod_entry && row.stem == stem && row.component)
+			if (!row.component)
+			{
+				continue;
+			}
+			const bool match =
+			    !r.focus_stem.empty() ? (row.kind == RowKind::mod_entry && row.stem == r.focus_stem) : (!r.focus_section.empty() && row.kind == RowKind::group && row.target_section == r.focus_section);
+			if (match)
 			{
 				return row.component;
 			}
@@ -2529,19 +2545,19 @@ namespace big::mod_settings
 
 		// Let the engine position, paginate and drive the scrollbar/arrows for the rows.
 		//
-		// Returning to the mod list from a mod's settings is a real view change (not instant), which
-		// would otherwise snap to the top. If the user opened the mod from a scrolled-down list, restore
-		// that scroll offset so they land back where they were, on the mod they just left.
-		const bool restoring_list = !instant && g_restore_mod_list_position && g_view == View::mod_list;
+		// Backing out to a parent view (the mod list, or a parent section) is a real view change (not
+		// instant), which would otherwise snap to the top. If a restore is pending from the back-nav,
+		// restore that view's saved scroll offset so the user lands where they were.
+		const bool restoring = !instant && g_has_pending_restore;
 
 		std::uint32_t start = 0;
-		if (instant || restoring_list)
+		if (instant || restoring)
 		{
 			// Clamp the preserved offset in case the row count shrank (e.g. a row became
 			// hidden), keeping a full page in view where possible.
 			const std::uint32_t row_count = static_cast<std::uint32_t>(g_rows.size());
 			const std::uint32_t max_start = row_count > rows_per_page ? row_count - rows_per_page : 0;
-			const std::uint32_t desired   = instant ? prev_start : g_mod_list_start_index;
+			const std::uint32_t desired   = instant ? prev_start : g_pending_restore.scroll_index;
 			start                         = desired > max_start ? max_start : desired;
 		}
 		screen->m_page_start_index = start;
@@ -2571,14 +2587,14 @@ namespace big::mod_settings
 		// Value displays are not laid out by the scroll pass; place them on their key rows now.
 		sync_value_columns();
 
-		// On a real view change (tab entry, drilling into a mod, going back), drop the cursor on the
-		// first row so it highlights immediately like a native category. Skipped on in-place refreshes
-		// so committing an edit or toggling "enabled" does not yank focus back to the top. When
-		// returning to a scrolled mod list, focus the mod the user backed out of (on the restored page)
-		// rather than the first row.
+		// On a real view change (tab entry, drilling in, going back), drop the cursor on the first row
+		// so it highlights immediately like a native category. Skipped on in-place refreshes so
+		// committing an edit or toggling "enabled" does not yank focus back to the top. When backing
+		// out, focus the row the user drilled through (the mod in the list, or the group in its parent
+		// section) rather than the first row.
 		if (!instant)
 		{
-			GUIComponent* restore_focus = restoring_list ? mod_row_for_stem(g_mod_list_focus_stem) : nullptr;
+			GUIComponent* restore_focus = restoring ? restore_target_row(g_pending_restore) : nullptr;
 			if (restore_focus)
 			{
 				focus_row(screen, restore_focus);
@@ -2589,9 +2605,9 @@ namespace big::mod_settings
 			}
 		}
 
-		if (restoring_list)
+		if (restoring)
 		{
-			g_restore_mod_list_position = false;
+			g_has_pending_restore = false;
 		}
 	}
 
@@ -2608,18 +2624,38 @@ namespace big::mod_settings
 		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
 		g_nav_reset_to_top = false;
 
-		// Opening a mod from the mod list: remember where the list was scrolled and which mod was
-		// opened, so backing out returns to that page with that mod highlighted (g_view is still the
-		// old view here, so m_page_start_index is the mod list's own scroll offset).
-		if (g_view == View::mod_list && g_pending_view == View::mod_settings)
+		// Maintain the restore stack. A drill-in step (the mod list into a mod, or a section into a
+		// deeper child section) pushes the parent's scroll offset plus the identity of the row being
+		// drilled through; a back step (a mod out to the list, or a child section out to its parent)
+		// pops that entry for build_panel to restore. g_view is still the old (parent) view here, so
+		// m_page_start_index is the parent's own scroll offset. A same-view rebuild (instant: Reset or
+		// an "enabled" toggle) is neither, so it leaves the stack untouched.
+		const bool drilling_in =
+		    (g_view == View::mod_list && g_pending_view == View::mod_settings)
+		    || (g_view == View::mod_settings && g_pending_view == View::mod_settings && g_pending_section.rfind(g_view_section + ".", 0) == 0);
+		const bool backing_out =
+		    (g_view == View::mod_settings && g_pending_view == View::mod_list)
+		    || (g_view == View::mod_settings && g_pending_view == View::mod_settings && g_view_section.rfind(g_pending_section + ".", 0) == 0);
+
+		if (drilling_in)
 		{
-			g_mod_list_start_index = screen->m_page_start_index;
-			g_mod_list_focus_stem  = g_pending_stem;
+			NavRestore r;
+			r.scroll_index = screen->m_page_start_index;
+			if (g_view == View::mod_list)
+			{
+				r.focus_stem = g_pending_stem; // the mod being opened
+			}
+			else
+			{
+				r.focus_section = g_pending_section; // the child section being opened (a group row's target)
+			}
+			g_nav_stack.push_back(std::move(r));
 		}
-		// Returning to the mod list from a mod's settings: restore that saved scroll/focus.
-		if (g_view == View::mod_settings && g_pending_view == View::mod_list)
+		else if (backing_out && !g_nav_stack.empty())
 		{
-			g_restore_mod_list_position = true;
+			g_pending_restore = g_nav_stack.back();
+			g_nav_stack.pop_back();
+			g_has_pending_restore = true;
 		}
 
 		g_view         = g_pending_view;
@@ -2929,8 +2965,6 @@ namespace big::mod_settings
 		return result;
 	}
 
-	// Body text for the dependency-block popup: names the mod that cannot be disabled, lists the enabled
-	// mods depending on it, and tells the player how to proceed.
 	// Body text for the dependency-block popup: lists the enabled mods depending on the one the player
 	// tried to disable, and tells them how to proceed. The intro/outro are kept short so they fit the
 	// dialog width on every locale (the wider CJK fonts overflow a long line); the blocked mod is
@@ -2950,11 +2984,10 @@ namespace big::mod_settings
 		g_view_stem.clear();
 		g_view_section.clear();
 		g_pending_section.clear();
-		g_nav_pending               = false;
-		g_nav_reset_to_top          = false;
-		g_restore_mod_list_position = false;
-		g_mod_list_start_index      = 0;
-		g_mod_list_focus_stem.clear();
+		g_nav_pending      = false;
+		g_nav_reset_to_top = false;
+		g_nav_stack.clear();
+		g_has_pending_restore    = false;
 		g_restart_required       = false;
 		g_restart_prompt_shown   = false;
 		g_restart_confirm_button = nullptr;
@@ -3009,6 +3042,8 @@ namespace big::mod_settings
 			g_view_stem.clear();
 			g_view_section.clear();
 			g_nav_pending = false;
+			g_nav_stack.clear(); // a fresh tab entry starts at the top of the mod list
+			g_has_pending_restore = false;
 			exit_edit_mode();
 			build_panel(screen);
 		}
