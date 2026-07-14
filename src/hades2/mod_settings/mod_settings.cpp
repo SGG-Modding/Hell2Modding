@@ -1948,6 +1948,70 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
+	// True when the options screen was opened during gameplay (a save is loaded), false when opened
+	// from the main menu. Captured from the MiscSettingsScreen constructor's "opened from" argument
+	// (see hook_MiscSettingsScreen_ctor); used to grey out context-restricted setting rows.
+	static bool g_opened_in_game = false;
+
+	// The MiscSettingsScreen ctor's "opened from" argument is the opening screen (sgg::MenuScreen*):
+	// a MainMenuScreen when opened from the main menu, a PauseScreen when opened in-game (the only two
+	// call sites in the engine). GameScreen::GetType (virtual, vtable slot 10 - a `mov eax,imm; ret`
+	// stub, so calling it is side-effect-free and ASLR-independent) returns the screen's ScreenType;
+	// Pause identifies the in-game opener.
+	static constexpr std::size_t game_screen_get_type_vtable_slot = 10;
+	static constexpr int screen_type_pause                        = 0x10'00'03; // sgg::ScreenType::Pause
+
+	static bool opener_indicates_in_game(void* opened_from)
+	{
+		if (!opened_from)
+		{
+			return false;
+		}
+		void** vtable = *reinterpret_cast<void***>(opened_from);
+		auto get_type = reinterpret_cast<int (*)(void*)>(vtable[game_screen_get_type_vtable_slot]);
+		return get_type(opened_from) == screen_type_pause;
+	}
+
+	// The context in which a setting may actually be changed. Authors declare it, but the master
+	// "enabled" toggle and any restart_required setting are forced to main_menu because neither can
+	// take effect on the live save.
+	static editable_context effective_editable_context(const std::optional<setting_metadata>& meta, bool is_enabled_toggle)
+	{
+		if (is_enabled_toggle)
+		{
+			return editable_context::main_menu;
+		}
+		if (meta && meta->restart_required)
+		{
+			return editable_context::main_menu;
+		}
+		return meta ? meta->context : editable_context::any;
+	}
+
+	// True when a setting cannot be changed in the current screen context (main-menu vs in-game), so
+	// its row is shown read-only with an explanatory note instead of an editable widget.
+	static bool is_context_restricted(editable_context ctx)
+	{
+		switch (ctx)
+		{
+		case editable_context::main_menu: return g_opened_in_game;  // main-menu-only, greyed while in a save
+		case editable_context::in_save:   return !g_opened_in_game; // in-save-only, greyed at the main menu
+		default:                          return false;                                      // any
+		}
+	}
+
+	// The note shown in the description box for a row that is read-only because of its editable
+	// context. Empty for `any` (never restricted).
+	static std::string context_note(editable_context ctx)
+	{
+		switch (ctx)
+		{
+		case editable_context::main_menu: return "This setting can only be changed from the main menu.";
+		case editable_context::in_save:   return "This setting can only be changed while a save is loaded.";
+		default:                          return {};
+		}
+	}
+
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`.
 	// Leaf entries render as setting rows (bool -> toggle, enum/bounded number -> num box, else a
 	// freetext value); each direct child section renders as a group row that drills into it. At the
@@ -2172,6 +2236,45 @@ namespace big::mod_settings
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
 			bool built_slider   = false;
+
+			// A setting whose editable context does not match the current screen (main-menu vs
+			// in-game) is shown read-only: its current value in a greyed key+value row that still
+			// takes focus, so the description box can explain where to change it. Edits are blocked
+			// by pr.disabled in the row handlers. Skipped when the mod is disabled, whose own greying
+			// already covers every row.
+			const editable_context ctx = effective_editable_context(meta, is_enabled_row);
+			if (!disabled && is_context_restricted(ctx))
+			{
+				std::string vtext;
+				if (entry->type() == typeid(bool))
+				{
+					vtext = entry->get_value_base<bool>() ? "true" : "false";
+				}
+				else if (is_enum && enum_index >= 0 && enum_index < static_cast<int>(enum_labels.size()))
+				{
+					vtext = enum_labels[enum_index];
+				}
+				else if (is_stepper)
+				{
+					vtext = format_setting_display(entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, step);
+				}
+				else
+				{
+					vtext = truncate_value(entry->get_serialized_value());
+				}
+
+				if (auto* ro_row = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false))
+				{
+					PanelRow pr{ro_row, RowKind::setting, stem, key, entry};
+					pr.disabled = true; // blocks every edit path (click / slider / num-box) via the row handlers
+					pr.is_enabled_toggle = is_enabled_row;
+					pr.value_component   = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
+					pr.description       = context_note(ctx);
+					g_rows.push_back(pr);
+				}
+				continue;
+			}
+
 			if (entry->type() == typeid(bool))
 			{
 				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
@@ -3080,6 +3183,11 @@ namespace big::mod_settings
 		g_prompt_confirm_label.clear();
 		g_prompt_cancel_label.clear();
 		exit_edit_mode();
+
+		// Record whether the screen was opened during gameplay (a save loaded) or from the main menu,
+		// so context-restricted rows can be greyed. Must be set before the original ctor runs, which
+		// shows the last-viewed category and may build our panel via DoShowCategory.
+		g_opened_in_game = opener_indicates_in_game(opened_from);
 
 		// The engine constructor returns `this`; forward it unchanged.
 		auto* screen = static_cast<MiscSettingsScreen*>(big::g_hooking->get_original<hook_MiscSettingsScreen_ctor>()(self, screen_manager, opened_from, profile_name));

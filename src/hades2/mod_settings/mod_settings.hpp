@@ -17,6 +17,22 @@ namespace big::mod_settings
 	// resolve_localized), falling back to English then any entry.
 	using localized_text = std::map<std::string, std::string>;
 
+	// When a setting may be changed, relative to whether a save is loaded. The Lua state is recreated
+	// when a save is loaded from the main menu, so init-time changes (GameData edits, function patches)
+	// only take effect if made before that point, while some settings only apply to a live run. The
+	// settings menu greys a row (read-only, with a note) when the current context does not match:
+	//  - any:       editable anywhere (default; live-read settings).
+	//  - main_menu: only from the main menu (greyed while a save is loaded). Forced for a mod's master
+	//               "enabled" toggle and for any restart_required setting.
+	//  - in_save:   only while a save is loaded (greyed at the main menu).
+	// Authors declare this per setting via `editable_context = "main_menu" | "in_save" | "any"`.
+	enum class editable_context
+	{
+		any,
+		main_menu,
+		in_save,
+	};
+
 	// Author-declared metadata for a single setting, extracted from its config.lua description
 	// table by rom.mod_settings.load and consulted by the settings menu. Only settings whose
 	// description is a rich table have an entry; the rest fall back to type-based rendering. Every
@@ -46,6 +62,10 @@ namespace big::mod_settings
 		bool hidden           = false; // author asked to omit this row entirely
 		bool restart_required = false; // change only takes effect after a game restart
 		bool freetext         = false; // force a bounded number to freetext entry (not the stepper)
+
+		// When this setting may be changed relative to a loaded save (see editable_context). Default
+		// `any`; forced to `main_menu` for the master "enabled" toggle and for restart_required settings.
+		editable_context context = editable_context::any;
 
 		// Number-display options (mainly for the slider). is_percentage shows a 0..1 value as 0..100 and
 		// appends "%"; show_as_percentage only appends "%" (no scaling). Setting show_as_percentage in

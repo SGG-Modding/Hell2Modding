@@ -357,6 +357,27 @@ namespace big::mod_settings
 
 		m.restart_required = description_requires_restart(desc);
 
+		// When the setting may be changed relative to a loaded save (`editable_context`). Accepts
+		// "any" (default), "main_menu", or "in_save"; anything else is ignored (stays `any`). The
+		// menu forces the master "enabled" toggle and restart_required settings to main_menu
+		// regardless, so authors need only annotate the in-between cases.
+		if (sol::object ctx_field = desc["editable_context"]; ctx_field.get_type() == sol::type::string)
+		{
+			const std::string ctx = ctx_field.as<std::string>();
+			if (ctx == "main_menu")
+			{
+				m.context = editable_context::main_menu;
+			}
+			else if (ctx == "in_save")
+			{
+				m.context = editable_context::in_save;
+			}
+			else if (ctx == "any")
+			{
+				m.context = editable_context::any;
+			}
+		}
+
 		return m;
 	}
 

@@ -33,6 +33,7 @@ Hover any field in the editor for its documentation. The available fields on a s
 | `hidden` | boolean | Hide the setting from the menu entirely. |
 | `freetext` | boolean | Force a bounded number to be a free-text entry instead of a slider. |
 | `restart_required` | boolean | Force the user to restart the game when this setting is changed. |
+| `editable_context` | `"any"` \| `"main_menu"` \| `"in_save"` | If this setting can be changed only in the main menu, only in a save, or in both. When the current context does not match, the row is shown read-only with a note. The "enabled" setting and any `restart_required` settings are always treated as `"main_menu"`. Defaults to `"any"`. |
 | `show_as_percentage` | boolean | Append "%" to the value. |
 | `is_percentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". |
 

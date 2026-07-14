@@ -38,6 +38,10 @@
 --- Mark that changing this setting requires a game restart. The menu forces the player
 --- to restart when they leave the mod menu after changing it.
 ---@field restart_required? boolean
+--- If this setting can be changed only in the main menu, only in a save, or in both.
+--- When the current context does not match, the row is shown read-only with a note.
+--- The "enabled" setting and any `restart_required` settings are always treated as `"main_menu"`.
+---@field editable_context? "any" | "main_menu" | "in_save"
 --- Append "%" to the displayed value.
 ---@field show_as_percentage? boolean
 --- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
