@@ -2713,12 +2713,14 @@ namespace big::mod_settings
 		std::uint32_t start = 0;
 		if (instant || restoring)
 		{
-			// Clamp the preserved offset in case the row count shrank (e.g. a row became
-			// hidden), keeping a full page in view where possible.
-			const std::uint32_t row_count = static_cast<std::uint32_t>(g_rows.size());
-			const std::uint32_t max_start = row_count > rows_per_page ? row_count - rows_per_page : 0;
-			const std::uint32_t desired   = instant ? prev_start : g_pending_restore.scroll_index;
-			start                         = desired > max_start ? max_start : desired;
+			// Restore the exact offset the view had. Only clamp when it now points past the last row
+			// (the row count shrank, e.g. a row became hidden), and then to the first index of the
+			// last page - so a partial final page (fewer than rows_per_page rows) keeps its own offset
+			// instead of being pulled up into a full page of rows.
+			const std::uint32_t row_count       = static_cast<std::uint32_t>(g_rows.size());
+			const std::uint32_t last_page_start = row_count > 0 ? ((row_count - 1) / rows_per_page) * rows_per_page : 0;
+			const std::uint32_t desired         = instant ? prev_start : g_pending_restore.scroll_index;
+			start                               = desired > last_page_start ? last_page_start : desired;
 		}
 		screen->m_page_start_index = start;
 		screen->m_options_per_page = rows_per_page;
