@@ -63,4 +63,10 @@ namespace big::mod_settings
 	// via rom.mod_settings.load, or std::nullopt for keys with no captured default. Used by the
 	// settings menu's Reset action to restore a setting to what config.lua declared.
 	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key);
+
+	// True if a mod called rom.mod_settings.opt_out() from its Lua (keyed by the calling mod's guid,
+	// which matches a mod config's file stem). The settings menu still lists such a mod, but greys its
+	// row, blocks drilling into it, and shows an opt-out note in place of its description. Populated
+	// fresh each Lua-state init (opt_out re-runs with the mod's main.lua).
+	bool mod_opted_out(const std::string& guid);
 } // namespace big::mod_settings

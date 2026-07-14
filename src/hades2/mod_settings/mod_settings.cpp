@@ -442,6 +442,15 @@ namespace big::mod_settings
 		return {};
 	}
 
+	// Shown in the description box in place of the mod description when a mod opted out of the in-game
+	// settings menu (rom.mod_settings.opt_out()), explaining why its row is greyed and where to
+	// configure it instead.
+	static std::string opt_out_note()
+	{
+		return "This mod opted out of the in-game settings menu. See the mod's own description for how "
+		       "to configure it, if applicable.";
+	}
+
 	// Escapes the characters the game's text parser (GUIComponentTextBox::Parse) treats as markup,
 	// so arbitrary user text - config values (e.g. Windows paths with '\'), display names and
 	// descriptions - renders verbatim instead of being mangled. The parser reads '\' as an escape
@@ -763,9 +772,11 @@ namespace big::mod_settings
 	// A plain left-justified text row (mod names, Back, and non-toggle settings). Applies a
 	// template for a valid font/colours, then retunes the row's own def into the key-rebind
 	// "ControlButton" style - no background graphic, left text, and a text-area hit region
-	// that hugs the label - and clears any leftover textures. Disabled rows are greyed and
-	// made non-interactable.
-	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false)
+	// that hugs the label - and clears any leftover textures. Disabled rows are greyed; by
+	// default they are also hard-disabled (non-selectable). Pass block_input=false to grey a row
+	// while keeping it selectable, so it can still be highlighted to show its description (used for
+	// opted-out mods, whose row is greyed and shows a note but must not be drilled into).
+	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true)
 	{
 		auto* row = create_button(screen);
 		if (!row)
@@ -824,7 +835,7 @@ namespace big::mod_settings
 			g_set_label(row, label);
 		}
 
-		if (disabled && g_disable)
+		if (disabled && block_input && g_disable)
 		{
 			g_disable(row);
 		}
@@ -1402,10 +1413,17 @@ namespace big::mod_settings
 
 		for (const auto& [display, stem] : mods)
 		{
-			if (auto* row = make_text_row(screen, escape_markup(display).c_str()))
+			// A mod that called rom.mod_settings.opt_out() is still listed (dropping it would look like
+			// a missing mod), but its row is greyed and cannot be opened, and its description is a note
+			// pointing back to the mod's own description. The row is greyed without hard-disabling it so
+			// it stays selectable and the note still shows on hover/focus; the drilldown is blocked by
+			// the disabled flag in the click handler.
+			const bool opted_out = mod_opted_out(stem);
+			if (auto* row = make_text_row(screen, escape_markup(display).c_str(), opted_out, /*block_input*/ false))
 			{
 				PanelRow pr{row, RowKind::mod_entry, stem, {}};
-				pr.description = mod_description_from_stem(stem);
+				pr.disabled    = opted_out;
+				pr.description = opted_out ? opt_out_note() : mod_description_from_stem(stem);
 				g_rows.push_back(std::move(pr));
 			}
 		}
@@ -2309,33 +2327,42 @@ namespace big::mod_settings
 		}
 		else if (PanelRow* row = find_row(active_row_component(screen)))
 		{
-			switch (row->kind)
+			if (row->disabled)
 			{
-			case RowKind::mod_entry: confirm = "{SL} SELECT"; break;
-			case RowKind::group:     confirm = "{SL} SELECT"; break;
-			case RowKind::setting:
-				if (row->entry && row->entry->type() == typeid(bool))
+				// A greyed, non-interactable row (e.g. an opted-out mod) has no confirm action, so
+				// show no confirm prompt for it.
+				confirm.clear();
+			}
+			else
+			{
+				switch (row->kind)
 				{
-					confirm = "{SL} TOGGLE";
+				case RowKind::mod_entry: confirm = "{SL} SELECT"; break;
+				case RowKind::group:     confirm = "{SL} SELECT"; break;
+				case RowKind::setting:
+					if (row->entry && row->entry->type() == typeid(bool))
+					{
+						confirm = "{SL} TOGGLE";
+					}
+					else if (row->is_enum)
+					{
+						confirm = "{SL} SET";
+					}
+					else if (row->is_slider)
+					{
+						confirm = "{SL} SET"; // matches the base-game volume sliders' prompt
+					}
+					else if (row->is_stepper)
+					{
+						confirm = "{SL} SELECT";
+					}
+					else
+					{
+						confirm = "{SL} EDIT"; // freetext value
+					}
+					break;
+				case RowKind::action: confirm = "{SL} SELECT"; break;
 				}
-				else if (row->is_enum)
-				{
-					confirm = "{SL} SET";
-				}
-				else if (row->is_slider)
-				{
-					confirm = "{SL} SET"; // matches the base-game volume sliders' prompt
-				}
-				else if (row->is_stepper)
-				{
-					confirm = "{SL} SELECT";
-				}
-				else
-				{
-					confirm = "{SL} EDIT"; // freetext value
-				}
-				break;
-			case RowKind::action: confirm = "{SL} SELECT"; break;
 			}
 		}
 

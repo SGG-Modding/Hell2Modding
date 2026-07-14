@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <toml_v2/config_file.hpp>
 #include <tuple>
@@ -43,6 +44,11 @@ namespace big::mod_settings
 	// table), captured at load. The settings menu's Reset action restores a setting to this value.
 	// Keyed the same way as g_setting_metadata (guid + '\0' + section + '\0' + key).
 	static std::map<std::string, std::string> g_setting_default;
+
+	// Guids of mods that called rom.mod_settings.opt_out(), i.e. asked not to be configured through
+	// the in-game menu. Guarded by g_metadata_mutex. Cleared and rebuilt on each Lua-state init (see
+	// bind_config_api) because opt_out re-runs with each mod's main.lua.
+	static std::set<std::string> g_opted_out_mods;
 
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
 	{
@@ -109,6 +115,12 @@ namespace big::mod_settings
 			return std::nullopt;
 		}
 		return it->second;
+	}
+
+	bool mod_opted_out(const std::string& guid)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		return g_opted_out_mods.count(guid) != 0;
 	}
 
 	// Finds the byte offset of a key's definition ("<key> =") in config.lua source, whole-word and
@@ -573,13 +585,42 @@ namespace big::mod_settings
 		return sol::make_object(ts, mod_config_proxy{cf.get(), "config"});
 	}
 
+	// rom.mod_settings.opt_out(): the calling mod asks not to be configured through the in-game mod
+	// settings menu. The mod is still listed there (removing it would look like a missing/broken mod),
+	// but its row is greyed, cannot be opened, and shows a note pointing the user back to the mod's own
+	// description for configuration. Keyed by the calling mod's guid (which matches its config-file
+	// stem), so it applies however the mod manages its config (Chalk or rom.mod_settings.load).
+	static void opt_out(sol::this_environment this_env)
+	{
+		if (!this_env)
+		{
+			return;
+		}
+		auto* module = big::lua_module::this_from(this_env);
+		if (!module)
+		{
+			return;
+		}
+		std::scoped_lock lock(g_metadata_mutex);
+		g_opted_out_mods.insert(module->guid());
+	}
+
 	void bind_config_api(sol::state_view& state, sol::table& lua_ext)
 	{
+		// A fresh Lua state re-runs every mod's main.lua, so drop the previous state's opt-out set
+		// before those calls re-register it. (Per-mod metadata is cleared in load; opt_out is a
+		// standalone call with nothing else to hang the clear off, so it is reset here instead.)
+		{
+			std::scoped_lock lock(g_metadata_mutex);
+			g_opted_out_mods.clear();
+		}
+
 		// Register the live-config proxy usertype once per state (mods never construct it; instances
 		// are returned from load). Its index/new_index read/write the underlying config entries.
 		lua_ext.new_usertype<mod_config_proxy>("mod_config_proxy", sol::no_constructor, sol::meta_function::index, &mod_config_proxy::index, sol::meta_function::new_index, &mod_config_proxy::new_index);
 
 		sol::table ns = lua_ext.create_named("mod_settings");
 		ns.set_function("load", &load);
+		ns.set_function("opt_out", &opt_out);
 	}
 } // namespace big::mod_settings
