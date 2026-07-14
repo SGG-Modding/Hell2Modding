@@ -524,13 +524,18 @@ namespace big::mod_settings
 		}
 	}
 
-	// rom.mod_settings.load(config_lua): native replacement for chalk.auto. Uses the calling mod
-	// (this_environment) to derive its <config folder>/<guid>.cfg path and create a native
-	// config_file owned by that mod, loads the mod's config.lua, binds its defaults/descriptions
-	// into that config_file, records any restart-required settings, and returns a live read/write
-	// proxy over the config.
+	// Lua API: Function
+	// Table: mod_settings
+	// Name: load
+	// Param: config_lua: string: Path, relative to the mod's folder, of the config.lua that returns `config, configDesc`.
+	// Returns: table: A live read/write proxy over the mod's config; index it to read a setting and assign to write one.
+	// Loads a mod's config.lua and registers its settings under the Mods tab of the in-game Options menu, returning a live
+	// read/write proxy over the config. When using this, you do not need to depend on `Chalk`.
 	static sol::object load(sol::this_state ts, sol::this_environment this_env, const std::string& config_lua)
 	{
+		// Uses the calling mod (this_environment) to derive its <config folder>/<guid>.cfg path and create
+		// a native config_file owned by that mod, loads the mod's config.lua, binds its defaults and
+		// descriptions into that config_file, records any restart-required settings, and returns the proxy.
 		if (!this_env)
 		{
 			return sol::lua_nil;
@@ -638,13 +643,16 @@ namespace big::mod_settings
 		return sol::make_object(ts, mod_config_proxy{cf.get(), "config"});
 	}
 
-	// rom.mod_settings.opt_out(): the calling mod asks not to be configured through the in-game mod
-	// settings menu. The mod is still listed there (removing it would look like a missing/broken mod),
-	// but its row is greyed, cannot be opened, and shows a note pointing the user back to the mod's own
-	// description for configuration. Keyed by the calling mod's guid (which matches its config-file
-	// stem), so it applies however the mod manages its config (Chalk or rom.mod_settings.load).
+	// Lua API: Function
+	// Table: mod_settings
+	// Name: opt_out
+	// Excludes the calling mod from the in-game mod settings menu: it stays listed but greyed out and
+	// cannot be opened, with a note pointing the player to the mod's own description. Use it when the mod
+	// should not be edited in-game. Works with Chalk or rom.mod_settings.load.
 	static void opt_out(sol::this_environment this_env)
 	{
+		// Keyed by the calling mod's guid (which matches its config-file stem), so the menu can grey the
+		// matching row however the mod manages its config.
 		if (!this_env)
 		{
 			return;

@@ -1,0 +1,49 @@
+---@meta
+
+--- A user-facing string. Either a plain string, or a localization table keyed by the game's language
+--- folder codes (en, de, el, es, fr, it, ja, ko, pl, pt-BR, ru, tr, uk, zh-CN, zh-TW). It is resolved
+--- to the current game language when the menu is shown, falling back to English.
+--- Example: `{ en = "Difficulty", de = "Schwierigkeit" }`
+---@alias mod_settings.localized_string string | table<string, string>
+
+--- Describes how a config option appears in the in-game mod settings menu. Every field is optional. The
+--- widget type is inferred from the setting's config value (a boolean becomes a toggle; a number with `min`
+--- and `max` becomes a slider; a value with `values` becomes a cycler; anything else is a free-text field).
+---@class (exact) mod_settings.setting_description
+--- Help text shown at the bottom of the options menu while the config rows is highlighted. Recommended to keep
+--- to about 35 characters so it leaves enough space for free-text input strings.
+---@field description? mod_settings.localized_string
+--- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
+---@field display_name? mod_settings.localized_string
+--- Lower bound for a numeric setting. Combined with `max`, the setting renders as a slider.
+---@field min? number
+--- Upper bound for a numeric setting. Combined with `min`, the setting renders as a slider.
+---@field max? number
+--- Step between values for a slider and free-text number inputs. Defaults to 1.
+--- H2M will clamp the input automatically.
+---@field step? number
+--- Enum options: the values actually stored in the .cfg file.
+--- Providing this makes the setting a cycler over these options.
+---@field values? (string | number | boolean)[]
+--- Display labels shown for each entry of `values` (same order, same number of entries). Each label may be a
+--- localization table. When omitted, the raw values are shown in the cycler.
+---@field labels? mod_settings.localized_string[]
+--- Sort key for custom ordering config entries in the menu, lower first.
+--- When omitted, rows keep the order they are defined in the default config you provide.
+---@field order? number
+--- Hide this setting from the menu entirely.
+---@field hidden? boolean
+--- Force a bounded number (one with `min` and `max`) to a free-text text field instead of a slider.
+---@field freetext? boolean
+--- Mark that changing this setting requires a game restart. The menu forces the player
+--- to restart when they leave the mod menu after changing it.
+---@field restart_required? boolean
+--- Append "%" to the displayed value.
+---@field show_as_percentage? boolean
+--- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
+---@field is_percentage? boolean
+
+--- Each entry in `configDesc` can either be simple key:description pair, or be a nested table using the allowed
+--- parameters to enhance the way it is displayed in the in-game mod menu. The underlying .cfg file contents are
+--- not changed by this format.
+---@alias mod_settings.config_desc table<string, mod_settings.setting_description | string | table>
