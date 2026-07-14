@@ -2691,13 +2691,15 @@ namespace big::mod_settings
 		return std::strncmp(code, "zh", 2) == 0 || std::strncmp(code, "ja", 2) == 0 || std::strncmp(code, "ko", 2) == 0;
 	}
 
-	// Builds the restart-popup body text from the changes collected this session. The character choices
-	// depend on the current locale's font (see current_language_is_cjk): CJK locales use regular spaces
-	// and a U+3000 ideographic-space blank line; all others use non-breaking spaces (U+00A0), which keep
-	// each intro/entry/outro line whole under the width-greedy formatter and double as the blank line.
-	// Both blank characters survive ShowText's ASCII-whitespace-line trim; a sacrificial trailing blank
-	// is appended because the formatter also trims the last whitespace-only line.
-	static std::string build_restart_message()
+	// Builds a locale-aware popup body: an intro line, a blank line, one line per list entry, a blank
+	// line, then an outro line (plus a sacrificial trailing blank). The character choices depend on the
+	// current locale's font (see current_language_is_cjk): CJK locales use regular spaces and a U+3000
+	// ideographic-space blank line; all others use non-breaking spaces (U+00A0), which keep each
+	// intro/entry/outro line whole under the width-greedy formatter and double as the blank line. Both
+	// blank characters survive ShowText's ASCII-whitespace-line trim; the trailing blank is sacrificial
+	// because the formatter also trims the last whitespace-only line. Shared by the restart-required and
+	// dependency-block dialogs.
+	static std::string build_list_message(const std::string& intro, const std::vector<std::string>& lines, const std::string& outro)
 	{
 		const bool cjk          = current_language_is_cjk();
 		const std::string blank = cjk ? "\xE3\x80\x80" : "\xC2\xA0"; // U+3000 (CJK) or U+00A0 (other)
@@ -2717,17 +2719,29 @@ namespace big::mod_settings
 			return out;
 		};
 
-		std::string msg  = spaced("A restart is required because you changed these settings:");
+		std::string msg  = spaced(intro);
 		msg             += "\n" + blank + "\n";
-		for (const auto& change : g_restart_changes)
+		for (const auto& line : lines)
 		{
-			msg += spaced(change.second);
+			msg += spaced(line);
 			msg += "\n";
 		}
 		msg += blank + "\n";
-		msg += spaced("The game will now close. Please restart it to apply the changes.");
+		msg += spaced(outro);
 		msg += "\n" + blank;
 		return msg;
+	}
+
+	// Builds the restart-popup body text from the changes collected this session.
+	static std::string build_restart_message()
+	{
+		std::vector<std::string> lines;
+		lines.reserve(g_restart_changes.size());
+		for (const auto& change : g_restart_changes)
+		{
+			lines.push_back(change.second);
+		}
+		return build_list_message("A restart is required because you changed these settings:", lines, "The game will now close. Please restart it to apply the changes.");
 	}
 
 	// Builds an empty EASTL SSO string (24-byte layout) in `buf` (>=24 bytes). Passed to the
@@ -2761,16 +2775,16 @@ namespace big::mod_settings
 		}
 	}
 
-	// Shows the native single-button "restart required" message box (sgg::MessageDialog, the same
-	// box the game uses in the main menu for save/file errors). `message` is shown as the body
-	// text. Its only button closes the game (handled in the OnClicked hook) - a restart-required
-	// change must not be cancellable, since cancelling would have to undo the change. Returns true
-	// if the native dialog was shown. Returns false only if it could not be built (no screen manager
-	// or allocation failure); the caller then proceeds normally without forcing a restart - the
-	// restart-required change is already saved to the mod's config and applies on the next manual
-	// restart. The dialog machinery is derived off the verified build anchor, so a mismatched game
-	// build disables the whole tab up front rather than reaching here.
-	static bool show_restart_dialog(void* screen_manager, const std::string& message)
+	// Shows the native single-button message box (sgg::MessageDialog, the same box the game uses in the
+	// main menu for save/file errors), modal over the options screen, with `title` as the heading and
+	// `message` as the body. When confirm_closes_game is true the confirm button is captured so the
+	// OnClicked hook closes the game on press (used for a forced restart, which must not be
+	// cancellable); otherwise the button keeps its native behaviour and simply dismisses the dialog
+	// (used for informational prompts). Returns true if the dialog was shown. Returns false only if it
+	// could not be built (no screen manager or allocation failure). The dialog machinery is derived off
+	// the verified build anchor, so a mismatched game build disables the whole tab up front rather than
+	// reaching here.
+	static bool show_message_dialog(void* screen_manager, const char* title, const std::string& message, bool confirm_closes_game)
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
 		{
@@ -2793,12 +2807,12 @@ namespace big::mod_settings
 				bytes[screen_visible_offset]     = 1;
 				bytes[screen_block_input_offset] = 1;
 
-				// Set the title + body (raw text; the body carries the restart-causing settings).
+				// Set the title + body (raw text; the body carries the list of settings/mods).
 				if (g_show_text)
 				{
 					if (auto* title_box = *reinterpret_cast<void**>(bytes + dialog_title_offset))
 					{
-						g_show_text(title_box, "Restart Required");
+						g_show_text(title_box, title);
 					}
 					if (auto* message_box = *reinterpret_cast<GUIComponent**>(bytes + dialog_message_offset))
 					{
@@ -2809,14 +2823,18 @@ namespace big::mod_settings
 						*reinterpret_cast<float*>(handle + font_handle_size_ratio_offset) *= restart_message_font_scale;
 						*reinterpret_cast<float*>(handle + font_handle_eng_size_ratio_offset) *= restart_message_font_scale;
 						// Escape markup so a path value (e.g. hadesGameFolder) with '\' or brackets in
-						// the changed-settings list renders verbatim (see escape_markup).
+						// the listed lines renders verbatim (see escape_markup).
 						const std::string shown = escape_markup(message);
 						g_show_text(message_box, shown.c_str());
 					}
 				}
 
-				// Capture the confirm button so the OnClicked hook closes the game on press.
-				g_restart_confirm_button = *reinterpret_cast<GUIComponent**>(bytes + dialog_confirm_button_offset);
+				// Capture the confirm button only when it should close the game; otherwise the native
+				// confirm behaviour (dismiss the dialog) is left in place.
+				if (confirm_closes_game)
+				{
+					g_restart_confirm_button = *reinterpret_cast<GUIComponent**>(bytes + dialog_confirm_button_offset);
+				}
 
 				// Add at the END of the screen list so it draws on top of the options menu.
 				char empty_name[24];
@@ -2827,6 +2845,86 @@ namespace big::mod_settings
 		}
 
 		return false;
+	}
+
+	// The "restart required" prompt: its only button closes the game (a restart-required change must
+	// not be cancellable, since cancelling would have to undo the change).
+	static bool show_restart_dialog(void* screen_manager, const std::string& message)
+	{
+		return show_message_dialog(screen_manager, "Restart Required", message, /*confirm_closes_game*/ true);
+	}
+
+	// The "can't disable this mod" prompt: purely informational, so its button just dismisses the
+	// dialog and returns the player to the options screen with the mod left enabled.
+	static bool show_dependency_dialog(void* screen_manager, const std::string& message)
+	{
+		return show_message_dialog(screen_manager, "Cannot Disable Mod", message, /*confirm_closes_game*/ false);
+	}
+
+	// True if the mod with config-file stem/guid `guid` is currently enabled: the value of its master
+	// "enabled" root-section toggle, or true when it has no such toggle (a mod with no enable switch is
+	// always active). Reads the live config value, so it reflects any change made this menu session.
+	static bool mod_is_enabled(const std::string& guid)
+	{
+		for (auto* cfg : toml_v2::config_file::g_config_files)
+		{
+			if (!cfg || cfg->m_config_file_stem_as_str != guid)
+			{
+				continue;
+			}
+			for (auto& [key, entry] : cfg->m_entries)
+			{
+				if (entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+				{
+					return entry->get_value_base<bool>();
+				}
+			}
+		}
+		return true;
+	}
+
+	// Display names of the currently-enabled loaded mods that declare `stem` as a dependency (via their
+	// Thunderstore manifest, which lists dependency guids in dependencies_no_version_number). Disabling
+	// `stem` while any of these is enabled would break them, so the menu blocks it. A dependent that is
+	// itself disabled is skipped - it is not relying on `stem` right now. Sorted for a stable list.
+	static std::vector<std::string> active_dependents_of(const std::string& stem)
+	{
+		std::vector<std::string> result;
+		if (!big::g_lua_manager)
+		{
+			return result;
+		}
+		std::scoped_lock guard(big::g_lua_manager->m_module_lock);
+		for (const auto& module : big::g_lua_manager->m_modules)
+		{
+			if (!module)
+			{
+				continue;
+			}
+			const auto& deps = module->manifest().dependencies_no_version_number;
+			if (std::find(deps.begin(), deps.end(), stem) == deps.end())
+			{
+				continue;
+			}
+			if (!mod_is_enabled(module->guid()))
+			{
+				continue;
+			}
+			result.push_back(display_name_from_stem(module->guid()));
+		}
+		std::sort(result.begin(), result.end());
+		return result;
+	}
+
+	// Body text for the dependency-block popup: names the mod that cannot be disabled, lists the enabled
+	// mods depending on it, and tells the player how to proceed.
+	// Body text for the dependency-block popup: lists the enabled mods depending on the one the player
+	// tried to disable, and tells them how to proceed. The intro/outro are kept short so they fit the
+	// dialog width on every locale (the wider CJK fonts overflow a long line); the blocked mod is
+	// identified by the dialog title and the toggle the player just clicked, so it is not repeated here.
+	static std::string build_dependency_message(const std::vector<std::string>& dependents)
+	{
+		return build_list_message("These enabled mods depend on this one:", dependents, "Disable them first to disable this mod.");
 	}
 
 	static void* hook_MiscSettingsScreen_ctor(void* self, void* screen_manager, void* opened_from, void* profile_name)
@@ -3069,11 +3167,27 @@ namespace big::mod_settings
 				// this hook - the num-box handles its own arrow clicks and left/right natively.
 				if (entry && entry->type() == typeid(bool))
 				{
+					const bool new_value = !entry->get_value_base<bool>();
+
+					// Block disabling a mod that other enabled mods still depend on: turning the mod's
+					// master "enabled" switch off would break them. Leave the toggle on and show an
+					// informational popup listing the dependents (its button just dismisses the popup).
+					if (matched_row.is_enabled_toggle && !new_value)
+					{
+						const std::vector<std::string> dependents = active_dependents_of(matched_row.stem);
+						if (!dependents.empty())
+						{
+							void* owner = *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + sgg::gui_component_button_owner_offset);
+							void* screen_manager = owner ? *reinterpret_cast<void**>(reinterpret_cast<char*>(owner) + screen_manager_offset) : nullptr;
+							show_dependency_dialog(screen_manager, build_dependency_message(dependents));
+							break; // do not disable; the toggle stays on
+						}
+					}
+
 					// Capture the session baseline before the first write so a later revert to
 					// it (toggling off then on again) is recognised as "no net change".
 					capture_restart_baseline(entry);
 
-					const bool new_value = !entry->get_value_base<bool>();
 					entry->set_value_base<bool>(new_value);
 					set_toggle_graphic(self, new_value);
 
