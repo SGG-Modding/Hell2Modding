@@ -212,6 +212,12 @@ namespace big::mod_settings
 
 	using hash_lookup_fn = HashGuid* (*)(HashGuid * out, const char* str, std::size_t len);
 
+	// sgg::ProfileManager::SaveProfile(eastl::string* profileName, bool showSpinner, bool async):
+	// serializes the active profile (language, audio volumes, resolution/window/VSync/graphics, and all
+	// gameplay/interface/accessibility toggles) to disk. Called synchronous (async=false) to guarantee
+	// the write completes before we force a restart.
+	using save_profile_fn = char (*)(void* profile_name, bool show_spinner, bool async);
+
 	static ctor_fn g_button_ctor                        = nullptr;
 	static push_back_fn g_push_back                     = nullptr;
 	static apply_data_fn g_apply_data                   = nullptr;
@@ -245,6 +251,8 @@ namespace big::mod_settings
 	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
 	static const void* g_controls_cancel            = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
 	static const void* g_controls_select            = nullptr; // &sgg::Controls::Select (controller A / Enter)
+	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
+	static void* g_active_profile = nullptr; // &sgg::ProfileManager::ACTIVE_PROFILE (eastl::string, the profile name arg)
 
 	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has
 	// resolved for the running game build. While false no hooks are installed and the tab is absent;
@@ -2640,6 +2648,22 @@ namespace big::mod_settings
 		buf[23] = static_cast<char>(23 - n);
 	}
 
+	// Persists the game's native Options settings (language, audio volumes, resolution/window/graphics,
+	// and all gameplay/interface/accessibility toggles) to disk. The engine normally does this only
+	// when the options screen finishes closing (MiscSettingsScreen::OnExit -> ProfileManager::SaveProfile),
+	// which never runs when we force a restart. So any native settings the player changed earlier in the
+	// same options session would be lost. Call this immediately before terminating the process, using
+	// SaveProfile's synchronous path (async=false, no save spinner) so the files are written before we
+	// exit. Keybinds are excluded on purpose: they are saved separately when the Controls sub-screen
+	// closes, so they are already on disk by the time the player is back on the main options screen.
+	static void flush_native_settings()
+	{
+		if (g_save_profile && g_active_profile)
+		{
+			g_save_profile(g_active_profile, false, false);
+		}
+	}
+
 	// Shows the native single-button "restart required" message box (sgg::MessageDialog, the same
 	// box the game uses in the main menu for save/file errors). `message` is shown as the body
 	// text. Its only button closes the game (handled in the OnClicked hook) - a restart-required
@@ -2702,6 +2726,7 @@ namespace big::mod_settings
 		}
 
 		MessageBoxW(nullptr, L"A changed mod setting requires a restart. The game will now close - please restart it.", L"Hell2Modding - Restart Required", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+		flush_native_settings();
 		TerminateProcess(GetCurrentProcess(), 0);
 		return false;
 	}
@@ -2897,6 +2922,7 @@ namespace big::mod_settings
 		if (self && self == g_restart_confirm_button)
 		{
 			big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
+			flush_native_settings();
 			TerminateProcess(GetCurrentProcess(), 0);
 		}
 
@@ -3241,6 +3267,14 @@ namespace big::mod_settings
 		// degrades controller support, not the tab.
 		g_component_focused = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ComponentFocused"].as_func<void(void*, GUIComponent*)>();
 		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
+
+		// Native-settings flush before a forced restart: SaveProfile serializes the active profile
+		// (language, volumes, graphics, gameplay/interface toggles) to disk; ACTIVE_PROFILE is the
+		// profile-name string it takes. Both are named PDB globals/functions. Optional - if either is
+		// missing we simply skip the flush (the forced restart still happens), so native changes made
+		// this session would be lost, but nothing crashes.
+		g_save_profile = big::hades2_symbol_to_address["sgg::ProfileManager::SaveProfile"].as_func<char(void*, bool, bool)>();
+		g_active_profile = big::hades2_symbol_to_address["sgg::ProfileManager::ACTIVE_PROFILE"].as<void*>();
 
 		// The num-box factory (a template instantiation) and the restart-dialog ctor / AddScreen
 		// overloads cannot be picked by name from the PDB, so they are addressed by hardcoded RVA off
