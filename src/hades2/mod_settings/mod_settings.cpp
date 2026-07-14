@@ -1749,14 +1749,54 @@ namespace big::mod_settings
 		g_restart_baselines.try_emplace(key, entry->get_serialized_value());
 	}
 
+	// The current game display-language folder code (e.g. "en", "zh-TW"), or "" if unavailable. Read from
+	// sgg::ConfigOptions::Language (an eastl SSO string whose code chars sit at offset 0, null-terminated).
+	static std::string current_language_code()
+	{
+		return g_config_language ? std::string(g_config_language) : std::string();
+	}
+
+	// Resolves a localized string to the current game language: the entry for the current language code,
+	// then English, then the unlocalized value (empty key), then any entry. A plain (unlocalized) string
+	// is stored as the single empty-key entry and returned as-is. Returns "" when there is nothing to
+	// show. Resolution happens here (render time), so re-entering the tab after a language change picks
+	// up the new language.
+	static std::string resolve_localized(const localized_text& t)
+	{
+		if (t.empty())
+		{
+			return {};
+		}
+		if (t.size() == 1)
+		{
+			return t.begin()->second; // one entry (a plain value, or the only language provided)
+		}
+		if (const auto it = t.find(current_language_code()); it != t.end())
+		{
+			return it->second;
+		}
+		if (const auto it = t.find("en"); it != t.end())
+		{
+			return it->second;
+		}
+		if (const auto it = t.find(""); it != t.end())
+		{
+			return it->second;
+		}
+		return t.begin()->second;
+	}
+
 	// The friendly display name for a setting: the author's `display_name` override when provided,
 	// otherwise the prettified key. Mirrors how the setting rows are labelled.
 	static std::string setting_display_name(const std::string& stem, const std::string& section, const std::string& key)
 	{
 		const auto meta = get_setting_metadata(stem, section, key);
-		if (meta && !meta->name.empty())
+		if (meta)
 		{
-			return meta->name;
+			if (std::string name = resolve_localized(meta->name); !name.empty())
+			{
+				return name;
+			}
 		}
 		return key_to_display(key);
 	}
@@ -2059,7 +2099,8 @@ namespace big::mod_settings
 				{
 					continue;
 				}
-				const std::string glabel = escape_markup((gmeta && !gmeta->name.empty()) ? gmeta->name : key_to_display(it.key));
+				const std::string gname  = gmeta ? resolve_localized(gmeta->name) : std::string{};
+				const std::string glabel = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
 				if (auto* row = make_text_row(screen, glabel.c_str(), disabled))
 				{
 					PanelRow pr{row, RowKind::group, stem, {}};
@@ -2067,7 +2108,7 @@ namespace big::mod_settings
 					pr.target_section = it.child_section;
 					if (gmeta)
 					{
-						pr.description = gmeta->description;
+						pr.description = resolve_localized(gmeta->description);
 					}
 					g_rows.push_back(std::move(pr));
 				}
@@ -2083,7 +2124,8 @@ namespace big::mod_settings
 			{
 				continue;
 			}
-			const std::string label = escape_markup((meta && !meta->name.empty()) ? meta->name : key_to_display(key));
+			const std::string mname = meta ? resolve_localized(meta->name) : std::string{};
+			const std::string label = escape_markup(!mname.empty() ? mname : key_to_display(key));
 
 			// An enum (metadata `values`) renders as a native number box cycling its label list; a
 			// numeric setting with author-declared min AND max renders as a native number box over
@@ -2102,8 +2144,20 @@ namespace big::mod_settings
 			int enum_index = 0;
 			if (is_enum)
 			{
-				enum_values           = meta->values;
-				enum_labels           = (meta->labels.size() == enum_values.size()) ? meta->labels : enum_values;
+				enum_values = meta->values;
+				// Labels parallel the values when the author supplied a full set (each resolved to the
+				// current language); otherwise the raw values double as their own labels.
+				if (meta->labels.size() == enum_values.size())
+				{
+					for (const auto& lbl : meta->labels)
+					{
+						enum_labels.push_back(resolve_localized(lbl));
+					}
+				}
+				else
+				{
+					enum_labels = enum_values;
+				}
 				const std::string cur = entry->get_serialized_value();
 				for (int i = 0; i < static_cast<int>(enum_values.size()); ++i)
 				{
@@ -2157,8 +2211,10 @@ namespace big::mod_settings
 				pr.disabled          = disabled;
 				pr.is_enabled_toggle = is_enabled_row;
 				pr.value_component   = value;
-				// Prefer the author's metadata description; fall back to the .cfg comment text.
-				pr.description = (meta && !meta->description.empty()) ? meta->description : entry->m_description.m_description;
+				// Prefer the author's metadata description (resolved to the current language); fall back
+				// to the .cfg comment text.
+				const std::string mdesc = meta ? resolve_localized(meta->description) : std::string{};
+				pr.description          = !mdesc.empty() ? mdesc : entry->m_description.m_description;
 
 				if (is_enum)
 				{
@@ -2756,12 +2812,8 @@ namespace big::mod_settings
 	// (English) mod/setting entries from wrapping mid-line.
 	static bool current_language_is_cjk()
 	{
-		if (!g_config_language)
-		{
-			return false;
-		}
-		const char* code = g_config_language; // eastl SSO string: null-terminated code chars at offset 0
-		return std::strncmp(code, "zh", 2) == 0 || std::strncmp(code, "ja", 2) == 0 || std::strncmp(code, "ko", 2) == 0;
+		const std::string code = current_language_code();
+		return code.rfind("zh", 0) == 0 || code.rfind("ja", 0) == 0 || code.rfind("ko", 0) == 0;
 	}
 
 	// Builds a locale-aware popup body: an intro line, a blank line, one line per list entry, a blank

@@ -157,29 +157,79 @@ namespace big::mod_settings
 		return std::string::npos;
 	}
 
-	// Extracts a description string from a config.lua description value, which may be a plain string
-	// or a table with a `description` field (or `[1]` shorthand).
-	static std::string describe(const sol::object& desc)
+	static std::string serialize_option(const sol::object& v); // defined below
+
+	// Parses a user-facing string field that is either a plain scalar or a localization table (keyed by
+	// the game's language folder codes, e.g. { en = "...", ["zh-TW"] = "..." }). A scalar is stored under
+	// the empty key; a table contributes one entry per string-keyed string value. An empty or absent
+	// value yields an empty map (i.e. no override).
+	static localized_text parse_localized(const sol::object& o)
+	{
+		localized_text out;
+		if (o.is<sol::table>())
+		{
+			o.as<sol::table>().for_each(
+			    [&out](const sol::object& k, const sol::object& v)
+			    {
+				    if (k.get_type() == sol::type::string && v.get_type() == sol::type::string)
+				    {
+					    out[k.as<std::string>()] = v.as<std::string>();
+				    }
+			    });
+			return out;
+		}
+		const std::string s = serialize_option(o);
+		if (!s.empty())
+		{
+			out[""] = s;
+		}
+		return out;
+	}
+
+	// Resolves a localized string to a single language-independent value for on-disk use (the .cfg
+	// comment), which is not re-written per language: English, then the unlocalized value, then any
+	// entry. The in-game menu resolves to the live game language separately at render time.
+	static std::string localized_fallback(const localized_text& t)
+	{
+		if (t.empty())
+		{
+			return {};
+		}
+		if (const auto it = t.find("en"); it != t.end())
+		{
+			return it->second;
+		}
+		if (const auto it = t.find(""); it != t.end())
+		{
+			return it->second;
+		}
+		return t.begin()->second;
+	}
+
+	// Extracts the (possibly localized) description from a config.lua description value, which may be a
+	// plain string, or a rich table with a `description` field (or `[1]` shorthand) that is itself a
+	// plain string or a localization table.
+	static localized_text describe(const sol::object& desc)
 	{
 		if (desc.get_type() == sol::type::string)
 		{
-			return desc.as<std::string>();
+			return parse_localized(desc);
 		}
 		if (desc.is<sol::table>())
 		{
 			sol::table t         = desc.as<sol::table>();
 			sol::object as_field = t["description"];
-			if (as_field.get_type() == sol::type::string)
+			if (as_field.valid() && as_field != sol::lua_nil)
 			{
-				return as_field.as<std::string>();
+				return parse_localized(as_field);
 			}
 			sol::object as_first = t[1];
-			if (as_first.get_type() == sol::type::string)
+			if (as_first.valid() && as_first != sol::lua_nil)
 			{
-				return as_first.as<std::string>();
+				return parse_localized(as_first);
 			}
 		}
-		return "";
+		return {};
 	}
 
 	// True if a config.lua description table declares `restart_required = true`.
@@ -233,12 +283,10 @@ namespace big::mod_settings
 		setting_metadata m;
 		m.description = describe(desc);
 
-		// Display-name override (`display_name`); empty -> the menu prettifies the key.
+		// Display-name override (`display_name`); empty -> the menu prettifies the key. May be a plain
+		// string or a localization table.
 		sol::object display_name = desc["display_name"];
-		if (display_name.get_type() == sol::type::string)
-		{
-			m.name = display_name.as<std::string>();
-		}
+		m.name                   = parse_localized(display_name);
 
 		sol::object min_field = desc["min"];
 		if (min_field.get_type() == sol::type::number)
@@ -265,12 +313,17 @@ namespace big::mod_settings
 		          {
 			          return serialize_option(v);
 		          });
-		read_list(desc["labels"],
-		          m.labels,
-		          [](const sol::object& v)
-		          {
-			          return v.get_type() == sol::type::string ? v.as<std::string>() : serialize_option(v);
-		          });
+		// Enum option display labels (parallel to `values`); each may be a plain string or a
+		// localization table.
+		if (sol::object labels_obj = desc["labels"]; labels_obj.is<sol::table>())
+		{
+			sol::table lt = labels_obj.as<sol::table>();
+			for (std::size_t i = 1; i <= lt.size(); ++i)
+			{
+				sol::object label = lt[i];
+				m.labels.push_back(parse_localized(label));
+			}
+		}
 
 		sol::object order_field = desc["order"];
 		if (order_field.get_type() == sol::type::number)
@@ -440,15 +493,15 @@ namespace big::mod_settings
 				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out, defaults_out);
 				break;
 			case sol::type::boolean:
-				cf->bind(section, key, value_obj.as<bool>(), describe(desc));
+				cf->bind(section, key, value_obj.as<bool>(), localized_fallback(describe(desc)));
 				default_any = std::any(value_obj.as<bool>());
 				break;
 			case sol::type::number:
-				cf->bind(section, key, value_obj.as<double>(), describe(desc));
+				cf->bind(section, key, value_obj.as<double>(), localized_fallback(describe(desc)));
 				default_any = std::any(value_obj.as<double>());
 				break;
 			case sol::type::string:
-				cf->bind(section, key, value_obj.as<std::string>(), describe(desc));
+				cf->bind(section, key, value_obj.as<std::string>(), localized_fallback(describe(desc)));
 				default_any = std::any(value_obj.as<std::string>());
 				break;
 			default: continue;

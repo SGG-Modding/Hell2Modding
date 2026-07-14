@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -9,6 +10,13 @@ namespace big::mod_settings
 	void register_hooks();
 	void bind_config_api(sol::state_view& state, sol::table& lua_ext);
 
+	// A user-facing string an author may write in config.lua either plainly ("Enable feature") or as a
+	// localization table keyed by the game's language folder codes ({ en = "...", de = "...",
+	// ["zh-TW"] = "..." }). Stored as language-code -> text, with a plain string kept under the empty
+	// key. The settings menu resolves it to the current game language at render time (see
+	// resolve_localized), falling back to English then any entry.
+	using localized_text = std::map<std::string, std::string>;
+
 	// Author-declared metadata for a single setting, extracted from its config.lua description
 	// table by rom.mod_settings.load and consulted by the settings menu. Only settings whose
 	// description is a rich table have an entry; the rest fall back to type-based rendering. Every
@@ -16,8 +24,8 @@ namespace big::mod_settings
 	// itself is inferred from the value and `values`. All fields are optional (see the has_* flags).
 	struct setting_metadata
 	{
-		std::string name;        // display-name override (empty -> prettified key)
-		std::string description; // same text written to the .cfg comment
+		localized_text name;        // display-name override (empty -> prettified key)
+		localized_text description; // same text written to the .cfg comment
 
 		bool has_min  = false;
 		double min    = 0.0;
@@ -27,9 +35,10 @@ namespace big::mod_settings
 		double step   = 0.0;
 
 		// Enum options: serialized option values and parallel display labels (labels default to
-		// the values when omitted). Serialized form matches the config entry's serialization.
+		// the values when omitted). Serialized form matches the config entry's serialization; each
+		// label may be localized.
 		std::vector<std::string> values;
-		std::vector<std::string> labels;
+		std::vector<localized_text> labels;
 
 		bool has_order = false;
 		double order   = 0.0; // author-declared sort key (lower first); unset -> map order
