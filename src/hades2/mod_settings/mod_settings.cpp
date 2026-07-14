@@ -376,6 +376,13 @@ namespace big::mod_settings
 	// The native restart message box's (only) button; clicking it closes the game (restart).
 	static GUIComponent* g_restart_confirm_button = nullptr;
 
+	// The restart message box itself (owner of g_restart_confirm_button). Used only to re-validate that
+	// a clicked button really is the live restart dialog's button before terminating: matching the
+	// button pointer alone would be fooled if that dialog were freed and another button reused its
+	// address. A genuine restart button's owner is this dialog; any rebuilt row's owner is the options
+	// screen, so it will not match.
+	static void* g_restart_dialog = nullptr;
+
 	// True once the restart prompt has been shown this menu session (so closing again proceeds).
 	static bool g_restart_prompt_shown = false;
 
@@ -2775,27 +2782,6 @@ namespace big::mod_settings
 		}
 	}
 
-	// Allocates from the GAME's CRT heap (ucrtbase _aligned_malloc). We hand the resulting block to the
-	// game as a screen (a MessageDialog): the game's ScreenManager frees removed screens with
-	// ucrtbase's _aligned_free. H2M links the static CRT (/MT), so its own _aligned_malloc would place
-	// the block in a different heap; the game's _aligned_free would then decode the (identically
-	// formatted) alignment header and call the process free on a block that heap never owned, corrupting
-	// the heap. Allocating the screen here, from the same CRT that will free it, keeps the pair matched.
-	// Returns nullptr if ucrtbase or the symbol is unavailable (caller then does not show the dialog).
-	static void* game_crt_aligned_malloc(std::size_t size, std::size_t alignment)
-	{
-		using aligned_malloc_fn     = void*(__cdecl*)(std::size_t, std::size_t);
-		static aligned_malloc_fn fn = []() -> aligned_malloc_fn
-		{
-			if (HMODULE ucrt = GetModuleHandleW(L"ucrtbase.dll"))
-			{
-				return reinterpret_cast<aligned_malloc_fn>(GetProcAddress(ucrt, "_aligned_malloc"));
-			}
-			return nullptr;
-		}();
-		return fn ? fn(size, alignment) : nullptr;
-	}
-
 	// Shows the native single-button message box (sgg::MessageDialog, the same box the game uses in the
 	// main menu for save/file errors), modal over the options screen, with `title` as the heading and
 	// `message` as the body. When confirm_closes_game is true the confirm button is captured so the
@@ -2809,10 +2795,11 @@ namespace big::mod_settings
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
 		{
-			// Allocate from the game's CRT: the ScreenManager frees this screen with ucrtbase's
-			// _aligned_free (see game_crt_aligned_malloc). Our own rows are the opposite - we both
-			// allocate and free them - so they stay on H2M's CRT; only this game-freed screen must not.
-			void* dialog = game_crt_aligned_malloc(message_dialog_size, 8);
+			// The game's ScreenManager owns and frees this screen (with _aligned_free) once it is
+			// dismissed. H2M's static /MT UCRT and the game's ucrtbase share the process heap, so this
+			// _aligned_malloc pairs safely with the game's _aligned_free - the same alloc/free split the
+			// num-box rows rely on (game factory allocates, destroy_rows frees).
+			void* dialog = _aligned_malloc(message_dialog_size, 8);
 			if (dialog)
 			{
 				std::memset(dialog, 0, message_dialog_size);
@@ -2854,10 +2841,12 @@ namespace big::mod_settings
 				}
 
 				// Capture the confirm button only when it should close the game; otherwise the native
-				// confirm behaviour (dismiss the dialog) is left in place.
+				// confirm behaviour (dismiss the dialog) is left in place. Also remember the dialog so the
+				// OnClicked hook can confirm the clicked button still belongs to it before terminating.
 				if (confirm_closes_game)
 				{
 					g_restart_confirm_button = *reinterpret_cast<GUIComponent**>(bytes + dialog_confirm_button_offset);
+					g_restart_dialog         = dialog;
 				}
 
 				// Add at the END of the screen list so it draws on top of the options menu.
@@ -2969,6 +2958,7 @@ namespace big::mod_settings
 		g_restart_required       = false;
 		g_restart_prompt_shown   = false;
 		g_restart_confirm_button = nullptr;
+		g_restart_dialog         = nullptr;
 		g_restart_changes.clear();
 		g_restart_baselines.clear();
 		g_last_description_component = nullptr;
@@ -3154,8 +3144,10 @@ namespace big::mod_settings
 	// vectors is safe (this runs mid input iteration).
 	static bool hook_GUIComponentButton_OnClicked(GUIComponent* self, std::uint64_t location)
 	{
-		// Clicking the restart message box's button closes the game (forced restart).
-		if (self && self == g_restart_confirm_button)
+		// Clicking the restart message box's button closes the game (forced restart). Re-validate the
+		// button's owner is still the restart dialog so a rebuilt row that happened to reuse the freed
+		// button's address (if the dialog were ever dismissed without confirming) cannot trigger it.
+		if (self && self == g_restart_confirm_button && g_restart_dialog && *reinterpret_cast<void**>(reinterpret_cast<char*>(self) + sgg::gui_component_button_owner_offset) == g_restart_dialog)
 		{
 			big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
 			flush_native_settings();
@@ -3397,7 +3389,8 @@ namespace big::mod_settings
 	// required, show the native message box and DO NOT run the original (veto the close): the box
 	// is modal over the still-open options screen and its button closes the game. A restart-required
 	// change must not be cancellable (that would require undoing the change), so the restart is
-	// forced. If the native dialog cannot be shown, the MessageBox fallback closes the game anyway.
+	// forced. If the native dialog cannot be built, the change is already saved to the mod's config
+	// (it applies on the next manual restart), so we just let the screen close normally.
 	static void hook_MiscSettingsScreen_ExitScreen(void* self)
 	{
 		// Inside a mod's settings, Esc / controller B / the on-screen Back button steps up one level:
@@ -3420,6 +3413,13 @@ namespace big::mod_settings
 				return;
 			}
 		}
+
+		// The screen is really closing now. Tear our rows down first: the engine frees a MenuScreen's
+		// components through its reflection helper (which our rows are deliberately not registered in),
+		// not by walking mComponents, so on close it would neither free nor double-free them - they would
+		// just leak. destroy_rows is a no-op when g_rows is already empty (e.g. closing off the Mods tab).
+		destroy_rows(screen);
+		exit_edit_mode();
 
 		big::g_hooking->get_original<hook_MiscSettingsScreen_ExitScreen>()(self);
 	}

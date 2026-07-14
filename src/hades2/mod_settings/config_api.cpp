@@ -607,11 +607,16 @@ namespace big::mod_settings
 
 	void bind_config_api(sol::state_view& state, sol::table& lua_ext)
 	{
-		// A fresh Lua state re-runs every mod's main.lua, so drop the previous state's opt-out set
-		// before those calls re-register it. (Per-mod metadata is cleared in load; opt_out is a
-		// standalone call with nothing else to hang the clear off, so it is reset here instead.)
+		// A fresh Lua state re-runs every mod's main.lua, so drop all per-mod registries before those
+		// calls re-register them. load() also clears its own guid, but a mod uninstalled since the last
+		// state would never call load again, so its stale entries would otherwise linger forever; the
+		// opt-out set has no load() to hang a per-guid clear off either. Clearing everything here keeps
+		// all four registries bounded to the currently-loaded mods.
 		{
 			std::scoped_lock lock(g_metadata_mutex);
+			g_setting_metadata.clear();
+			g_appearance_order.clear();
+			g_setting_default.clear();
 			g_opted_out_mods.clear();
 		}
 
