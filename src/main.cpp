@@ -1278,6 +1278,47 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 	g_GUIComponentTextBoxes.erase(this_);
 }
 
+// eastl::basic_string_view<char> { const char *mpBegin; size_t mnCount; } as passed to CanStartLine/CanEndLine.
+struct linebreak_string_view
+{
+	const char *mpBegin;
+	uint64_t mnCount;
+};
+
+// zh-TW line-break fix: the game's kinsoku data lists ASCII space (0x20) in the zh-TW "cannot start a line" AND
+// "cannot end a line" sets. Latin text can only break at spaces, so under zh-TW untranslated (English) mod text
+// has no legal break point and overflows text boxes in almost all cases. Allowing a line to START with a space
+// restores a legal break. This is inherently zh-TW-only: every other language already allows a space to start a
+// line, so this special-case is a no-op for them.
+static bool sgg__GUIComponentTextBox__CanStartLine(void *loc, linebreak_string_view *sv)
+{
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[0]) == 0x20)
+	{
+		return true;
+	}
+
+	return big::g_hooking->get_original<sgg__GUIComponentTextBox__CanStartLine>()(loc, sv);
+}
+
+// Companion to the above: also allow a line to END with a space, so the space trails the previous line instead of
+// indenting the next one. Korean also lists space in its "cannot end a line" set, so we scope
+// this to zh-TW: only zh-TW also prohibits space as a line START, so the un-hooked CanStartLine returning false for
+// a lone space uniquely identifies the zh-TW locale (no hardcoded language id needed).
+static bool sgg__GUIComponentTextBox__CanEndLine(void *loc, linebreak_string_view *sv)
+{
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[sv->mnCount - 1]) == 0x20)
+	{
+		char space = ' ';
+		linebreak_string_view space_view{&space, 1};
+		if (!big::g_hooking->get_original<sgg__GUIComponentTextBox__CanStartLine>()(loc, &space_view))
+		{
+			return true;
+		}
+	}
+
+	return big::g_hooking->get_original<sgg__GUIComponentTextBox__CanEndLine>()(loc, sv);
+}
+
 static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUIComponentTextBox *prevSelection)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
@@ -2799,6 +2840,40 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr;
 			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
+		}
+	}
+
+	// zh-TW line-break fix: make ASCII space a legal line break so untranslated mod text wraps to fit the box
+	// instead of running off-screen under Traditional Chinese. See sgg__GUIComponentTextBox__CanStartLine above.
+	{
+		gmAddress CanStartLine_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::CanStartLine"];
+		if (!CanStartLine_ptr)
+		{
+			CanStartLine_ptr = gmAddress::scan(
+			    "40 53 48 83 EC 40 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 38 4C 8B 4A 08 33 C0 4C 8B C2 48 8B D9",
+			    "sgg::GUIComponentTextBox::CanStartLine");
+		}
+		if (CanStartLine_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__CanStartLine>(
+			    "sgg__GUIComponentTextBox__CanStartLine",
+			    CanStartLine_ptr);
+		}
+	}
+
+	{
+		gmAddress CanEndLine_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::CanEndLine"];
+		if (!CanEndLine_ptr)
+		{
+			CanEndLine_ptr = gmAddress::scan(
+			    "40 53 48 83 EC 40 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 38 48 8B 42 08 48 8B D9 48 85 C0 75 15 B0 01",
+			    "sgg::GUIComponentTextBox::CanEndLine");
+		}
+		if (CanEndLine_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__CanEndLine>(
+			    "sgg__GUIComponentTextBox__CanEndLine",
+			    CanEndLine_ptr);
 		}
 	}
 
