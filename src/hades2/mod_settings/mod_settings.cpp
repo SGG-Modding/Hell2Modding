@@ -2668,7 +2668,11 @@ namespace big::mod_settings
 	// box the game uses in the main menu for save/file errors). `message` is shown as the body
 	// text. Its only button closes the game (handled in the OnClicked hook) - a restart-required
 	// change must not be cancellable, since cancelling would have to undo the change. Returns true
-	// if the native dialog was shown; otherwise falls back to a MessageBox (OK closes the game).
+	// if the native dialog was shown. Returns false only if it could not be built (no screen manager
+	// or allocation failure); the caller then proceeds normally without forcing a restart - the
+	// restart-required change is already saved to the mod's config and applies on the next manual
+	// restart. The dialog machinery is derived off the verified build anchor, so a mismatched game
+	// build disables the whole tab up front rather than reaching here.
 	static bool show_restart_dialog(void* screen_manager, const std::string& message)
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
@@ -2725,9 +2729,6 @@ namespace big::mod_settings
 			}
 		}
 
-		MessageBoxW(nullptr, L"A changed mod setting requires a restart. The game will now close - please restart it.", L"Hell2Modding - Restart Required", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
-		flush_native_settings();
-		TerminateProcess(GetCurrentProcess(), 0);
 		return false;
 	}
 
