@@ -1319,6 +1319,89 @@ static bool sgg__GUIComponentTextBox__CanEndLine(void *loc, linebreak_string_vie
 	return big::g_hooking->get_original<sgg__GUIComponentTextBox__CanEndLine>()(loc, sv);
 }
 
+// --- zh-TW fallback line-spacing tightening ---
+// Factor applied to the auto line advance of untranslated Latin lines under zh-TW (1.0 = no change; lower =
+// tighter). Hardcoded - adjust here and rebuild/redeploy to retune.
+static float g_zh_tw_fallback_line_spacing_factor = 0.7f;
+static const int32_t *g_localization_lang_id      = nullptr; // sgg::Localization::Lang.Code.mId (current language)
+static const int32_t *g_localization_zh_tw_id     = nullptr; // sgg::Localization::TraditionalChinese.mId
+
+// True if the UTF-8 text contains a Han (CJK) codepoint - distinguishes a translated zh-TW line from an
+// untranslated English-fallback line (which is Latin/ASCII only).
+static bool text_contains_han(const char *data, size_t len)
+{
+	size_t i = 0;
+	while (i < len)
+	{
+		const uint8_t c = static_cast<uint8_t>(data[i]);
+		uint32_t cp;
+		size_t n;
+		if (c < 0x80)
+		{
+			cp = c;
+			n  = 1;
+		}
+		else if ((c & 0xE0) == 0xC0)
+		{
+			cp = c & 0x1Fu;
+			n  = 2;
+		}
+		else if ((c & 0xF0) == 0xE0)
+		{
+			cp = c & 0x0Fu;
+			n  = 3;
+		}
+		else if ((c & 0xF8) == 0xF0)
+		{
+			cp = c & 0x07u;
+			n  = 4;
+		}
+		else
+		{
+			i += 1;
+			continue;
+		}
+		if (i + n > len)
+		{
+			break;
+		}
+		for (size_t k = 1; k < n; k++)
+		{
+			cp = (cp << 6) | (static_cast<uint8_t>(data[i + k]) & 0x3Fu);
+		}
+		i += n;
+		if ((cp >= 0x34'00 && cp <= 0x4D'BF) || (cp >= 0x4E'00 && cp <= 0x9F'FF) || (cp >= 0xF9'00 && cp <= 0xFA'FF))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// Under zh-TW, untranslated Latin fallback text renders in NotoSansTC, whose tall CJK line height leaves large
+// vertical gaps between the short Latin lines. GetCurrentLineSpacing returns the per-line vertical advance (used by
+// both the height calc and the renderer, and NOT in the wrapping path). We hook it and scale the advance down for
+// Latin (non-Han) lines under zh-TW. Han lines (real translations) keep their tall advance, so Chinese is never
+// squished. Hooking this small function - rather than the large Parse that drives the kinsoku wrapping - leaves the
+// wrapping fix untouched.
+static float sgg__GUIComponentTextBox__GetCurrentLineSpacing(GUIComponentTextBox *this_, GUIComponentTextBox_Line *line)
+{
+	const float original = big::g_hooking->get_original<sgg__GUIComponentTextBox__GetCurrentLineSpacing>()(this_, line);
+
+	// Skip when disabled, or when the current language is not Traditional Chinese. The language pointers are
+	// guaranteed valid whenever the factor is below 1.0 (the registration disables the feature otherwise).
+	if (g_zh_tw_fallback_line_spacing_factor >= 1.0f || line == nullptr || *g_localization_lang_id != *g_localization_zh_tw_id)
+	{
+		return original;
+	}
+	// Real translated lines contain Han and keep their tall CJK advance; only untranslated Latin lines are tightened.
+	if (text_contains_han(line->mText.c_str(), line->mText.size()))
+	{
+		return original;
+	}
+	return original * g_zh_tw_fallback_line_spacing_factor;
+}
+
 static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUIComponentTextBox *prevSelection)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
@@ -2874,6 +2957,30 @@ extern "C" __declspec(dllexport) void my_main()
 			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__CanEndLine>(
 			    "sgg__GUIComponentTextBox__CanEndLine",
 			    CanEndLine_ptr);
+		}
+	}
+
+	// zh-TW fallback line-spacing: tighten the tall CJK line spacing for untranslated (English fallback) lines.
+	{
+		g_localization_lang_id = big::hades2_symbol_to_address["sgg::Localization::Lang"].as<const int32_t *>();
+		g_localization_zh_tw_id = big::hades2_symbol_to_address["sgg::Localization::TraditionalChinese"].as<const int32_t *>();
+		// The hook dereferences these to detect zh-TW; disable the tightening if either failed to resolve.
+		if (g_localization_lang_id == nullptr || g_localization_zh_tw_id == nullptr)
+		{
+			g_zh_tw_fallback_line_spacing_factor = 1.0f;
+		}
+
+		gmAddress GetCurrentLineSpacing_ptr =
+		    big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GetCurrentLineSpacing"];
+		if (!GetCurrentLineSpacing_ptr)
+		{
+			GetCurrentLineSpacing_ptr = gmAddress::scan("40 57 48 83 EC 30 F3 0F 10 4A 0C 0F 57 C0 0F 2E C8 48 8B F9 "
+			                                            "0F 8A ? ? ? ? 0F 85 ? ? ? ? 48 89 5C 24 40 48 8B 5A 30",
+			                                            "sgg::GUIComponentTextBox::GetCurrentLineSpacing");
+		}
+		if (GetCurrentLineSpacing_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GetCurrentLineSpacing>("sgg__GUIComponentTextBox__GetCurrentLineSpacing", GetCurrentLineSpacing_ptr);
 		}
 	}
 
