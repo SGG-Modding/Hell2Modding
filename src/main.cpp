@@ -1295,12 +1295,12 @@ static bool is_current_language_zh_tw()
 	return g_localization_lang_id != nullptr && g_localization_zh_tw_id != nullptr && *g_localization_lang_id == *g_localization_zh_tw_id;
 }
 
-// zh-TW line-break fix: the game's kinsoku data lists ASCII space (0x20) in the zh-TW "cannot start a line" AND
+// zh-TW line-break fix: the game's kinsoku data lists ASCII space in the zh-TW "cannot start a line" AND
 // "cannot end a line" sets, so under zh-TW latin mod text has no legal break point and overflows text boxes in
 // almost all cases. Allowing a line to start with a space restores a legal break.
 static bool sgg__GUIComponentTextBox__CanStartLine(void *loc, linebreak_string_view *sv)
 {
-	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[0]) == 0x20)
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[0]) == ' ')
 	{
 		return true;
 	}
@@ -1312,7 +1312,7 @@ static bool sgg__GUIComponentTextBox__CanStartLine(void *loc, linebreak_string_v
 // Scoped to zh-TW: Korean also lists space in its "cannot end a line" set, but has no overflow issue to fix.
 static bool sgg__GUIComponentTextBox__CanEndLine(void *loc, linebreak_string_view *sv)
 {
-	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[sv->mnCount - 1]) == 0x20 && is_current_language_zh_tw())
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[sv->mnCount - 1]) == ' ' && is_current_language_zh_tw())
 	{
 		return true;
 	}
