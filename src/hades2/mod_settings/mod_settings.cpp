@@ -192,7 +192,7 @@ namespace big::mod_settings
 	static constexpr std::size_t slider_fill_offset       = 0x5'78; // mFill (GUIComponentImage*, progress fill)
 	static constexpr std::size_t slider_label_offset      = 0x5'90; // mLabel (GUIComponentTextBox*, left label)
 	static constexpr std::size_t slider_value_text_offset = 0x5'98; // mValueTextBox (GUIComponentTextBox*, right value)
-	static constexpr std::size_t slider_fraction_offset = 0x5'A4;   // mFraction (float, normalized 0..1 value)
+	static constexpr std::size_t slider_fraction_offset   = 0x5'A4; // mFraction (float, normalized 0..1 value)
 
 	// Scalar deleting destructor slot in the GUIComponent vtable. Called with flags=0 it destructs and frees any owned
 	// sub-components without the final operator delete, so we then. _aligned_free.
@@ -226,6 +226,7 @@ namespace big::mod_settings
 	using teleport_cursor_fn     = void (*)(void* menu_screen, GUIComponent* component);
 	using component_focused_fn   = void (*)(void* misc_settings_screen, GUIComponent* component);
 	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
+	using mouse_button_down_fn   = bool (*)(void* input_handler);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -272,6 +273,7 @@ namespace big::mod_settings
 
 	static component_focused_fn g_component_focused = nullptr; // focuses a row so it receives stick input + green
 	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
+	static mouse_button_down_fn g_mouse_button_down = nullptr; // true while a mouse button is held (active drag detect)
 	static const void* g_controls_cancel            = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
 	static const void* g_controls_select            = nullptr; // &sgg::Controls::Select (controller A / Enter)
 	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
@@ -962,7 +964,7 @@ namespace big::mod_settings
 		set_sso_string(row_bytes + gui_component_name_offset, "CategoryOptionsButton");
 		g_apply_data(reinterpret_cast<MenuScreen*>(screen), row);
 
-		// Stretch. The box only enough to fit a label wider than the native box (see button_label_*), so short labels
+		// Stretch the box only enough to fit a label wider than the native box (see button_label_*), so short labels
 		// keep the clean native box. Drawn box width = native * mScale * box_scale_x.
 		const float box_scale_x = std::max(1.0f, (measure_width(label) + button_label_padding) / button_label_capacity);
 
@@ -974,14 +976,17 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_offset_y) = 0.0f;         // drop the template's built-in vertical offset
 		*reinterpret_cast<float*>(def + def_scale)    = button_scale; // shrink slightly for top/bottom breathing room
 
-		// Match the hit-test rect to the visible (stretched) box so hover/click line up with what is drawn.
-		*reinterpret_cast<float*>(def + def_width)  = button_graphic_native_width * button_scale * box_scale_x;
+		// The hover/click rect is GetArea = mCustomWidth * mScale@0x38 * mScaleX@0x114. The drawn box already reflects
+		// button_scale and mScaleX@0x114 carries box_scale_x below, so mCustomWidth is the plain native width. Baking
+		// button_scale in here as well applies it twice and pulls the hit rect inside the drawn box. This native width
+		// also seeds the label's copied def width, which is widened back below so the label does not wrap.
+		*reinterpret_cast<float*>(def + def_width)  = button_graphic_native_width;
 		*reinterpret_cast<float*>(def + def_height) = 58.0f;
 
 		// Momentary selection: the CategoryOptionsButton template keeps a button selected (its highlight lit) after a
 		// mouse-off - correct for the category tabs, but an action button should not stay lit like a selected tab once
-		// clicked mDeselectOnMouseOff makes the highlight clear when the cursor leaves (the highlight still shows while
-		// hovered), so the action button reads as momentary.
+		// clicked. mDeselectOnMouseOff makes the highlight clear when the cursor leaves (the highlight still shows
+		// while hovered), so the action button reads as momentary.
 		*reinterpret_cast<bool*>(def + def_deselect_on_mouse_off) = true;
 
 		if (disabled)
@@ -994,12 +999,20 @@ namespace big::mod_settings
 			g_setup_component(row, row_bytes + component_data_offset);
 		}
 
+		// SetupComponent copied the button def (with the native mCustomWidth used for the hit rect) into the child
+		// label, whose own def mWidth drives where the text wraps. For a stretched box widen the label's copy to the
+		// full visible width so a long label stays on one line instead of wrapping at the native width.
+		if (auto* label_box = *reinterpret_cast<char**>(row_bytes + button_label_offset))
+		{
+			*reinterpret_cast<float*>(label_box + component_def_offset + def_width) = button_graphic_native_width * box_scale_x;
+		}
+
 		if (g_set_label)
 		{
 			g_set_label(row, label);
 		}
 
-		// Widen. The box graphic to box_scale_x. The box is a single-frame animation reached via mAnim enabling
+		// Widen the box graphic to box_scale_x. The box is a single-frame animation reached via mAnim enabling
 		// mScaleModifierOnlyX makes GUIComponentAnimation::Draw honour the anim's own def mScaleX (horizontal-only),
 		// which the button otherwise leaves at a uniform scale. The selection highlight (mSelectedTexture, drawn as an
 		// overlay) is instead scaled by the BUTTON's own def mScaleX/mScaleY (the button's Drawable), independent of
@@ -1143,8 +1156,8 @@ namespace big::mod_settings
 		}
 		char* nb_bytes = reinterpret_cast<char*>(nb);
 
-		// Name. The box and its sub-components so ApplyDataToComponent applies the matching sjson templates (its
-		// virtual. ApplyDataToName routes each def by the sub-component's mName).
+		// Name the box and its sub-components so ApplyDataToComponent applies the matching sjson templates (its
+		// virtual ApplyDataToName routes each def by the sub-component's mName).
 		set_sso_string(nb_bytes + gui_component_name_offset, "OptionNumBox");
 		if (void* value_tb = *reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset))
 		{
@@ -2598,18 +2611,24 @@ namespace big::mod_settings
 		return nullptr;
 	}
 
-	// True while the user is still interacting with one of our rows: the entered component (keyboard or controller
-	// adjusting a slider/enum) or the moused-over component (mouse hovering or dragging one). The numeric-change
-	// dynamic refresh holds its rebuild until this is false, so the rebuild never frees a row that is being adjusted
-	// (which would drop keyboard focus or interrupt a mouse drag).
-	static bool interacting_with_row(MiscSettingsScreen* screen)
+	// True while the user is still actively adjusting one of our rows: the entered component (keyboard or controller
+	// adjusting a slider/enum), or a mouse drag (a mouse button held over one of our rows). The numeric-change dynamic
+	// refresh holds its rebuild until this is false, so the rebuild never frees a row mid-adjust (which would drop
+	// keyboard focus or interrupt a mouse drag). A mere mouse hover does not hold, so the refresh fires promptly once a
+	// drag is released even while the pointer still rests on the row. If the mouse-down probe is unavailable, any hover
+	// holds instead, so a drag is never interrupted.
+	static bool interacting_with_row(MiscSettingsScreen* screen, void* input)
 	{
 		if (screen->m_component_focused && find_row(screen->m_component_focused))
 		{
 			return true;
 		}
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
-		return menu->m_mouse_over_component && find_row(menu->m_mouse_over_component);
+		if (!menu->m_mouse_over_component || !find_row(menu->m_mouse_over_component))
+		{
+			return false;
+		}
+		return g_mouse_button_down ? g_mouse_button_down(input) : true;
 	}
 
 	// The component whose description was last written to the description box. The box is only updated when the
@@ -2681,7 +2700,7 @@ namespace big::mod_settings
 		g_set_label(button, text);
 	}
 
-	// Retunes the options screen's bottom button prompts for the Mods tab per context, and hides the native. Reset
+	// Retunes the options screen's bottom button prompts for the Mods tab per context, and hides the native Reset
 	// prompt where it must not apply. Called every frame from the Update hook (after the original, which sets the
 	// native prompts on focus/hover/category events). Off the Mods tab it only clears our caches and leaves the native
 	// prompts untouched.
@@ -3770,16 +3789,15 @@ namespace big::mod_settings
 		// A slider drag, number-box adjust, or freetext commit in a view that has dynamic (function) rows re-evaluates
 		// those rows (e.g. an apply button enabling itself when a value changes). The rebuild frees and recreates the
 		// rows, so it is deferred two ways: a short debounce absorbs the per-frame slider hook, and while the user is
-		// still interacting with a row (adjusting it with keyboard/controller, or hovering/dragging it with the mouse)
-		// the rebuild is HELD until they move off it - otherwise it would free the focused slider mid-adjust or
-		// interrupt a mouse drag.
+		// still actively adjusting a row (with keyboard/controller, or an in-progress mouse drag) the rebuild is HELD
+		// until they finish - otherwise it would free the focused slider mid-adjust or interrupt a mouse drag.
 		if (g_dynamic_refresh_settle > 0.0f)
 		{
 			if (!on_mods_tab)
 			{
 				g_dynamic_refresh_settle = 0.0f;
 			}
-			else if (interacting_with_row(screen))
+			else if (interacting_with_row(screen, input))
 			{
 				g_dynamic_refresh_settle = dynamic_refresh_settle_seconds; // hold until they leave the row
 			}
@@ -3909,8 +3927,8 @@ namespace big::mod_settings
 	// on-screen "Exit" button) converges here (MiscSettingsScreen::ExitScreen, vtable slot 7), before any fade/teardown
 	// and while mScreenManager is valid. If a restart is required, show the native message box and DO NOT run the
 	// original (veto the close): The box is modal over the still-open options screen and its button closes the game. A
-	// restart-required change must not be cancellable (that would require undoing the change), so the restart is.
-	// Forced. If the native dialog cannot be built, the change is already saved to the mod's config (it applies on the
+	// restart-required change must not be cancellable (that would require undoing the change), so the restart is
+	// forced. If the native dialog cannot be built, the change is already saved to the mod's config (it applies on the
 	// next manual restart), so we just let the screen close normally.
 	static void hook_MiscSettingsScreen_ExitScreen(void* self)
 	{
@@ -4039,6 +4057,7 @@ namespace big::mod_settings
 		// RVA-relative (resolved below). Optional - their absence only degrades controller support, not the tab.
 		g_component_focused = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ComponentFocused"].as_func<void(void*, GUIComponent*)>();
 		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
+		g_mouse_button_down = big::hades2_symbol_to_address["sgg::InputHandler::IsLeftOrRightMouseButtonDown"].as_func<bool(void*)>();
 
 		// Native-settings flush before a forced restart. SaveProfile. SaveProfile serializes the active profile
 		// (language, volumes, graphics, gameplay/interface toggles) to disk. ACTIVE_PROFILE is the profile-name string
