@@ -436,6 +436,28 @@ namespace big::mod_settings
 	static std::string g_pending_section;
 	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav.
 
+	// Identifies a panel row by its stable fields (kind + owning mod + section + key) so it can be matched to the
+	// equivalent freshly built row after a rebuild frees every component.
+	struct RowIdentity
+	{
+		bool valid = false;
+		RowKind kind;
+		std::string stem;
+		std::string section;
+		std::string key;
+	};
+
+	// The clicked row to hold as hovered/selected across a click-triggered instant rebuild, captured in the OnClicked
+	// hook. A rebuild frees every component and the native hover pass re-resolves the cursor a frame later, so this is
+	// re-asserted for a few frames (see reassert_keep_active_row) to steady the prompt, description and highlight.
+	static RowIdentity g_keep_active_row;
+
+	// Frames to re-assert the clicked row as hovered/selected after a click-triggered instant rebuild. The native hover
+	// pass runs the frame after the rebuild and can transiently resolve the stationary cursor to a neighbouring row (or
+	// clear the bottom-prompt label), so the prompt, description and highlight blink for a frame unless we hold them.
+	static constexpr int keep_active_frame_count = 3;
+	static int g_keep_active_frames              = 0;
+
 	// Seconds of input quiet after a numeric setting (slider / number-box) changes before the view is rebuilt to
 	// re-evaluate its dynamic (Lua-function) rows - e.g. an apply button's dynamic `disabled`.
 	static constexpr float dynamic_refresh_settle_seconds = 0.15f;
@@ -2614,6 +2636,31 @@ namespace big::mod_settings
 		return nullptr;
 	}
 
+	// Builds a stable identity for a row so it can be re-found after a rebuild recreates the components.
+	static RowIdentity row_identity_of(const PanelRow& r)
+	{
+		return RowIdentity{true, r.kind, r.stem, r.target_section, r.setting_key};
+	}
+
+	// The freshly built row matching a captured identity, or null if it is gone or is no longer selectable. Used to put
+	// the hover and selection back on the equivalent new row after an instant rebuild.
+	static GUIComponent* find_row_by_identity(const RowIdentity& id)
+	{
+		if (!id.valid)
+		{
+			return nullptr;
+		}
+		for (const auto& row : g_rows)
+		{
+			GUIComponent* c = row.component;
+			if (c && row.kind == id.kind && row.stem == id.stem && row.target_section == id.section && row.setting_key == id.key && !row.disabled && c->m_is_useable && !c->m_hidden)
+			{
+				return c;
+			}
+		}
+		return nullptr;
+	}
+
 	// True while the user is still actively adjusting one of our rows: the entered component (keyboard or controller
 	// adjusting a slider/enum), or a mouse drag (a mouse button held over one of our rows). The numeric-change dynamic
 	// refresh holds its rebuild until this is false, so the rebuild never frees a row mid-adjust (which would drop
@@ -2890,6 +2937,34 @@ namespace big::mod_settings
 		return (g_input_get_state(input, control) & 0x4u) != 0;
 	}
 
+	// Holds the clicked row (captured before a click-triggered instant rebuild) as the moused-over and selected
+	// component, and forces our bottom prompt and description to re-apply, for a few frames after the rebuild. The
+	// native hover pass runs in HandleInput (after this Update) and, over the freshly laid-out rows, can transiently
+	// resolve the stationary cursor to a neighbouring row or clear the prompt label, so re-asserting here each frame
+	// keeps the prompt, description and highlight steady on the clicked row instead of blinking onto a neighbour or to
+	// a bare glyph. Mouse mode only - keyboard/controller focus is restored in build_panel.
+	static void reassert_keep_active_row(MiscSettingsScreen* screen)
+	{
+		if (!(g_use_mouse && *g_use_mouse))
+		{
+			return;
+		}
+		GUIComponent* keep = find_row_by_identity(g_keep_active_row);
+		if (!keep)
+		{
+			return;
+		}
+		auto* menu                   = reinterpret_cast<MenuScreen*>(screen);
+		menu->m_mouse_over_component = keep;
+		menu->m_selected_component   = keep;
+
+		// Clear the prompt caches and the last-description marker so this frame's sync re-applies our label and text,
+		// overriding a native clear on the rebuild frame.
+		g_prompt_confirm_label.clear();
+		g_prompt_cancel_label.clear();
+		g_last_description_component = nullptr;
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer is stale force the
@@ -3021,6 +3096,21 @@ namespace big::mod_settings
 					break;
 				}
 			}
+		}
+
+		// Arm a short re-assert window after a click-triggered instant rebuild (a toggle or an action). A rebuild frees
+		// the row under the cursor, and over the next frame the native hover pass can transiently resolve the
+		// stationary cursor to a neighbouring row or clear our prompt label, blinking the prompt, description and
+		// highlight. The Update hook re-asserts the clicked row over these frames (see reassert_keep_active_row). Only
+		// meaningful in mouse mode - keyboard/controller focus is restored above.
+		if (instant && g_keep_active_row.valid && g_use_mouse && *g_use_mouse)
+		{
+			g_keep_active_frames = keep_active_frame_count;
+		}
+		else
+		{
+			g_keep_active_row.valid = false;
+			g_keep_active_frames    = 0;
 		}
 
 		if (restoring)
@@ -3783,6 +3873,7 @@ namespace big::mod_settings
 						g_pending_stem    = matched_row.stem;
 						g_pending_section = g_view_section;
 						g_nav_pending     = true;
+						g_keep_active_row = row_identity_of(matched_row);
 					}
 				}
 				else if (entry)
@@ -3801,6 +3892,7 @@ namespace big::mod_settings
 				g_pending_stem    = matched_row.stem;
 				g_pending_section = g_view_section;
 				g_nav_pending     = true;
+				g_keep_active_row = row_identity_of(matched_row);
 				break;
 			}
 		}
@@ -3902,6 +3994,19 @@ namespace big::mod_settings
 				}
 			}
 			g_nav_pending = false;
+		}
+
+		// For a few frames after a click-triggered rebuild, pin the clicked row as hovered/selected and re-apply our
+		// prompt/description over the native hover pass, which settles over the new layout a frame later and would
+		// otherwise blink the prompt, description or highlight onto a neighbouring row. Runs before the original Update
+		// (which reads mMouseOverComponent for the description) so this frame is already correct.
+		if (g_keep_active_frames > 0 && on_mods_tab)
+		{
+			reassert_keep_active_row(screen);
+			if (--g_keep_active_frames == 0)
+			{
+				g_keep_active_row.valid = false;
+			}
 		}
 
 		void* result = big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
