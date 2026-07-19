@@ -227,6 +227,7 @@ namespace big::mod_settings
 	using component_focused_fn   = void (*)(void* misc_settings_screen, GUIComponent* component);
 	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
 	using mouse_button_down_fn   = bool (*)(void* input_handler);
+	using input_dir_pressed_fn   = bool (*)(void* input_handler);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -274,8 +275,10 @@ namespace big::mod_settings
 	static component_focused_fn g_component_focused = nullptr; // focuses a row so it receives stick input + green
 	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
 	static mouse_button_down_fn g_mouse_button_down = nullptr; // true while a mouse button is held (active drag detect)
-	static const void* g_controls_cancel            = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
-	static const void* g_controls_select            = nullptr; // &sgg::Controls::Select (controller A / Enter)
+	static input_dir_pressed_fn g_input_was_left_pressed  = nullptr; // left / decrease press edge (dpad, arrow, stick)
+	static input_dir_pressed_fn g_input_was_right_pressed = nullptr; // right / increase press edge
+	static const void* g_controls_cancel  = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
+	static const void* g_controls_select  = nullptr; // &sgg::Controls::Select (controller A / Enter)
 	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
 	static void* g_active_profile         = nullptr; // &sgg::ProfileManager::ACTIVE_PROFILE
 
@@ -3624,6 +3627,64 @@ namespace big::mod_settings
 		                      format_setting_display(v, row->show_as_percentage, row->is_percentage, step_v).c_str());
 	}
 
+	// Moves a slider row one grid step (dir -1 or +1) from its current snapped value, clamped to [min, max], and writes
+	// the exact grid fraction through SetFraction with notify so the SetFraction hook stores the value and repaints the
+	// value text. The stored value is already on the grid, so rounding the current index is just a safety net.
+	static void step_slider_row(void* slider, PanelRow* row, int dir)
+	{
+		if (!g_slider_set_fraction || !row->entry)
+		{
+			return;
+		}
+		const double min_v  = row->stepper_min;
+		const double max_v  = row->stepper_max;
+		const double step_v = row->stepper_step > 0.0 ? row->stepper_step : 1.0;
+		const double range  = max_v - min_v;
+		if (range <= 0.0)
+		{
+			return;
+		}
+		const double idx = std::round((row->entry->get_value_base<double>() - min_v) / step_v);
+		double v         = min_v + (idx + dir) * step_v;
+		if (v < min_v)
+		{
+			v = min_v;
+		}
+		else if (v > max_v)
+		{
+			v = max_v;
+		}
+		g_slider_set_fraction(slider, static_cast<float>((v - min_v) / range), true);
+	}
+
+	// Discrete keyboard/controller stepping for our slider rows. The native GUIComponentSlider::HandleInput slides
+	// mFraction continuously (axisSum * speed * dt behind a 0.5 dead-zone, summing dpad, arrow keys, WASD and the left
+	// stick), so a small tap can land back on the same snapped value. For our rows under keyboard/controller (UseMouse
+	// off) we bypass that path and move exactly one step on each left/right press edge, so every input changes the
+	// value by at least one step and a held direction cannot creep between steps. Mouse drag (UseMouse on) and every
+	// native slider keep the original continuous behaviour. If the edge probes are missing the whole path is skipped at
+	// install time, so this only runs when both are available.
+	static bool hook_GUIComponentSlider_HandleInput(void* self, void* input, float dt)
+	{
+		if (self && !(g_use_mouse && *g_use_mouse))
+		{
+			PanelRow* row = find_row(reinterpret_cast<GUIComponent*>(self));
+			if (row && row->is_slider && !row->disabled && row->entry)
+			{
+				if (g_input_was_right_pressed(input))
+				{
+					step_slider_row(self, row, 1);
+				}
+				else if (g_input_was_left_pressed(input))
+				{
+					step_slider_row(self, row, -1);
+				}
+				return true; // own the slider's keyboard/controller input so the native continuous slide never runs
+			}
+		}
+		return big::g_hooking->get_original<hook_GUIComponentSlider_HandleInput>()(self, input, dt);
+	}
+
 	// Button-click hook GUIComponentButton overrides. GUIComponent::OnClicked (vtable slot +0x100, the engine's
 	// terminal-click), so this is where our button rows' clicks land. For our rows the engine returns false (they have
 	// no bound activate function) but still plays the press sound, so we must match the row regardless of the return
@@ -4059,6 +4120,12 @@ namespace big::mod_settings
 		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
 		g_mouse_button_down = big::hades2_symbol_to_address["sgg::InputHandler::IsLeftOrRightMouseButtonDown"].as_func<bool(void*)>();
 
+		// Left/right press edges (dpad, arrow keys and a left-stick flick fold into these), read to move our discrete
+		// slider rows one step per press instead of the native continuous slide. Optional - without them the sliders
+		// keep the native continuous keyboard/controller behaviour.
+		g_input_was_left_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasLeftPressed"].as_func<bool(void*)>();
+		g_input_was_right_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasRightPressed"].as_func<bool(void*)>();
+
 		// Native-settings flush before a forced restart. SaveProfile. SaveProfile serializes the active profile
 		// (language, volumes, graphics, gameplay/interface toggles) to disk. ACTIVE_PROFILE is the profile-name string
 		// it takes. Both are named PDB globals/functions. Optional - if either is missing we simply skip the flush (the
@@ -4140,6 +4207,14 @@ namespace big::mod_settings
 		if (slider_set_fraction)
 		{
 			static auto set_fraction_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentSlider_SetFraction>("sgg::GUIComponentSlider::SetFraction", slider_set_fraction);
+
+			// Discrete keyboard/controller stepping needs the left/right edge probes; without them our slider rows keep
+			// the native continuous slide, so only install the input override when both resolved.
+			const auto slider_handle_input = big::hades2_symbol_to_address["sgg::GUIComponentSlider::HandleInput"];
+			if (slider_handle_input && g_input_was_left_pressed && g_input_was_right_pressed)
+			{
+				static auto slider_handle_input_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentSlider_HandleInput>("sgg::GUIComponentSlider::HandleInput", slider_handle_input);
+			}
 		}
 		static auto update_hook =
 		    hooking::detour_hook_helper::add_queue<hook_MiscSettingsScreen_Update>("sgg::MiscSettingsScreen::Update", update);
