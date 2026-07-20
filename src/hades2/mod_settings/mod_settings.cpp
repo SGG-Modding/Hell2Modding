@@ -228,6 +228,7 @@ namespace big::mod_settings
 	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
 	using mouse_button_down_fn   = bool (*)(void* input_handler);
 	using input_dir_pressed_fn   = bool (*)(void* input_handler);
+	using scroll_page_fn         = void (*)(void* misc_settings_screen);
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -277,6 +278,10 @@ namespace big::mod_settings
 	static mouse_button_down_fn g_mouse_button_down = nullptr; // true while a mouse button is held (active drag detect)
 	static input_dir_pressed_fn g_input_was_left_pressed  = nullptr; // left / decrease press edge (dpad, arrow, stick)
 	static input_dir_pressed_fn g_input_was_right_pressed = nullptr; // right / increase press edge
+	static input_dir_pressed_fn g_input_is_down_pressed   = nullptr; // down held (control binding, gamepad, arrow key)
+	static input_dir_pressed_fn g_input_is_up_pressed     = nullptr; // up held (control binding, gamepad, arrow key)
+	static scroll_page_fn g_scroll_down   = nullptr; // sgg::MiscSettingsScreen::ScrollDown (advance page)
+	static scroll_page_fn g_scroll_up     = nullptr; // sgg::MiscSettingsScreen::ScrollUp (previous page)
 	static const void* g_controls_cancel  = nullptr; // &sgg::Controls::Cancel (controller B / keyboard Esc)
 	static const void* g_controls_select  = nullptr; // &sgg::Controls::Select (controller A / Enter)
 	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
@@ -457,6 +462,17 @@ namespace big::mod_settings
 	// clear the bottom-prompt label), so the prompt, description and highlight blink for a frame unless we hold them.
 	static constexpr int keep_active_frame_count = 3;
 	static int g_keep_active_frames              = 0;
+
+	// Keyboard/controller cross-page scrolling state. The native directional nav cannot cross a page boundary on its
+	// own (see the HandleInput hook), so a fresh DOWN/UP press while the highlight is already on the page-edge row
+	// pages to the adjacent page. g_prev_* track the previous frame's held state so that press is read as an edge
+	// (paging only on a new press, so navigating onto the edge row stops there rather than paging through it). g_page_
+	// swallow_* hold the still-pressed direction after a page until it is released, so the native nav does not then
+	// walk the new page and shift the selection off the landing (edge) row.
+	static bool g_prev_down_held    = false;
+	static bool g_prev_up_held      = false;
+	static bool g_page_swallow_down = false;
+	static bool g_page_swallow_up   = false;
 
 	// Seconds of input quiet after a numeric setting (slider / number-box) changes before the view is rebuilt to
 	// re-evaluate its dynamic (Lua-function) rows - e.g. an apply button's dynamic `disabled`.
@@ -4084,6 +4100,74 @@ namespace big::mod_settings
 				request_back_nav();
 				return true;
 			}
+
+			// Cross-page scrolling. The native directional nav is a spatial nearest-in-cone search that excludes
+			// off-page rows (their fade target is 0), so DOWN on the last on-page row finds nothing below and cannot
+			// advance the page - only the mouse wheel and the on-screen arrows do. When the highlight is already on the
+			// page-edge row and that direction is freshly pressed (an edge, not a hold), drive the engine's own pager
+			// (ScrollDown/ScrollUp): it self-guards the bounds, refreshes the layout, and moves the selection onto the
+			// adjacent page's edge row. Gating on the press edge means navigating onto the edge row just stops there; a
+			// separate press is needed to page past it.
+			const bool down_held = g_scroll_down && g_input_is_down_pressed && g_input_is_down_pressed(input);
+			const bool up_held   = g_scroll_up && g_input_is_up_pressed && g_input_is_up_pressed(input);
+			const bool down_edge = down_held && !g_prev_down_held;
+			const bool up_edge   = up_held && !g_prev_up_held;
+			g_prev_down_held     = down_held;
+			g_prev_up_held       = up_held;
+
+			// A page press stays held for several frames. Swallow it until release so the native nav does not walk the
+			// new page and shift the selection off the row the pager landed on (the new page's edge row).
+			if (!down_held)
+			{
+				g_page_swallow_down = false;
+			}
+			if (!up_held)
+			{
+				g_page_swallow_up = false;
+			}
+			if ((down_held && g_page_swallow_down) || (up_held && g_page_swallow_up))
+			{
+				return true;
+			}
+
+			if ((down_edge || up_edge) && g_rows.size() > rows_per_page)
+			{
+				GUIComponent* anchor = menu->m_selected_component ? menu->m_selected_component : menu->m_mouse_over_component;
+				std::size_t idx = g_rows.size();
+				for (std::size_t i = 0; i < g_rows.size(); ++i)
+				{
+					if (g_rows[i].component == anchor)
+					{
+						idx = i;
+						break;
+					}
+				}
+				if (idx < g_rows.size())
+				{
+					const std::size_t page_start = screen->m_page_start_index;
+					if (down_edge && idx == page_start + rows_per_page - 1 && page_start + rows_per_page < g_rows.size())
+					{
+						g_scroll_down(screen);
+						g_page_swallow_down = true;
+						return true;
+					}
+					if (up_edge && idx == page_start && page_start > 0)
+					{
+						g_scroll_up(screen);
+						g_page_swallow_up = true;
+						return true;
+					}
+				}
+			}
+		}
+		else
+		{
+			// Reset the cross-page held state whenever we are not in keyboard/controller option navigation, so
+			// re-entering does not read a stale held-direction edge or swallow.
+			g_prev_down_held    = false;
+			g_prev_up_held      = false;
+			g_page_swallow_down = false;
+			g_page_swallow_up   = false;
 		}
 
 		return big::g_hooking->get_original<hook_MiscSettingsScreen_HandleInput>()(self, input, x);
@@ -4230,6 +4314,17 @@ namespace big::mod_settings
 		// keep the native continuous keyboard/controller behaviour.
 		g_input_was_left_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasLeftPressed"].as_func<bool(void*)>();
 		g_input_was_right_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasRightPressed"].as_func<bool(void*)>();
+
+		// Down/up held probes (control binding, gamepad dpad/stick and raw arrow keys fold into these) plus the native
+		// pagers. The keyboard/controller directional nav is a spatial search that excludes off-page rows, so it cannot
+		// cross a page boundary on its own; when the highlighted row is at a page edge and the matching direction is
+		// freshly pressed we drive ScrollDown/ScrollUp (each self-guards the bounds and moves the selection onto the
+		// new page). Optional - without them the Mods tab still works, only keyboard/controller cross-page scrolling is
+		// lost.
+		g_input_is_down_pressed = big::hades2_symbol_to_address["sgg::InputHandler::IsDownPressed"].as_func<bool(void*)>();
+		g_input_is_up_pressed = big::hades2_symbol_to_address["sgg::InputHandler::IsUpPressed"].as_func<bool(void*)>();
+		g_scroll_down = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ScrollDown"].as_func<void(void*)>();
+		g_scroll_up   = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ScrollUp"].as_func<void(void*)>();
 
 		// Native-settings flush before a forced restart. SaveProfile. SaveProfile serializes the active profile
 		// (language, volumes, graphics, gameplay/interface toggles) to disk. ACTIVE_PROFILE is the profile-name string
