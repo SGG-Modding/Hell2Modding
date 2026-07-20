@@ -145,7 +145,9 @@ namespace big::mod_settings::sgg
 		bool m_category_focused;                    // +0x400 (false = option navigation, true = tab navigation)
 		char m_pad_d[0x07];                         // 0x401 .. 0x408
 		eastl_vector<GUIComponent*> m_options;      // +0x408
-		char m_pad_e[0x20];                         // 0x420 .. 0x440
+		GUIComponent* m_up_arrow;                   // +0x420 (scroll-up arrow button)
+		GUIComponent* m_down_arrow;                 // +0x428 (scroll-down arrow button)
+		char m_pad_e[0x10];                         // 0x430 .. 0x440 (scroll bar + tracker)
 		GUIComponent* m_defaults_button;            // +0x440 (bottom "Reset" prompt)
 		char m_pad_f[0x18];                         // 0x448 .. 0x460
 		GUIComponent* m_description_box;            // +0x460
@@ -162,6 +164,8 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(MiscSettingsScreen, m_debug_options_button) == 0x3'F8);
 	static_assert(offsetof(MiscSettingsScreen, m_category_focused) == 0x4'00);
 	static_assert(offsetof(MiscSettingsScreen, m_options) == 0x4'08);
+	static_assert(offsetof(MiscSettingsScreen, m_up_arrow) == 0x4'20);
+	static_assert(offsetof(MiscSettingsScreen, m_down_arrow) == 0x4'28);
 	static_assert(offsetof(MiscSettingsScreen, m_defaults_button) == 0x4'40);
 	static_assert(offsetof(MiscSettingsScreen, m_description_box) == 0x4'60);
 } // namespace big::mod_settings::sgg
