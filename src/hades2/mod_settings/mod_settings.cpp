@@ -202,6 +202,16 @@ namespace big::mod_settings
 	static constexpr std::size_t slider_value_text_offset = 0x5'98; // mValueTextBox (GUIComponentTextBox*, right value)
 	static constexpr std::size_t slider_fraction_offset   = 0x5'A4; // mFraction (float, normalized 0..1 value)
 
+	// GUIComponentSlider has no Draw-time highlight gate (unlike GUIComponentButton, whose Draw re-derives its
+	// highlight from mForceSelected / owner->mSelectedComponent). Its "moused-over" look (green label + fill) and
+	// "focused" look (green value) are child state set by OnMouseOver / OnFocusOn and reverted only by OnMouseOff /
+	// OnFocusOff, so a stale flag survives across frames. mFocused is the slider's own bool the focus look tracks
+	// mUseSelectedTextColor is the green-text flag on a child GUIComponentTextBox (the left label / right value).
+	static constexpr std::size_t slider_focused_offset          = 0x5'48;  // GUIComponentSlider::mFocused (bool)
+	static constexpr std::size_t textbox_use_selected_color_off = 0x5'52;  // GUIComponentTextBox::mUseSelectedTextColor
+	static constexpr std::size_t vtable_on_mouse_off_offset     = 0x00'60; // GUIComponent::OnMouseOff slot
+	static constexpr std::size_t vtable_on_focus_off_offset     = 0x1'18;  // GUIComponent::OnFocusOff slot
+
 	// Scalar deleting destructor slot in the GUIComponent vtable. Called with flags=0 it destructs and frees any owned
 	// sub-components without the final operator delete, so we then. _aligned_free.
 	static constexpr std::size_t vtable_deleting_dtor_offset = 0x1'88;
@@ -2973,6 +2983,53 @@ namespace big::mod_settings
 		g_last_description_component = nullptr;
 	}
 
+	// Calls a no-argument GUIComponent virtual (by byte offset into the vtable) on a component. Used to invoke the
+	// engine's own OnMouseOff / OnFocusOff so their full revert (text-colour flag plus the fill-texture swap) runs.
+	static void call_component_vfn(GUIComponent* comp, std::size_t vtable_byte_offset)
+	{
+		char* vtable = *reinterpret_cast<char**>(comp);
+		void* fn     = *reinterpret_cast<void**>(vtable + vtable_byte_offset);
+		reinterpret_cast<void (*)(void*)>(fn)(comp);
+	}
+
+	// Reverts a stale slider highlight left on the wrong row. Unlike a button, a slider has no Draw-time highlight
+	// gate: its moused-over look (green label plus bright fill) is child state set by GUIComponentSlider::OnMouseOver
+	// and its focused look (green value) by OnFocusOn, and each is undone only by the matching OnMouseOff / OnFocusOff,
+	// never re-derived in Draw. A rebuild or our hover re-assert (which writes mMouseOverComponent directly, bypassing
+	// the native OnMouseOver / OnMouseOff pairing) can therefore strand that state on a row the cursor has since left,
+	// leaving it stuck green until hovered again. Each frame we revert the moused-over look on any slider row that
+	// is not the live mouse-over component, and the focused look on any slider row that is not the focused option, so
+	// exactly the active row stays highlighted. The flag and the pointer are only ever inconsistent when stranded (the
+	// engine sets both together in one pass), so a genuinely hovered slider is kept. Buttons and text rows self-correct
+	// via their own Draw gate, so only slider rows need this.
+	static void clear_stale_slider_highlight(MiscSettingsScreen* screen)
+	{
+		auto* menu = reinterpret_cast<MenuScreen*>(screen);
+		for (const auto& row : g_rows)
+		{
+			if (!row.is_slider || !row.component)
+			{
+				continue;
+			}
+			char* s = reinterpret_cast<char*>(row.component);
+
+			// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over.
+			if (row.component != menu->m_mouse_over_component)
+			{
+				if (auto* label = *reinterpret_cast<char**>(s + slider_label_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
+				{
+					call_component_vfn(row.component, vtable_on_mouse_off_offset);
+				}
+			}
+
+			// Focused look lives on mFocused / the value textbox. Revert it unless this row is the focused option.
+			if (row.component != screen->m_component_focused && *reinterpret_cast<bool*>(s + slider_focused_offset))
+			{
+				call_component_vfn(row.component, vtable_on_focus_off_offset);
+			}
+		}
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer is stale force the
@@ -4072,6 +4129,12 @@ namespace big::mod_settings
 		// Retune the bottom prompt buttons per context (off the Mods tab this only clears our caches and leaves the
 		// native prompts alone).
 		sync_prompts(screen, on_mods_tab);
+
+		// Revert any slider highlight left stranded on the wrong row by a rebuild or the hover re-assert.
+		if (on_mods_tab)
+		{
+			clear_stale_slider_highlight(screen);
+		}
 
 		return result;
 	}
