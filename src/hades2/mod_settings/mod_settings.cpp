@@ -173,6 +173,12 @@ namespace big::mod_settings
 	static constexpr std::size_t component_free_form_offset_y_offset = 0x1'58;  // mFreeFormSelectOffsetY (float)
 	static constexpr std::size_t component_auto_activate_offset      = 0x00'BC; // mAutoActivateWithGamepad (bool)
 
+	// mData.mDef.mFreeFormSelectable: the spatial keyboard/controller nav (SearchInDirection) skips any candidate whose
+	// byte here is false, before it even calls IsSelectable. Mouse hover (MenuScreen::UpdateMouseOver) does not read
+	// it, so clearing it makes DOWN/UP nav jump over a row while the mouse can still hover it (to read its
+	// description). We clear it on disabled/greyed rows so the cursor only lands on interactable ones.
+	static constexpr std::size_t component_free_form_selectable_offset = 0x00'B1; // mData.mDef.mFreeFormSelectable (bool)
+
 	// The Button_Secondary sprite's native atlas width in px. The box draws at native * mScale * mScaleX.
 	static constexpr float button_graphic_native_width = 350.0f;
 
@@ -242,6 +248,7 @@ namespace big::mod_settings
 	using slider_defaults_fn     = void (*)(void* slider);
 	using slider_set_fraction_fn = void (*)(void* slider, float fraction, bool notify);
 	using teleport_cursor_fn     = void (*)(void* menu_screen, GUIComponent* component);
+	using set_mouse_over_fn      = void (*)(void* menu_screen, GUIComponent* component);
 	using component_focused_fn   = void (*)(void* misc_settings_screen, GUIComponent* component);
 	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
 	using mouse_button_down_fn   = bool (*)(void* input_handler);
@@ -287,6 +294,7 @@ namespace big::mod_settings
 	static slider_set_fraction_fn g_slider_set_fraction = nullptr;
 	static std::uintptr_t g_slider_vtable               = 0; // runtime
 	static teleport_cursor_fn g_teleport_cursor = nullptr;   // drops the controller cursor on a row (initial focus)
+	static set_mouse_over_fn g_set_mouse_over   = nullptr;   // MenuScreen::SetMouseOver (highlight + select a row)
 	static const bool* g_use_mouse              = nullptr;   // sgg::ConfigOptions::UseMouse (false in controller mode)
 	static const char* g_config_language        = nullptr;   // sgg::ConfigOptions::Language
 
@@ -2903,6 +2911,68 @@ namespace big::mod_settings
 		}
 	}
 
+	// After a native page scroll (the on-screen arrow's auto-activate fires MiscSettingsScreen::ScrollDown / ScrollUp),
+	// the engine selects the new page's edge row directly - mOptions[pageStart] going down, the last on-page row going
+	// up - via SetMouseOver plus a free-form cursor teleport, without consulting mFreeFormSelectable. So when that edge
+	// row is disabled the cursor lands on it (a hidden highlight on a greyed row) instead of the first interactable
+	// row. This runs right after the native handler when the page changed under keyboard/controller: it finds the
+	// first (going down) or last (going up) eligible row on the new page and moves the highlight and cursor there. If
+	// every row on the page is disabled it leaves the native edge selection as a fallback. Mouse mode is not touched
+	// (the pointer drives hover itself).
+	static void redirect_page_landing(MiscSettingsScreen* screen, bool going_down)
+	{
+		if (!g_set_mouse_over || !g_teleport_cursor || (g_use_mouse && *g_use_mouse) || g_rows.empty())
+		{
+			return;
+		}
+		const std::size_t page_start = screen->m_page_start_index;
+		if (page_start >= g_rows.size())
+		{
+			return;
+		}
+		const std::size_t page_end = std::min(page_start + rows_per_page, g_rows.size()); // exclusive
+
+		const auto eligible = [](const PanelRow& r)
+		{
+			return r.component && !r.disabled && r.component->m_is_useable && !r.component->m_hidden;
+		};
+
+		GUIComponent* target = nullptr;
+		if (going_down)
+		{
+			for (std::size_t i = page_start; i < page_end; ++i)
+			{
+				if (eligible(g_rows[i]))
+				{
+					target = g_rows[i].component;
+					break;
+				}
+			}
+		}
+		else
+		{
+			for (std::size_t i = page_end; i-- > page_start;)
+			{
+				if (eligible(g_rows[i]))
+				{
+					target = g_rows[i].component;
+					break;
+				}
+			}
+		}
+
+		// No eligible row on this page (all disabled): keep the native edge selection.
+		auto* menu = reinterpret_cast<MenuScreen*>(screen);
+		if (!target || menu->m_mouse_over_component == target)
+		{
+			return;
+		}
+
+		g_set_mouse_over(screen, target);  // remove the highlight from the edge row and place it on the eligible one
+		g_teleport_cursor(screen, target); // the free-form cursor follows so the next press moves from here
+		screen->m_category_focused = false;
+	}
+
 	// The row a pending back-navigation should re-focus: the mod_entry row of the mod that was open (focus_stem set),
 	// or the group row that drills into the section that was open (focus_section set). Exactly one of the two fields is
 	// set per restore. Returns nullptr if that row is not in the freshly built view (e.g. it was removed since).
@@ -3030,6 +3100,32 @@ namespace big::mod_settings
 		}
 	}
 
+	// Makes the keyboard/controller spatial nav skip every disabled/greyed row so DOWN/UP jumps straight to the next
+	// interactable one (with the native wrap and cross-page paging), while leaving mouse hover untouched so a mouse
+	// user can still rest on a greyed row to read its description. It clears mData.mDef.mFreeFormSelectable on each
+	// disabled row and the paired value-display column - the only gate SearchInDirection checks before IsSelectable,
+	// and one MenuScreen::UpdateMouseOver never reads. Interactable rows keep the template default (selectable). Called
+	// after every build: the row objects are recreated each time, so a fresh build restores the default before this
+	// reapplies it.
+	static void apply_row_freeform_selectability()
+	{
+		for (const auto& row : g_rows)
+		{
+			if (!row.disabled)
+			{
+				continue;
+			}
+			if (row.component)
+			{
+				*reinterpret_cast<bool*>(reinterpret_cast<char*>(row.component) + component_free_form_selectable_offset) = false;
+			}
+			if (row.value_component)
+			{
+				*reinterpret_cast<bool*>(reinterpret_cast<char*>(row.value_component) + component_free_form_selectable_offset) = false;
+			}
+		}
+	}
+
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
 		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer is stale force the
@@ -3131,6 +3227,10 @@ namespace big::mod_settings
 		// in the UpdateScrollState detour (which the direct g_update_scroll call above routes through), so the key rows
 		// are already shifted here.
 		sync_value_columns();
+
+		// Take the disabled/greyed rows out of the keyboard/controller nav so the cursor only lands on interactable
+		// ones (mouse hover is unaffected).
+		apply_row_freeform_selectability();
 
 		// On a real view change (tab entry, drilling in, going back), drop the cursor on the first row so it highlights
 		// immediately like a native category. Skipped on in-place refreshes so committing an edit or toggling "enabled"
@@ -4198,7 +4298,21 @@ namespace big::mod_settings
 			}
 		}
 
-		return big::g_hooking->get_original<hook_MiscSettingsScreen_HandleInput>()(self, input, x);
+		// The native handler runs the keyboard/controller nav, including the on-screen scroll arrow's auto-activate at
+		// a page edge, which pages via ScrollDown / ScrollUp and selects the new page's edge row. Capture the page
+		// index across the call so we can correct that landing when it falls on a disabled row (see
+		// redirect_page_landing). Only meaningful under keyboard/controller on the Mods tab.
+		const bool track_paging         = on_mods_tab && !(g_use_mouse && *g_use_mouse);
+		const std::uint32_t page_before = screen->m_page_start_index;
+
+		auto result = big::g_hooking->get_original<hook_MiscSettingsScreen_HandleInput>()(self, input, x);
+
+		if (track_paging && screen->m_page_start_index != page_before)
+		{
+			redirect_page_landing(screen, screen->m_page_start_index > page_before);
+		}
+
+		return result;
 	}
 
 	// Close funnel for the options screen: every way the user dismisses it (Escape key, controller B, or clicking the
@@ -4334,6 +4448,7 @@ namespace big::mod_settings
 		// the Back/Cancel control edge for our drilldown back-nav. Both by name. The Controls::Cancel address is
 		// RVA-relative (resolved below). Optional - their absence only degrades controller support, not the tab.
 		g_component_focused = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ComponentFocused"].as_func<void(void*, GUIComponent*)>();
+		g_set_mouse_over = big::hades2_symbol_to_address["sgg::MenuScreen::SetMouseOver"].as_func<void(void*, GUIComponent*)>();
 		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
 		g_mouse_button_down = big::hades2_symbol_to_address["sgg::InputHandler::IsLeftOrRightMouseButtonDown"].as_func<bool(void*)>();
 
