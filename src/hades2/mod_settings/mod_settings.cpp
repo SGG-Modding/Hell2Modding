@@ -54,15 +54,22 @@ namespace big::mod_settings
 	static constexpr std::size_t def_add_text_area         = 0x06; // mAddTextArea (bool)
 	static constexpr std::size_t def_deselect_on_mouse_off = 0x13; // mDeselectOnMouseOff (bool)
 
-	static constexpr std::size_t def_y                  = 0x20;   // mY (float) row Y, read by UpdateScrollState
-	static constexpr std::size_t def_offset_y           = 0x2C;   // mOffsetY (float) template vertical offset
-	static constexpr std::size_t def_scale              = 0x34;   // mScale (float) uniform component scale
-	static constexpr std::size_t def_text_offset_x      = 0x50;   // mTextOffsetX (float)
-	static constexpr std::size_t def_width              = 0x74;   // mWidth (float -> mCustomWidth)
-	static constexpr std::size_t def_height             = 0x78;   // mHeight (float -> mCustomHeight)
-	static constexpr std::size_t def_graphic            = 0x80;   // mGraphic (HashGuid)
-	static constexpr std::size_t def_selected_graphic   = 0x84;   // mSelectedGraphic (HashGuid)
-	static constexpr std::size_t def_alternate_graphic  = 0x88;   // mAlternateGraphic (HashGuid)
+	static constexpr std::size_t def_y                 = 0x20; // mY (float) row Y, read by UpdateScrollState
+	static constexpr std::size_t def_offset_y          = 0x2C; // mOffsetY (float) template vertical offset
+	static constexpr std::size_t def_scale             = 0x34; // mScale (float) uniform component scale
+	static constexpr std::size_t def_text_offset_x     = 0x50; // mTextOffsetX (float)
+	static constexpr std::size_t def_width             = 0x74; // mWidth (float -> mCustomWidth)
+	static constexpr std::size_t def_height            = 0x78; // mHeight (float -> mCustomHeight)
+	static constexpr std::size_t def_graphic           = 0x80; // mGraphic (HashGuid)
+	static constexpr std::size_t def_selected_graphic  = 0x84; // mSelectedGraphic (HashGuid)
+	static constexpr std::size_t def_alternate_graphic = 0x88; // mAlternateGraphic (HashGuid)
+	// SoundCue def fields (each sgg::SoundCue is 0x10 bytes: pOwner @0, mName HashGuid id @8). The base OnClicked plays
+	// mPressSound; the native toggle handler ToggleOptionValueChanged (which our C++ toggle path replaces) is what
+	// plays mToggleOnSound / mToggleOffSound, so we copy the matching one into mPressSound to reproduce the sound.
+	static constexpr std::size_t def_press_sound        = 0x1'B0; // mPressSound (sgg::SoundCue)
+	static constexpr std::size_t def_toggle_on_sound    = 0x1'E0; // mToggleOnSound (sgg::SoundCue)
+	static constexpr std::size_t def_toggle_off_sound   = 0x1'F0; // mToggleOffSound (sgg::SoundCue)
+	static constexpr std::size_t sound_cue_size         = 0x10;   // sizeof sgg::SoundCue
 	static constexpr std::size_t def_add_color          = 0x0D;   // mAddColor (bool)
 	static constexpr std::size_t def_red                = 0xEC;   // mRed button tint (float)
 	static constexpr std::size_t def_green              = 0xF0;   // mGreen button tint (float)
@@ -841,6 +848,19 @@ namespace big::mod_settings
 		const std::uint32_t on_hash  = *reinterpret_cast<std::uint32_t*>(def + def_graphic);
 		const std::uint32_t off_hash = *reinterpret_cast<std::uint32_t*>(def + def_alternate_graphic);
 		g_set_normal_texture(row, is_on ? on_hash : off_hash, false);
+	}
+
+	// Reproduces the vanilla toggle click sound. A native ConfigOptions toggle plays mToggleOnSound / mToggleOffSound
+	// from its ValueChanged handler (MiscSettingsScreen::ToggleOptionValueChanged), which our C++ toggle path replaces,
+	// so a toggle would otherwise be silent (the base GUIComponent::OnClicked only plays mPressSound, which the
+	// OptionToggleButton template leaves unset). We copy the cue for the value the click will produce into mPressSound
+	// just before the base OnClicked runs, so its own audio path plays it with the correct swap handling. The rows are
+	// built on the OptionToggleButton template, so they already carry both toggle cues in their def.
+	static void stage_toggle_press_sound(GUIComponent* row, bool new_value)
+	{
+		char* def             = reinterpret_cast<char*>(row) + component_def_offset;
+		const std::size_t src = new_value ? def_toggle_on_sound : def_toggle_off_sound;
+		std::memcpy(def + def_press_sound, def + src, sound_cue_size);
 	}
 
 	// Dims a row's def text colours (both normal and selected) so a disabled row reads as greyed out and does not
@@ -3972,6 +3992,15 @@ namespace big::mod_settings
 					break;
 				}
 			}
+		}
+
+		// A boolean toggle flips in our own code below rather than through the native toggle handler that plays the
+		// click sound, so stage the matching toggle cue as the press sound before the base OnClicked runs (it plays
+		// mPressSound). Predict the value the click produces (the flip of the current one) to pick the on / off cue.
+		if (matched && !matched_row.disabled && matched_row.kind == RowKind::setting && matched_row.entry
+		    && matched_row.entry->type() == typeid(bool))
+		{
+			stage_toggle_press_sound(self, !matched_row.entry->get_value_base<bool>());
 		}
 
 		const bool result = big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
