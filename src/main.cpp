@@ -1279,6 +1279,126 @@ static void sgg__GUIComponentTextBox__GUIComponentTextBox_dctor(GUIComponentText
 	g_GUIComponentTextBoxes.erase(this_);
 }
 
+// eastl::basic_string_view<char> { const char *mpBegin; size_t mnCount; } as passed to CanStartLine/CanEndLine.
+struct linebreak_string_view
+{
+	const char *mpBegin;
+	uint64_t mnCount;
+};
+
+// Current-language detection shared by the zh-TW line-break and line-spacing hooks below. Resolved at init before
+// any hook fires; the null-guard leaves non-zh-TW locales (and the symbols-not-resolved case) unaffected.
+static const int32_t *g_localization_lang_id  = nullptr; // sgg::Localization::Lang.Code.mId (current language)
+static const int32_t *g_localization_zh_tw_id = nullptr; // sgg::Localization::TraditionalChinese.mId
+
+static bool is_current_language_zh_tw()
+{
+	return g_localization_lang_id != nullptr && g_localization_zh_tw_id != nullptr && *g_localization_lang_id == *g_localization_zh_tw_id;
+}
+
+// zh-TW line-break fix: the game's kinsoku data lists ASCII space in the zh-TW "cannot start a line" AND
+// "cannot end a line" sets, so under zh-TW latin mod text has no legal break point and overflows text boxes in
+// almost all cases. Allowing a line to start with a space restores a legal break.
+static bool sgg__GUIComponentTextBox__CanStartLine(void *loc, linebreak_string_view *sv)
+{
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[0]) == ' ')
+	{
+		return true;
+	}
+
+	return big::g_hooking->get_original<sgg__GUIComponentTextBox__CanStartLine>()(loc, sv);
+}
+
+// Also allow a line to end with a space, so the space trails the previous line instead of indenting the next one.
+// Scoped to zh-TW: Korean also lists space in its "cannot end a line" set, but has no overflow issue to fix.
+static bool sgg__GUIComponentTextBox__CanEndLine(void *loc, linebreak_string_view *sv)
+{
+	if (sv != nullptr && sv->mnCount != 0 && static_cast<uint8_t>(sv->mpBegin[sv->mnCount - 1]) == ' ' && is_current_language_zh_tw())
+	{
+		return true;
+	}
+
+	return big::g_hooking->get_original<sgg__GUIComponentTextBox__CanEndLine>()(loc, sv);
+}
+
+// --- zh-TW fallback line-spacing tightening ---
+// Factor applied to line spacing for latin text under zh-TW
+static float g_zh_tw_fallback_line_spacing_factor = 0.7f;
+
+// True if the UTF-8 text contains a Han (CJK) codepoint - distinguishes a translated zh-TW line from an
+// untranslated English-fallback line (which is Latin/ASCII only).
+static bool text_contains_han(const char *data, size_t len)
+{
+	size_t i = 0;
+	while (i < len)
+	{
+		const uint8_t c = static_cast<uint8_t>(data[i]);
+		uint32_t cp;
+		size_t n;
+		if (c < 0x80)
+		{
+			cp = c;
+			n  = 1;
+		}
+		else if ((c & 0xE0) == 0xC0)
+		{
+			cp = c & 0x1Fu;
+			n  = 2;
+		}
+		else if ((c & 0xF0) == 0xE0)
+		{
+			cp = c & 0x0Fu;
+			n  = 3;
+		}
+		else if ((c & 0xF8) == 0xF0)
+		{
+			cp = c & 0x07u;
+			n  = 4;
+		}
+		else
+		{
+			i += 1;
+			continue;
+		}
+		if (i + n > len)
+		{
+			break;
+		}
+		for (size_t k = 1; k < n; k++)
+		{
+			cp = (cp << 6) | (static_cast<uint8_t>(data[i + k]) & 0x3Fu);
+		}
+		i += n;
+		if ((cp >= 0x34'00 && cp <= 0x4D'BF) || (cp >= 0x4E'00 && cp <= 0x9F'FF) || (cp >= 0xF9'00 && cp <= 0xFA'FF))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// Under zh-TW, untranslated Latin fallback text renders in NotoSansTC, whose tall CJK line height leaves large
+// vertical gaps between the slim Latin lines. GetCurrentLineSpacing returns the per-line vertical advance (used by
+// both the height calc and the renderer). We hook it and scale the advance down for Latin lines under zh-TW.
+// Han lines (real translations) keep their tall advance, so Chinese is never squished.
+static float sgg__GUIComponentTextBox__GetCurrentLineSpacing(GUIComponentTextBox *this_, GUIComponentTextBox_Line *line)
+{
+	const float original = big::g_hooking->get_original<sgg__GUIComponentTextBox__GetCurrentLineSpacing>()(this_, line);
+
+	// Skip when disabled, or when the current language is not Traditional Chinese. The language pointers are
+	// guaranteed valid whenever the factor is below 1.0 (the registration disables the feature otherwise).
+	if (g_zh_tw_fallback_line_spacing_factor >= 1.0f || line == nullptr || !is_current_language_zh_tw())
+	{
+		return original;
+	}
+	// Real translated lines contain Han and keep their tall CJK advance; only untranslated Latin lines are tightened.
+	if (text_contains_han(line->mText.c_str(), line->mText.size()))
+	{
+		return original;
+	}
+	return original * g_zh_tw_fallback_line_spacing_factor;
+}
+
 static void hook_GUIComponentButton_OnSelected(GUIComponentButton *this_, GUIComponentTextBox *prevSelection)
 {
 	std::scoped_lock l(big::lua_manager_extension::g_manager_mutex);
@@ -2800,6 +2920,62 @@ extern "C" __declspec(dllexport) void my_main()
 		{
 			static auto GUIComponentTextBox_dctor = GUIComponentTextBox_dctor_ptr;
 			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GUIComponentTextBox_dctor>("sgg__GUIComponentTextBox__GUIComponentTextBox_dctor", GUIComponentTextBox_dctor);
+		}
+	}
+
+	// Resolve the current-language globals shared by the zh-TW line-break and line-spacing hooks below.
+	{
+		g_localization_lang_id = big::hades2_symbol_to_address["sgg::Localization::Lang"].as<const int32_t *>();
+		g_localization_zh_tw_id = big::hades2_symbol_to_address["sgg::Localization::TraditionalChinese"].as<const int32_t *>();
+	}
+
+	// zh-TW line-break fix: make ASCII space a legal line break so untranslated mod text wraps to fit the box
+	// instead of running off-screen under Traditional Chinese.
+	{
+		gmAddress CanStartLine_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::CanStartLine"];
+		if (!CanStartLine_ptr)
+		{
+			CanStartLine_ptr = gmAddress::scan(
+			    "40 53 48 83 EC 40 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 38 4C 8B 4A 08 33 C0 4C 8B C2 48 8B D9",
+			    "sgg::GUIComponentTextBox::CanStartLine");
+		}
+		if (CanStartLine_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__CanStartLine>(
+			    "sgg__GUIComponentTextBox__CanStartLine",
+			    CanStartLine_ptr);
+		}
+	}
+
+	{
+		gmAddress CanEndLine_ptr = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::CanEndLine"];
+		if (!CanEndLine_ptr)
+		{
+			CanEndLine_ptr = gmAddress::scan(
+			    "40 53 48 83 EC 40 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 38 48 8B 42 08 48 8B D9 48 85 C0 75 15 B0 01",
+			    "sgg::GUIComponentTextBox::CanEndLine");
+		}
+		if (CanEndLine_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__CanEndLine>(
+			    "sgg__GUIComponentTextBox__CanEndLine",
+			    CanEndLine_ptr);
+		}
+	}
+
+	// zh-TW fallback line-spacing: tighten the tall CJK line spacing for untranslated/Latin script lines.
+	{
+		gmAddress GetCurrentLineSpacing_ptr =
+		    big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GetCurrentLineSpacing"];
+		if (!GetCurrentLineSpacing_ptr)
+		{
+			GetCurrentLineSpacing_ptr = gmAddress::scan("40 57 48 83 EC 30 F3 0F 10 4A 0C 0F 57 C0 0F 2E C8 48 8B F9 "
+			                                            "0F 8A ? ? ? ? 0F 85 ? ? ? ? 48 89 5C 24 40 48 8B 5A 30",
+			                                            "sgg::GUIComponentTextBox::GetCurrentLineSpacing");
+		}
+		if (GetCurrentLineSpacing_ptr)
+		{
+			static auto hook_ = hooking::detour_hook_helper::add_queue<sgg__GUIComponentTextBox__GetCurrentLineSpacing>("sgg__GUIComponentTextBox__GetCurrentLineSpacing", GetCurrentLineSpacing_ptr);
 		}
 	}
 
