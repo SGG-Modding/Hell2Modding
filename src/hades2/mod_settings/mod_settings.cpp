@@ -3923,7 +3923,8 @@ namespace big::mod_settings
 	{
 		if (self && !(g_use_mouse && *g_use_mouse))
 		{
-			PanelRow* row = find_row(reinterpret_cast<GUIComponent*>(self));
+			const bool focused = *reinterpret_cast<bool*>(reinterpret_cast<char*>(self) + slider_focused_offset);
+			PanelRow* row      = focused ? find_row(reinterpret_cast<GUIComponent*>(self)) : nullptr;
 			if (row && row->is_slider && !row->disabled && row->entry)
 			{
 				if (g_input_was_right_pressed(input))
@@ -3934,7 +3935,7 @@ namespace big::mod_settings
 				{
 					step_slider_row(self, row, -1);
 				}
-				return true; // own the slider's keyboard/controller input so the native continuous slide never runs
+				return true; // own the focused slider's keyboard/controller input so the native continuous slide never runs
 			}
 		}
 		return big::g_hooking->get_original<hook_GUIComponentSlider_HandleInput>()(self, input, dt);
