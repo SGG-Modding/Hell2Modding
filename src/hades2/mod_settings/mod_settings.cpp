@@ -153,6 +153,7 @@ namespace big::mod_settings
 	static constexpr std::size_t numbox_is_integer_offset    = 0x5'50; // mIsInteger (bool: discrete + integer display)
 	static constexpr std::size_t numbox_disable_input_offset = 0x5'63; // mDisableInput (bool: HandleInput early-out)
 	static constexpr std::size_t numbox_value_text_offset    = 0x5'B0; // mValueTextBox (GUIComponentTextBox*)
+	static constexpr std::size_t numbox_anim_offset          = 0x5'90; // mAnim (GUIComponentAnimation*, box graphic)
 	static constexpr std::size_t numbox_left_arrow_offset    = 0x5'98; // mLeftArrow (GUIComponentAnimation*)
 	static constexpr std::size_t numbox_right_arrow_offset   = 0x5'A0; // mRightArrow (GUIComponentAnimation*)
 	static constexpr std::size_t numbox_label_text_offset    = 0x5'A8; // mTextBox (GUIComponentTextBox*, the label)
@@ -223,7 +224,32 @@ namespace big::mod_settings
 	static constexpr std::size_t slider_focused_offset          = 0x5'48;  // GUIComponentSlider::mFocused (bool)
 	static constexpr std::size_t textbox_use_selected_color_off = 0x5'52;  // GUIComponentTextBox::mUseSelectedTextColor
 	static constexpr std::size_t vtable_on_mouse_off_offset     = 0x00'60; // GUIComponent::OnMouseOff slot
+	static constexpr std::size_t vtable_on_unselected_offset    = 0x00'88; // GUIComponent::OnUnselected slot
 	static constexpr std::size_t vtable_on_focus_off_offset     = 0x1'18;  // GUIComponent::OnFocusOff slot
+
+	// Disabled-greying of a slider / num-box, which are multi-sub-component widgets: the button-style def text greying
+	// does not reach their separate label / value text boxes or their bar / arrow graphics, so each is greyed directly.
+	// A GUIComponentTextBox renders its mDisabledText colour when mUseDisabledTextColor is set (Slider / NumBox Draw
+	// set it on the LABEL each frame from mIsUseable, but only if the box's def carries a non-negative disabled colour,
+	// so we write that colour explicitly and also flag the value box, which Draw never touches). A GUIComponentImage
+	// (slider bar) tints from mColor every frame, so writing mColor (and mColorTarget so a lerp does not undo it) dims
+	// it. Offsets on the text box / image component are absolute.
+	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53;  // GUIComponentTextBox::mUseDisabledTextColor
+	static constexpr std::size_t textbox_disabled_text_red      = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
+	static constexpr std::size_t textbox_disabled_text_green    = 0x1'EC;  // mDisabledTextGreen (float)
+	static constexpr std::size_t textbox_disabled_text_blue     = 0x1'F0;  // mDisabledTextBlue (float)
+	static constexpr std::size_t textbox_disabled_text_alpha    = 0x1'F4;  // mDisabledTextAlpha (float)
+	static constexpr std::size_t image_color_offset             = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
+	static constexpr std::size_t image_color_target_offset      = 0x00'78; // mColorTarget (packed RGBA)
+	static constexpr float disabled_text_grey                   = 0.22f; // matches set_def_text_grey (toggle/text rows)
+	static constexpr std::uint32_t disabled_graphic_grey        = 0xFF'66'66'66; // opaque 0.4 grey (packed A,B,G,R)
+
+	// A GUIComponentAnimation (the num-box's box/frame graphic) tints from its own mColor. NumBox::OnSelected turns the
+	// box black by writing the selected colour here (opaque black for the OptionNumBox template); we write the same on
+	// a disabled num-box so its background matches the hovered look. NumBox Draw / Update never touch this field, so a
+	// one-time write on a non-selectable (disabled) box sticks.
+	static constexpr std::size_t animation_color_offset  = 0x5'58;        // GUIComponentAnimation::mColor (packed ARGB)
+	static constexpr std::uint32_t numbox_hover_bg_black = 0xFF'00'00'00; // the num-box's hovered/selected box colour
 
 	// Scalar deleting destructor slot in the GUIComponent vtable. Called with flags=0 it destructs and frees any owned
 	// sub-components without the final operator delete, so we then. _aligned_free.
@@ -877,6 +903,38 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_sel_text_blue)  = grey;
 	}
 
+	// Greys a child GUIComponentTextBox (a slider / num-box label or value box) by giving it a disabled text colour and
+	// flagging it to use that colour. Draw greys only the LABEL (from the parent's mIsUseable) and only when the box's
+	// def already carries a disabled colour, so we set the colour here; for the value box, which Draw never touches,
+	// the flag persists too. Grey text colour matches set_def_text_grey so every disabled row reads the same.
+	static void grey_text_box(void* text_box)
+	{
+		if (!text_box)
+		{
+			return;
+		}
+		char* b                                                      = static_cast<char*>(text_box);
+		*reinterpret_cast<float*>(b + textbox_disabled_text_red)     = disabled_text_grey;
+		*reinterpret_cast<float*>(b + textbox_disabled_text_green)   = disabled_text_grey;
+		*reinterpret_cast<float*>(b + textbox_disabled_text_blue)    = disabled_text_grey;
+		*reinterpret_cast<float*>(b + textbox_disabled_text_alpha)   = 1.0f;
+		*reinterpret_cast<bool*>(b + textbox_use_disabled_color_off) = true;
+	}
+
+	// Dims a GUIComponentImage (a slider's bar backing / fill) to the disabled grey. Image::Draw tints from mColor each
+	// frame and neither Slider::Draw nor Slider::Update recolour the bar, so writing mColor (plus mColorTarget so the
+	// per-frame lerp does not pull it back) sticks.
+	static void grey_image(void* image)
+	{
+		if (!image)
+		{
+			return;
+		}
+		char* b                                                          = static_cast<char*>(image);
+		*reinterpret_cast<std::uint32_t*>(b + image_color_offset)        = disabled_graphic_grey;
+		*reinterpret_cast<std::uint32_t*>(b + image_color_target_offset) = disabled_graphic_grey;
+	}
+
 	// Sets a row's normal text colour to the native settings-option grey (0.55) used by the game's own.
 	// OptionToggleButton / OptionNumBox rows, so plain-text (key/value) rows built on the CategoryOptionsButton
 	// template (whose own text is a darker 0.35) match the toggle rows instead of reading as brighter full white. The
@@ -1290,7 +1348,20 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
+			// mDisableInput is the num-box's own input gate (its HandleInput early-outs on it), blocking both the
+			// arrow-clicks and keyboard/controller stepping - mIsUseable does NOT gate num-box input. Also clear
+			// mIsUseable so it is non-selectable (nav/hover skip it and NumBox::Draw greys the label from mIsUseable)
+			// and grey the value box. The arrows are left visible (just inert, since mDisableInput blocks their click).
+			// The box graphic is set to the hovered/selected black so a disabled enum reads with the same black
+			// background it shows on hover (the box is non-selectable, so nothing reverts this write).
 			*reinterpret_cast<bool*>(nb_bytes + numbox_disable_input_offset) = true;
+			nb->m_is_useable                                                 = false;
+			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_label_text_offset));
+			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset));
+			if (auto* box = *reinterpret_cast<char**>(nb_bytes + numbox_anim_offset))
+			{
+				*reinterpret_cast<std::uint32_t*>(box + animation_color_offset) = numbox_hover_bg_black;
+			}
 		}
 
 		finalize_row(screen, nb);
@@ -1419,11 +1490,6 @@ namespace big::mod_settings
 		set_sso_string(s + gui_component_name_offset, "OptionSlider");
 		set_sso_string(val + gui_component_name_offset, "OptionSliderValueText");
 
-		if (disabled)
-		{
-			set_def_text_grey(reinterpret_cast<GUIComponent*>(s)); // grey.
-		}
-
 		g_apply_data(reinterpret_cast<MenuScreen*>(screen), reinterpret_cast<GUIComponent*>(s));
 
 		// Override the template's row grid (Y=300, Spacing=45) so the bar lines up with the other rows.
@@ -1448,7 +1514,16 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
-			reinterpret_cast<GUIComponent*>(s)->m_is_useable = false; // not focusable / not draggable
+			// Non-interactive (mIsUseable=0 makes it non-selectable, so nav/hover skip it and Slider::Draw greys the
+			// label from mIsUseable), plus explicit greying of the parts Draw leaves bright: the value box and both bar
+			// images. Mouse-drag is separately blocked in the HandleInput hook (the native drag path ignores
+			// mIsUseable).
+			auto* sc         = reinterpret_cast<GUIComponent*>(s);
+			sc->m_is_useable = false;
+			grey_text_box(*reinterpret_cast<void**>(s + slider_label_offset));
+			grey_text_box(*reinterpret_cast<void**>(s + slider_value_text_offset));
+			grey_image(*reinterpret_cast<void**>(s + slider_backing_offset));
+			grey_image(*reinterpret_cast<void**>(s + slider_fill_offset));
 		}
 
 		finalize_row(screen, reinterpret_cast<GUIComponent*>(s));
@@ -3082,40 +3157,60 @@ namespace big::mod_settings
 		reinterpret_cast<void (*)(void*)>(fn)(comp);
 	}
 
-	// Reverts a stale slider highlight left on the wrong row. Unlike a button, a slider has no Draw-time highlight
-	// gate: its moused-over look (green label plus bright fill) is child state set by GUIComponentSlider::OnMouseOver
-	// and its focused look (green value) by OnFocusOn, and each is undone only by the matching OnMouseOff / OnFocusOff,
+	// Reverts a stale highlight left on the wrong slider or num-box row. Unlike a button, these have no Draw-time
+	// highlight gate: their lit look is child state set by an OnXxxOn handler and undone only by the matching OnXxxOff,
 	// never re-derived in Draw. A rebuild or our hover re-assert (which writes mMouseOverComponent directly, bypassing
-	// the native OnMouseOver / OnMouseOff pairing) can therefore strand that state on a row the cursor has since left,
-	// leaving it stuck green until hovered again. Each frame we revert the moused-over look on any slider row that
-	// is not the live mouse-over component, and the focused look on any slider row that is not the focused option, so
-	// exactly the active row stays highlighted. The flag and the pointer are only ever inconsistent when stranded (the
-	// engine sets both together in one pass), so a genuinely hovered slider is kept. Buttons and text rows self-correct
-	// via their own Draw gate, so only slider rows need this.
-	static void clear_stale_slider_highlight(MiscSettingsScreen* screen)
+	// the native OnMouseOver / OnMouseOff pairing) can strand that state on a row the cursor has since left, leaving it
+	// stuck lit until hovered again. Each frame we revert it on any such row that is not the live mouse-over / focused
+	// component, so exactly the active row stays highlighted.
+	//
+	// Slider and num-box differ in WHICH handler sets the look: a slider's moused-over look (green label + bright fill)
+	// is set by OnMouseOver and reverted by OnMouseOff (vtbl+0x60); a num-box's lit look (black box + green label) is
+	// set by OnSelected and reverted by OnUnselected (vtbl+0x88) - its OnMouseOff is an inherited no-op. The num-box
+	// OnSelected look fires under keyboard/controller nav too (not just mouse), so its revert is gated to mouse mode to
+	// avoid clearing a genuine gamepad selection; the slider moused-over flag is only ever set in mouse mode, so its
+	// revert needs no such gate. Both also carry a focus look (green value + mFocused) reverted by OnFocusOff
+	// (vtbl+0x118). Buttons and text rows self-correct via their own Draw gate, so only these two widgets need this.
+	static void clear_stale_widget_highlight(MiscSettingsScreen* screen)
 	{
-		auto* menu = reinterpret_cast<MenuScreen*>(screen);
+		auto* menu            = reinterpret_cast<MenuScreen*>(screen);
+		const bool mouse_mode = g_use_mouse && *g_use_mouse;
 		for (const auto& row : g_rows)
 		{
-			if (!row.is_slider || !row.component)
+			if (!row.component)
 			{
 				continue;
 			}
 			char* s = reinterpret_cast<char*>(row.component);
 
-			// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over.
-			if (row.component != menu->m_mouse_over_component)
+			if (row.is_slider)
 			{
-				if (auto* label = *reinterpret_cast<char**>(s + slider_label_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
+				// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over.
+				if (row.component != menu->m_mouse_over_component)
 				{
-					call_component_vfn(row.component, vtable_on_mouse_off_offset);
+					if (auto* label = *reinterpret_cast<char**>(s + slider_label_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
+					{
+						call_component_vfn(row.component, vtable_on_mouse_off_offset);
+					}
+				}
+
+				// Focused look lives on mFocused / the value textbox. Revert it unless this row is the focused option.
+				if (row.component != screen->m_component_focused && *reinterpret_cast<bool*>(s + slider_focused_offset))
+				{
+					call_component_vfn(row.component, vtable_on_focus_off_offset);
 				}
 			}
-
-			// Focused look lives on mFocused / the value textbox. Revert it unless this row is the focused option.
-			if (row.component != screen->m_component_focused && *reinterpret_cast<bool*>(s + slider_focused_offset))
+			else if ((row.is_enum || row.is_stepper) && mouse_mode)
 			{
-				call_component_vfn(row.component, vtable_on_focus_off_offset);
+				// Num-box selected look (black box + green label) set by OnSelected, on the label textbox mUseSelected
+				// flag. Revert via OnUnselected (not OnMouseOff, a no-op here) unless it is the live mouse-over.
+				if (row.component != menu->m_mouse_over_component)
+				{
+					if (auto* label = *reinterpret_cast<char**>(s + numbox_label_text_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
+					{
+						call_component_vfn(row.component, vtable_on_unselected_offset);
+					}
+				}
 			}
 		}
 	}
@@ -3932,20 +4027,27 @@ namespace big::mod_settings
 		g_slider_set_fraction(slider, static_cast<float>((v - min_v) / range), true);
 	}
 
-	// Discrete keyboard/controller stepping for our slider rows. The native GUIComponentSlider::HandleInput slides
-	// mFraction continuously (axisSum * speed * dt behind a 0.5 dead-zone, summing dpad, arrow keys, WASD and the left
-	// stick), so a small tap can land back on the same snapped value. For our rows under keyboard/controller (UseMouse
-	// off) we bypass that path and move exactly one step on each left/right press edge, so every input changes the
-	// value by at least one step and a held direction cannot creep between steps. Mouse drag (UseMouse on) and every
-	// native slider keep the original continuous behaviour. If the edge probes are missing the whole path is skipped at
-	// install time, so this only runs when both are available.
+	// Discrete keyboard/controller stepping for our slider rows, and a disabled-row guard. The native
+	// GUIComponentSlider::HandleInput slides mFraction continuously (axisSum * speed * dt behind a 0.5 dead-zone,
+	// summing dpad, arrow keys, WASD and the left stick), so a small tap can land back on the same snapped value. For
+	// our rows under keyboard/controller (UseMouse off) we bypass that path and move exactly one step on each
+	// left/right press edge, so every input changes the value by at least one step and a held direction cannot creep
+	// between steps, gated on the slider's own mFocused@0x548 (the native slide gate) so only the entered slider - not
+	// every visible one - reacts. Mouse drag (UseMouse on) and every native slider keep the original continuous
+	// behaviour. If the edge probes are missing the whole path is skipped at install time, so this only runs when both
+	// are available. A DISABLED slider row must not adjust in any mode: the native mouse-drag path (UseMouse &&
+	// button-down && backing under cursor) never checks mIsUseable, so we swallow its input here or a greyed slider
+	// would still drag under the mouse.
 	static bool hook_GUIComponentSlider_HandleInput(void* self, void* input, float dt)
 	{
-		if (self && !(g_use_mouse && *g_use_mouse))
+		PanelRow* row = self ? find_row(reinterpret_cast<GUIComponent*>(self)) : nullptr;
+		if (row && row->is_slider)
 		{
-			const bool focused = *reinterpret_cast<bool*>(reinterpret_cast<char*>(self) + slider_focused_offset);
-			PanelRow* row      = focused ? find_row(reinterpret_cast<GUIComponent*>(self)) : nullptr;
-			if (row && row->is_slider && !row->disabled && row->entry)
+			if (row->disabled)
+			{
+				return false; // greyed slider: swallow so the native mouse-drag / slide never adjusts it
+			}
+			if (row->entry && !(g_use_mouse && *g_use_mouse) && *reinterpret_cast<bool*>(reinterpret_cast<char*>(self) + slider_focused_offset))
 			{
 				if (g_input_was_right_pressed(input))
 				{
@@ -3955,7 +4057,7 @@ namespace big::mod_settings
 				{
 					step_slider_row(self, row, -1);
 				}
-				return true; // own the focused slider's keyboard/controller input so the native continuous slide never runs
+				return true; // own the focused slider's input so the native continuous slide never runs
 			}
 		}
 		return big::g_hooking->get_original<hook_GUIComponentSlider_HandleInput>()(self, input, dt);
@@ -4260,10 +4362,10 @@ namespace big::mod_settings
 		// native prompts alone).
 		sync_prompts(screen, on_mods_tab);
 
-		// Revert any slider highlight left stranded on the wrong row by a rebuild or the hover re-assert.
+		// Revert any slider / num-box highlight left stranded on the wrong row by a rebuild or the hover re-assert.
 		if (on_mods_tab)
 		{
-			clear_stale_slider_highlight(screen);
+			clear_stale_widget_highlight(screen);
 		}
 
 		return result;
