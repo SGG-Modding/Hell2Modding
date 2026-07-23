@@ -20,7 +20,7 @@
 --- to about 35 characters so it leaves enough space for free-text input strings.
 ---@field description? mod_settings.dynamic_string
 --- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
----@field display_name? mod_settings.dynamic_string
+---@field displayName? mod_settings.dynamic_string
 --- Lower bound for a numeric setting. Combined with `max`, the setting renders as a slider.
 ---@field min? mod_settings.dynamic_number
 --- Upper bound for a numeric setting. Combined with `min`, the setting renders as a slider.
@@ -47,19 +47,19 @@
 ---@field freetext? boolean
 --- Mark that changing this setting requires a game restart. The menu forces the player
 --- to restart when they leave the mod menu after changing it.
----@field restart_required? boolean
+---@field restartRequired? boolean
 --- If this setting can be changed only in the main menu, only in a save, or in both.
 --- When the current context does not match, the row is shown read-only with a note.
---- The "enabled" setting and any `restart_required` settings are always treated as `"main_menu"`.
----@field editable_context? "any" | "main_menu" | "in_save"
+--- The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`.
+---@field editableContext? "any" | "mainMenu" | "inSave"
 --- Append "%" to the displayed value.
----@field show_as_percentage? boolean
+---@field showAsPercentage? boolean
 --- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
----@field is_percentage? boolean
+---@field isPercentage? boolean
 --- Called after this setting's value is changed through the in-game options menu, with the setting's key
 --- and the new value. Use it to apply the change to the loaded run. It is not called in the main menu.
 --- Re-writing the same value is a no-op and does not fire. Errors are logged, not propagated.
----@field on_change? fun(key: string, new_value: boolean|number|string)
+---@field onChange? fun(key: string, new_value: boolean|number|string)
 
 --- An action button in the menu that runs a callback instead of editing a config value. Declare it as a
 --- `configDesc` entry (with a matching key that has NO config value) carrying an `action` function.
@@ -67,13 +67,13 @@
 --- The callback run when the button is activated. Runs in your mod's environment.
 ---@field action fun()
 --- Button label. Defaults to a prettified version of the key.
----@field display_name? mod_settings.dynamic_string
+---@field displayName? mod_settings.dynamic_string
 --- Help text shown while the button is highlighted.
 ---@field description? mod_settings.dynamic_string
 --- Sort key among the section's rows, lower first.
 ---@field order? mod_settings.dynamic_number
 --- When the button is activated: only in the main menu, only in a save, or both.
----@field editable_context? "any" | "main_menu" | "in_save"
+---@field editableContext? "any" | "mainMenu" | "inSave"
 --- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
 --- grey an "Apply" button until a value has actually changed).
 ---@field disabled? mod_settings.dynamic_boolean

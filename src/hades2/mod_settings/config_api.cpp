@@ -243,29 +243,29 @@ namespace big::mod_settings
 		return {};
 	}
 
-	// True if a config.lua description table declares `restart_required = true`.
+	// True if a config.lua description table declares `restartRequired = true`.
 	static bool description_requires_restart(const sol::object& desc)
 	{
 		if (!desc.is<sol::table>())
 		{
 			return false;
 		}
-		sol::object flag = desc.as<sol::table>()["restart_required"];
+		sol::object flag = desc.as<sol::table>()["restartRequired"];
 		return flag.is<bool>() && flag.as<bool>();
 	}
 
-	// Parses an `editable_context` field ("any"/"main_menu"/"in_save") returns `fallback` for anything else. Shared by
+	// Parses an `editableContext` field ("any"/"mainMenu"/"inSave") returns `fallback` for anything else. Shared by
 	// setting metadata and action buttons.
 	static editable_context parse_editable_context(const sol::object& o, editable_context fallback)
 	{
 		if (o.get_type() == sol::type::string)
 		{
 			const std::string s = o.as<std::string>();
-			if (s == "main_menu")
+			if (s == "mainMenu")
 			{
 				return editable_context::main_menu;
 			}
-			if (s == "in_save")
+			if (s == "inSave")
 			{
 				return editable_context::in_save;
 			}
@@ -315,9 +315,9 @@ namespace big::mod_settings
 		setting_metadata m;
 		m.description = describe(desc);
 
-		// Display-name override (`display_name`) empty -> the menu prettifies the key. May be a plain string or a
+		// Display-name override (`displayName`) empty -> the menu prettifies the key. May be a plain string or a
 		// localization table.
-		sol::object display_name = desc["display_name"];
+		sol::object display_name = desc["displayName"];
 		m.name                   = parse_localized(display_name);
 
 		sol::object min_field = desc["min"];
@@ -382,12 +382,12 @@ namespace big::mod_settings
 			m.freetext = freetext_field.as<bool>();
 		}
 
-		sol::object show_pct_field = desc["show_as_percentage"];
+		sol::object show_pct_field = desc["showAsPercentage"];
 		if (show_pct_field.is<bool>())
 		{
 			m.show_as_percentage = show_pct_field.as<bool>();
 		}
-		sol::object is_pct_field = desc["is_percentage"];
+		sol::object is_pct_field = desc["isPercentage"];
 		if (is_pct_field.is<bool>())
 		{
 			m.is_percentage = is_pct_field.as<bool>();
@@ -395,18 +395,18 @@ namespace big::mod_settings
 
 		m.restart_required = description_requires_restart(desc);
 
-		// When the setting may be changed relative to a loaded save (`editable_context`). The menu forces the master
-		// "enabled" toggle and restart_required settings to main_menu regardless, so authors need only annotate the
+		// When the setting may be changed relative to a loaded save (`editableContext`). The menu forces the master
+		// "enabled" toggle and restartRequired settings to main_menu regardless, so authors need only annotate the
 		// in-between cases.
-		m.context = parse_editable_context(desc["editable_context"], editable_context::any);
+		m.context = parse_editable_context(desc["editableContext"], editable_context::any);
 
 		// A field written as a Lua function is a dynamic field: It is skipped by the type-guarded reads above (a
 		// function is not a number/table/bool/string) and instead re-evaluated at render time by
 		// resolve_setting_metadata. Record that any such field is present so the menu knows to resolve. `hidden` is
 		// intentionally NOT dynamic: showing/hiding a row shifts the layout and the row set is only re-evaluated on a
-		// full rebuild, so a live-changing condition must use `disabled` instead. `editable_context` is a fixed design
+		// full rebuild, so a live-changing condition must use `disabled` instead. `editableContext` is a fixed design
 		// property of a setting, so it is static too.
-		for (const char* field : {"display_name", "description", "min", "max", "step", "values", "labels", "order", "disabled"})
+		for (const char* field : {"displayName", "description", "min", "max", "step", "values", "labels", "order", "disabled"})
 		{
 			if (desc[field].get_type() == sol::type::function)
 			{
@@ -501,7 +501,7 @@ namespace big::mod_settings
 
 	// Builds a shallow copy of a setting's description table with every dynamic (function) field replaced by its
 	// evaluated value, so the existing extract_metadata can read it as if the author had written static values.
-	// `on_change` and `action` callables are intentionally left as-is (they are invoked on their own events, not read
+	// `onChange` and `action` callables are intentionally left as-is (they are invoked on their own events, not read
 	// as metadata).
 	static sol::table resolve_description(sol::state_view state, const sol::table& desc, const std::string& guid)
 	{
@@ -514,7 +514,7 @@ namespace big::mod_settings
 				continue;
 			}
 			const std::string field = k.as<std::string>();
-			if (field == "on_change" || field == "action")
+			if (field == "onChange" || field == "action")
 			{
 				out[k] = v;
 				continue;
@@ -527,7 +527,7 @@ namespace big::mod_settings
 	// Reads the static (non-function) action metadata common to collection and dynamic re-resolution.
 	static void read_action_fields(const sol::table& entry, action_info& a)
 	{
-		a.name        = parse_localized(entry["display_name"]);
+		a.name        = parse_localized(entry["displayName"]);
 		a.description = describe(entry);
 		if (sol::object o = entry["order"]; o.get_type() == sol::type::number)
 		{
@@ -538,7 +538,7 @@ namespace big::mod_settings
 		{
 			a.disabled = d.as<bool>();
 		}
-		a.context = parse_editable_context(entry["editable_context"], editable_context::any);
+		a.context = parse_editable_context(entry["editableContext"], editable_context::any);
 	}
 
 	// Walks a mod's configDesc (guided by the config defaults structure, like bind_defaults) collecting action buttons:
@@ -565,7 +565,7 @@ namespace big::mod_settings
 				a.section = section;
 				a.key     = k.as<std::string>();
 				read_action_fields(entry, a);
-				for (const char* field : {"display_name", "description", "order", "disabled"})
+				for (const char* field : {"displayName", "description", "order", "disabled"})
 				{
 					if (entry[field].get_type() == sol::type::function)
 					{
@@ -644,7 +644,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Attaches a Lua on_change callback (from a setting's config.lua description) to its config entry. toml_v2 already
+	// Attaches a Lua onChange callback (from a setting's config.lua description) to its config entry. toml_v2 already
 	// fires config_entry::m_setting_changed after a value changes and the file is saved. This routes that to Lua,
 	// passing the new value and the setting key. It fires only for an edit made through the in-game options menu
 	// (on_change_callbacks_enabled gates on the options screen being open in-game), so it is never called in the main
@@ -671,7 +671,7 @@ namespace big::mod_settings
 			if (!result.valid())
 			{
 				const sol::error err = result;
-				LOG(WARNING) << "[mod_settings] on_change callback failed for " << changed->m_definition.m_section << "."
+				LOG(WARNING) << "[mod_settings] onChange callback failed for " << changed->m_definition.m_section << "."
 				             << changed->m_definition.m_key << ": " << err.what();
 			}
 		};
@@ -796,17 +796,17 @@ namespace big::mod_settings
 			}
 
 			// A rich description table carries metadata. For a leaf it is the setting's metadata. For a nested group (a
-			// table value). It is group-level metadata (e.g. order/display_name/hidden) declared alongside the child
+			// table value). It is group-level metadata (e.g. order/displayName/hidden) declared alongside the child
 			// descriptions. Registered under (section, key) either way.
 			if (desc.is<sol::table>())
 			{
 				meta_out.push_back({section, key, extract_metadata(desc.as<sol::table>())});
 
-				// A leaf may also declare an on_change callback. Attach it to the bound entry so a menu edit (or the
+				// A leaf may also declare an onChange callback. Attach it to the bound entry so a menu edit (or the
 				// mod's own write) of this setting notifies the mod in Lua.
 				if (bound_entry)
 				{
-					sol::object on_change = desc.as<sol::table>()["on_change"];
+					sol::object on_change = desc.as<sol::table>()["onChange"];
 					if (on_change.is<sol::protected_function>())
 					{
 						attach_on_change(bound_entry, on_change.as<sol::protected_function>());

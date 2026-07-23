@@ -21,8 +21,8 @@ namespace big::mod_settings
 	// before that point, while some settings only apply to a live run. The settings menu greys a row (read-only, with a
 	// note) when the current context does not match: any: editable anywhere (default live-read settings). main_menu:
 	// only from the main menu (greyed while a save is loaded). Forced for a mod's master "enabled" toggle and for any
-	// restart_required setting. in_save: only while a save is loaded (greyed at the main menu). Authors declare this
-	// per setting via `editable_context = "main_menu" | "in_save" | "any"`.
+	// restartRequired setting. in_save: only while a save is loaded (greyed at the main menu). Authors declare this
+	// per setting via `editableContext = "mainMenu" | "inSave" | "any"`.
 	enum class editable_context
 	{
 		any,
