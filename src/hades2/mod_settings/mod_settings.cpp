@@ -493,7 +493,6 @@ namespace big::mod_settings
 	static View g_pending_view = View::mod_list;
 	static std::string g_pending_stem;
 	static std::string g_pending_section;
-	static bool g_nav_reset_to_top = false; // Reset action: force a top (non-instant) rebuild next apply_nav.
 
 	// Identifies a panel row by its stable fields (kind + owning mod + section + key) so it can be matched to the
 	// equivalent freshly built row after a rebuild frees every component.
@@ -3435,11 +3434,9 @@ namespace big::mod_settings
 	// keeps the fade-in transition.
 	static void apply_nav(MiscSettingsScreen* screen)
 	{
-		// A Reset forces a top (non-instant) rebuild even though the view is unchanged, so the restored rows and the
-		// scrollbar stay in sync - an in-place rebuild that preserves a scrolled position would leave the stale page-1
-		// rows visible (see the scroll-model notes).
-		const bool instant = !g_nav_reset_to_top && (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
-		g_nav_reset_to_top = false;
+		// A rebuild that stays on the same view/mod/section (a setting edit, an "enabled" toggle, or a Reset) is
+		// applied instantly, which preserves the current scroll page instead of snapping back to the top.
+		const bool instant = (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
 
 		// Maintain the restore stack. A drill-in step (the mod list into a mod, or a section into a deeper child
 		// section) pushes the parent's scroll offset plus the identity of the row being drilled through A back step (a
@@ -3556,18 +3553,19 @@ namespace big::mod_settings
 	}
 
 	// Handles a Reset activation on the Mods tab: restores the in-scope settings to their config.lua defaults, then (in
-	// a mod's settings view, where the changed values are on screen) queues a top rebuild so the widgets show the
-	// restored values. Safe to call from input/click context because the rebuild is deferred to the Update hook.
+	// a mod's settings view, where the changed values are on screen) queues an in-place rebuild so the widgets show the
+	// restored values. The rebuild is instant (same view/mod/section), so it preserves the current scroll page and a
+	// Reset never jumps back to the first page. Safe to call from input/click context because the rebuild is deferred
+	// to the Update hook.
 	static void perform_reset()
 	{
 		const bool changed = reset_settings_to_defaults();
 		if (changed && g_view == View::mod_settings)
 		{
-			g_pending_view     = g_view;
-			g_pending_stem     = g_view_stem;
-			g_pending_section  = g_view_section;
-			g_nav_pending      = true;
-			g_nav_reset_to_top = true;
+			g_pending_view    = g_view;
+			g_pending_stem    = g_view_stem;
+			g_pending_section = g_view_section;
+			g_nav_pending     = true;
 		}
 	}
 
@@ -3829,8 +3827,7 @@ namespace big::mod_settings
 		g_view_stem.clear();
 		g_view_section.clear();
 		g_pending_section.clear();
-		g_nav_pending      = false;
-		g_nav_reset_to_top = false;
+		g_nav_pending = false;
 		g_nav_stack.clear();
 		g_has_pending_restore    = false;
 		g_restart_required       = false;
