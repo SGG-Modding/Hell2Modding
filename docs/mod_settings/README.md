@@ -6,6 +6,13 @@ their settings look and read/write their values through a `config.lua` that retu
 - `config` - the default values (and the live values once loaded).
 - `configDesc` - the description/metadata for each setting (labels, help text, ranges, enums, ...).
 
+> **Only keys with a `configDesc` entry are shown.** A key present in `config` but absent from `configDesc`
+> is treated as internal state and is not displayed in the menu (a group whose keys are all undescribed
+> produces no row at all). A `configDesc` entry can be either a metadata table or a plain description string -
+> either counts as "described". The one exception is the mod's master `enabled` toggle, which is always shown
+> so the mod stays toggleable even when it is not described. Reset to defaults likewise only affects the
+> keys the menu shows.
+
 This folder ships [LuaCATS](https://luals.github.io/wiki/annotations/) definitions
 ([`config_schema.lua`](./config_schema.lua)) so that VS Code gives you **autocomplete** and **hover
 documentation** while you write `configDesc`, plus **field type checking** on settings you annotate

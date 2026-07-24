@@ -2184,6 +2184,16 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
+	// True if a config entry carries an author-written description string. Chalk stores each configDesc entry's plain
+	// description directly on the bound entry (config:bind(section, key, value, description)), so this is how a
+	// Chalk-only mod (which never calls rom.mod_settings.load) signals that a key is described. Our own loader also
+	// writes the description here for string / `description`-field descs, and additionally records metadata-only descs
+	// in g_described_keys, so the two checks together recognize every configDesc form as "described".
+	static bool entry_has_description(const toml_v2::config_file::config_entry_base* entry)
+	{
+		return entry && !entry->m_description.m_description.empty();
+	}
+
 	// True when the options screen was opened during gameplay (a save is loaded), false when opened from the main menu.
 	// Captured from the MiscSettingsScreen constructor's "opened from" argument (see hook_MiscSettingsScreen_ctor).
 	// Used to grey out context-restricted setting rows.
@@ -2312,6 +2322,18 @@ namespace big::mod_settings
 
 				if (key.m_section == section)
 				{
+					// Hide config keys that carry no configDesc entry, so a mod's internal or bookkeeping values do not
+					// clutter its settings page. A key counts as described if it has metadata / a description from our
+					// loader (g_described_keys) or a plain description string bound by Chalk (entry_has_description).
+					// The one exception is the master "enabled" toggle, always shown so the mod stays toggleable even
+					// when its author did not describe it.
+					const bool is_enabled_toggle = key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key);
+					if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key)
+					    && !entry_has_description(entry.get()))
+					{
+						continue;
+					}
+
 					panel_item it;
 					it.key        = key.m_key;
 					it.entry      = entry.get();
@@ -2325,6 +2347,14 @@ namespace big::mod_settings
 				}
 				else if (key.m_section.rfind(section_prefix, 0) == 0)
 				{
+					// An undescribed descendant contributes nothing: it neither shows as a row inside the group nor
+					// ranks the group, so a subtree of only undescribed keys produces no group row at all. A Chalk
+					// plain-string description counts as described too (entry_has_description).
+					if (!setting_is_described(stem, key.m_section, key.m_key) && !entry_has_description(entry.get()))
+					{
+						continue;
+					}
+
 					// A descendant section: the direct child under `section` is the first path segment after the
 					// prefix. Collapse its whole subtree into one group row, ranked by its earliest-defined descendant.
 					const std::string rest       = key.m_section.substr(section_prefix.size());
@@ -3495,6 +3525,15 @@ namespace big::mod_settings
 					continue;
 				}
 				auto* e = entry.get();
+
+				// Reset only the settings the menu actually shows: described keys (from our loader or a Chalk
+				// plain-string description) plus the always-shown master "enabled" toggle. Hidden (undescribed) keys
+				// are the mod's internal state, so a menu Reset leaves them untouched.
+				const bool is_enabled_toggle = def.m_section == root_section && e->type() == typeid(bool) && is_enabled_key(def.m_key);
+				if (!is_enabled_toggle && !setting_is_described(guid, def.m_section, def.m_key) && !entry_has_description(e))
+				{
+					continue;
+				}
 
 				auto def_val = get_setting_default(guid, def.m_section, def.m_key);
 				if (!def_val)

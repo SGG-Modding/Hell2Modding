@@ -81,4 +81,8 @@
 --- Each entry in `configDesc` can be a simple key:description string, a setting description table, an action
 --- button, or a nested table of descriptions mirroring a config group. The underlying .cfg file contents are
 --- not changed by this format.
+---
+--- Only keys with a `configDesc` entry are shown in the menu: a `config` key with no entry here is treated as
+--- internal state and hidden (a group whose keys are all undescribed produces no row). The mod's master
+--- `enabled` toggle is always shown regardless, so the mod stays toggleable.
 ---@alias mod_settings.config_desc table<string, mod_settings.setting_description | mod_settings.action_description | string | table>

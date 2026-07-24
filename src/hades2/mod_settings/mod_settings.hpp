@@ -86,6 +86,11 @@ namespace big::mod_settings
 	// (in which case the menu renders it with type-based defaults).
 	std::optional<setting_metadata> get_setting_metadata(const std::string& guid, const std::string& section, const std::string& key);
 
+	// True if (section, key) carries a configDesc entry (a description string or a table). The menu shows only
+	// described keys; an undescribed config key is hidden, so a mod's internal/bookkeeping config values do not clutter
+	// the settings page. The mod's master "enabled" toggle is always shown regardless (handled in build_mod_settings).
+	bool setting_is_described(const std::string& guid, const std::string& section, const std::string& key);
+
 	// Like get_setting_metadata, but re-evaluates the setting's dynamic (Lua-function) description fields against the
 	// current game state, returning up-to-date values (slider bounds, enum options, hidden, display name, ...). Call
 	// this (on the game thread, while the Lua state is alive) when get_setting_metadata reports has_dynamic. The

@@ -47,6 +47,11 @@ namespace big::mod_settings
 	// (guid + '\0' + section + '\0' + key).
 	static std::map<std::string, std::string> g_setting_default;
 
+	// (section, key) pairs that carry a configDesc entry (a description string or a rich table). A config key with no
+	// configDesc entry is not shown in the menu, except the mod's master "enabled" toggle (always shown so the mod
+	// stays toggleable). Keyed the same way as g_setting_metadata (guid + '\0' + section + '\0' + key).
+	static std::set<std::string> g_described_keys;
+
 	// Guids of mods that called rom.mod_settings.opt_out(), i.e. asked not to be configured through the in-game menu.
 	// Guarded by g_metadata_mutex. Cleared and rebuilt on each Lua-state init (see bind_config_api) because opt_out
 	// re-runs with each mod's main.lua.
@@ -90,6 +95,10 @@ namespace big::mod_settings
 		{
 			it = (it->first.rfind(prefix, 0) == 0) ? g_setting_default.erase(it) : std::next(it);
 		}
+		for (auto it = g_described_keys.begin(); it != g_described_keys.end();)
+		{
+			it = (it->rfind(prefix, 0) == 0) ? g_described_keys.erase(it) : std::next(it);
+		}
 	}
 
 	bool setting_requires_restart(const std::string& guid, const std::string& section, const std::string& key)
@@ -108,6 +117,14 @@ namespace big::mod_settings
 			return std::nullopt;
 		}
 		return it->second;
+	}
+
+	// True if (section, key) carries a configDesc entry (any form: a description string, a setting/action table, or a
+	// group table). The menu shows only described keys; an undescribed config key is hidden (see build_mod_settings).
+	bool setting_is_described(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		return g_described_keys.contains(metadata_key(guid, section, key));
 	}
 
 	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key)
@@ -739,10 +756,11 @@ namespace big::mod_settings
 
 	// Recursively binds a config.lua `defaults` table into `cf` under `section`, forwarding each leaf's description.
 	// Nested tables become sub-sections ("section.key"). Each flat leaf whose description is a rich table has its
-	// metadata extracted into `meta_out` (keyed by section+key). config_file::bind adopts a value already saved in the
-	// .cfg, preserving user edits, and binds under section "config", so the .cfg stays byte-compatible with what
-	// SGG_Modding-Chalk wrote.
-	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out, std::vector<std::tuple<std::string, std::string, std::string>>& defaults_out)
+	// metadata extracted into `meta_out` (keyed by section+key), and every leaf that carries any configDesc entry (a
+	// string or a table) is recorded in `described_out` so the menu can hide undescribed keys. config_file::bind
+	// adopts a value already saved in the .cfg, preserving user edits, and binds under section "config", so the .cfg
+	// stays byte-compatible with what SGG_Modding-Chalk wrote.
+	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out, std::vector<std::tuple<std::string, std::string, std::string>>& defaults_out, std::vector<std::pair<std::string, std::string>>& described_out)
 	{
 		sol::table desc_tbl;
 		const bool has_desc = desc_obj.is<sol::table>();
@@ -764,6 +782,7 @@ namespace big::mod_settings
 			{
 				desc = desc_tbl[key];
 			}
+			const bool described = desc.get_type() != sol::type::lua_nil && desc.get_type() != sol::type::none;
 
 			const sol::type vt = value_obj.get_type();
 			std::optional<std::any> default_any;
@@ -771,7 +790,7 @@ namespace big::mod_settings
 			switch (vt)
 			{
 			case sol::type::table:
-				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out, defaults_out);
+				bind_defaults(cf, value_obj.as<sol::table>(), desc, section + "." + key, meta_out, defaults_out, described_out);
 				break;
 			case sol::type::boolean:
 				bound_entry = cf->bind(section, key, value_obj.as<bool>(), localized_fallback(describe(desc)));
@@ -793,6 +812,13 @@ namespace big::mod_settings
 			if (default_any)
 			{
 				defaults_out.emplace_back(section, key, toml_v2::toml_type_converter::convert_to_string(*default_any));
+
+				// Record a described leaf so the menu shows it; an undescribed leaf is hidden. Only leaves reach here
+				// (default_any is set for bool/number/string, not a group table).
+				if (described)
+				{
+					described_out.emplace_back(section, key);
+				}
 			}
 
 			// A rich description table carries metadata. For a leaf it is the setting's metadata. For a nested group (a
@@ -879,9 +905,10 @@ namespace big::mod_settings
 		// setting's metadata, then persist the file.
 		std::vector<collected_metadata> collected;
 		std::vector<std::tuple<std::string, std::string, std::string>> collected_defaults; // (section.
+		std::vector<std::pair<std::string, std::string>> collected_described;              // (section, key) with a desc
 		if (defaults.is<sol::table>())
 		{
-			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", collected, collected_defaults);
+			bind_defaults(cf.get(), defaults.as<sol::table>(), descriptions, "config", collected, collected_defaults, collected_described);
 		}
 		cf->save();
 
@@ -950,6 +977,10 @@ namespace big::mod_settings
 			for (auto& [section, key, serialized] : collected_defaults)
 			{
 				g_setting_default[metadata_key(guid, section, key)] = std::move(serialized);
+			}
+			for (const auto& [section, key] : collected_described)
+			{
+				g_described_keys.insert(metadata_key(guid, section, key));
 			}
 			int rank = 0;
 			for (const auto& [off, section, key] : by_offset)
