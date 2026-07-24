@@ -41,7 +41,7 @@ Hover any field in the editor for its documentation. The available fields on a s
 | `disabled` | boolean \| callback | Grey the setting out (read-only) while true. Updates live while the menu is open. See below. |
 | `freetext` | boolean | Force a bounded number to be a free-text entry instead of a slider. |
 | `restartRequired` | boolean | Force the user to restart the game when this setting is changed. |
-| `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` | If this setting can be changed only in the main menu, only in a save, or in both. When the current context does not match, the row is shown read-only with a note. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. Defaults to `"any"`. |
+| `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict when this setting can be changed: `"any"` (default), `"mainMenu"` (only from the main menu), `"inSave"` (only while a save is loaded - both in the Crossroads and mid-run), or `"inHub"` (only while in the Crossroads). When the current context does not match, the row is shown read-only with a note. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
 | `showAsPercentage` | boolean | Append "%" to the value. |
 | `isPercentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". |
 | `onChange` | `fun(key, new_value)` | Called after the setting is changed in the in-game menu. Use it to apply the change to the loaded run. See below. |

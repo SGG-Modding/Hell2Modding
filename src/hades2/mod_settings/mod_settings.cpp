@@ -2198,6 +2198,12 @@ namespace big::mod_settings
 	// Used to grey out context-restricted setting rows.
 	static bool g_opened_in_game = false;
 
+	// True when the game global `CurrentHubRoom` is non-nil, i.e. the player is in the hub (the Crossroads) rather than
+	// in a run. Captured once in the ctor (see hook_MiscSettingsScreen_ctor) via game_is_in_hub() - the context cannot
+	// change while the pause screen is open. Combined with g_opened_in_game (a stale CurrentHubRoom at the main menu is
+	// then still safe) it gates `editableContext = "inHub"` rows.
+	static bool g_in_hub = false;
+
 
 	// True while a native options screen is open (set in the ctor,. Cleared when it actually closes in ExitScreen).
 	// Combined with g_opened_in_game it gates on_change callbacks so they fire only for a setting changed through the
@@ -2248,15 +2254,16 @@ namespace big::mod_settings
 		return meta ? meta->context : editable_context::any;
 	}
 
-	// True when a setting cannot be changed in the current screen context (main-menu vs in-game), so its row is shown
-	// read-only with an explanatory note instead of an editable widget.
+	// True when a setting cannot be changed in the current screen context (main-menu vs in-game vs in-hub), so its row
+	// is shown read-only with an explanatory note instead of an editable widget.
 	static bool is_context_restricted(editable_context ctx)
 	{
 		switch (ctx)
 		{
 		case editable_context::main_menu: return g_opened_in_game;  // main-menu-only, greyed while in a save.
 		case editable_context::in_save:   return !g_opened_in_game; // in-save-only, greyed at the main menu.
-		default:                          return false;                                      // any.
+		case editable_context::in_hub:    return !(g_opened_in_game && g_in_hub); // hub-only, greyed at menu / mid-run.
+		default:                          return false;                                                    // any.
 		}
 	}
 
@@ -2268,6 +2275,7 @@ namespace big::mod_settings
 		{
 		case editable_context::main_menu: return "This setting can only be changed from the main menu.";
 		case editable_context::in_save:   return "This setting can only be changed while a save is loaded.";
+		case editable_context::in_hub:    return "This setting can only be changed while in the Crossroads.";
 		default:                          return {};
 		}
 	}
@@ -3843,8 +3851,10 @@ namespace big::mod_settings
 
 		// Record whether the screen was opened during gameplay (a save loaded) or from the main menu, so
 		// context-restricted rows can be greyed. Must be set before the original ctor runs, which shows the last-viewed
-		// category and may build our panel via DoShowCategory.
+		// category and may build our panel via DoShowCategory. game_is_in_hub() further distinguishes the hub (the
+		// Crossroads) from a run for `editableContext = "inHub"` rows.
 		g_opened_in_game      = opener_indicates_in_game(opened_from);
+		g_in_hub              = game_is_in_hub();
 		g_options_screen_open = true;
 
 		// The engine constructor returns `this` forward it unchanged

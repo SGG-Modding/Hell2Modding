@@ -271,8 +271,8 @@ namespace big::mod_settings
 		return flag.is<bool>() && flag.as<bool>();
 	}
 
-	// Parses an `editableContext` field ("any"/"mainMenu"/"inSave") returns `fallback` for anything else. Shared by
-	// setting metadata and action buttons.
+	// Parses an `editableContext` field ("any"/"mainMenu"/"inSave"/"inHub") returns `fallback` for anything else.
+	// Shared by setting metadata and action buttons.
 	static editable_context parse_editable_context(const sol::object& o, editable_context fallback)
 	{
 		if (o.get_type() == sol::type::string)
@@ -285,6 +285,10 @@ namespace big::mod_settings
 			if (s == "inSave")
 			{
 				return editable_context::in_save;
+			}
+			if (s == "inHub")
+			{
+				return editable_context::in_hub;
 			}
 			if (s == "any")
 			{
@@ -1010,6 +1014,21 @@ namespace big::mod_settings
 		setting_metadata m        = extract_metadata(resolved);
 		m.has_dynamic             = false; // already resolved to concrete values.
 		return m;
+	}
+
+	// True when the game is in the hub (the Crossroads): the game Lua global `CurrentHubRoom` is non-nil (the game sets
+	// it to the current hub room while in the hub and clears it during a run). Reads the game's Lua state directly (the
+	// same state mods run in, where `_G` is the game globals - see hades_lua.hpp), so it must be called on the game
+	// thread while the state is alive. Returns false when the Lua manager is not up yet.
+	bool game_is_in_hub()
+	{
+		if (!big::g_lua_manager)
+		{
+			return false;
+		}
+		sol::state_view state = big::g_lua_manager->lua_state();
+		const sol::object chr = state["CurrentHubRoom"];
+		return chr.get_type() != sol::type::lua_nil && chr.get_type() != sol::type::none;
 	}
 
 	std::vector<action_info> get_actions(const std::string& guid, const std::string& section)

@@ -21,13 +21,16 @@ namespace big::mod_settings
 	// before that point, while some settings only apply to a live run. The settings menu greys a row (read-only, with a
 	// note) when the current context does not match: any: editable anywhere (default live-read settings). main_menu:
 	// only from the main menu (greyed while a save is loaded). Forced for a mod's master "enabled" toggle and for any
-	// restartRequired setting. in_save: only while a save is loaded (greyed at the main menu). Authors declare this
-	// per setting via `editableContext = "mainMenu" | "inSave" | "any"`.
+	// restartRequired setting. in_save: only while a save is loaded, both in the hub and mid-run (greyed at the main
+	// menu). in_hub: only while in the hub / Crossroads (greyed at the main menu AND mid-run), for settings unsafe to
+	// change during a run. Authors declare this per setting via
+	// `editableContext = "mainMenu" | "inSave" | "inHub" | "any"`.
 	enum class editable_context
 	{
 		any,
 		main_menu,
 		in_save,
+		in_hub,
 	};
 
 	// Author-declared metadata for a single setting, extracted from its config.lua description table by
@@ -90,6 +93,12 @@ namespace big::mod_settings
 	// described keys; an undescribed config key is hidden, so a mod's internal/bookkeeping config values do not clutter
 	// the settings page. The mod's master "enabled" toggle is always shown regardless (handled in build_mod_settings).
 	bool setting_is_described(const std::string& guid, const std::string& section, const std::string& key);
+
+	// True when the game is currently in the hub (the Crossroads): the game Lua global `CurrentHubRoom` is non-nil.
+	// Reads the game's Lua state (shared with mods), so it must be called on the game thread while the state is alive.
+	// The settings menu uses it to gate `editableContext = "inHub"` rows (editable only in the hub, not mid-run).
+	// Returns false when the Lua state is unavailable.
+	bool game_is_in_hub();
 
 	// Like get_setting_metadata, but re-evaluates the setting's dynamic (Lua-function) description fields against the
 	// current game state, returning up-to-date values (slider bounds, enum options, hidden, display name, ...). Call

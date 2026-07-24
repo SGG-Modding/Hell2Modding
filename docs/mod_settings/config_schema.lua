@@ -48,10 +48,10 @@
 --- Mark that changing this setting requires a game restart. The menu forces the player
 --- to restart when they leave the mod menu after changing it.
 ---@field restartRequired? boolean
---- If this setting can be changed only in the main menu, only in a save, or in both.
+--- If this setting can be changed only in the main menu, only in a save (run or Crossroads), only in the Crossroads, or anywhere.
 --- When the current context does not match, the row is shown read-only with a note.
 --- The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`.
----@field editableContext? "any" | "mainMenu" | "inSave"
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Append "%" to the displayed value.
 ---@field showAsPercentage? boolean
 --- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
@@ -72,8 +72,8 @@
 ---@field description? mod_settings.dynamic_string
 --- Sort key among the section's rows, lower first.
 ---@field order? mod_settings.dynamic_number
---- When the button is activated: only in the main menu, only in a save, or both.
----@field editableContext? "any" | "mainMenu" | "inSave"
+--- When the button is activated: only in the main menu, only in a save (run or Crossroads), only in the Crossroads, or anywhere.
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
 --- grey an "Apply" button until a value has actually changed).
 ---@field disabled? mod_settings.dynamic_boolean
