@@ -43,6 +43,12 @@ namespace big::mod_settings
 		localized_text name;        // display-name override (empty -> prettified key)
 		localized_text description; // same text written to the .cfg comment
 
+		// Shown in the description box in place of `description` while the row is greyed by its own `disabled` field,
+		// so the author can explain why it is unavailable. Empty -> fall back to `description`. Not applied to a
+		// context-restricted row (which shows its own where-to-change note) or a mod-disabled row (the off mod toggle
+		// already explains that). May be a plain string, a localization table, or a dynamic (function) field.
+		localized_text disabled_description;
+
 		bool has_min  = false;
 		double min    = 0.0;
 		bool has_max  = false;
@@ -112,11 +118,12 @@ namespace big::mod_settings
 	// `order`.
 	struct action_info
 	{
-		std::string section;              // config section the action lives in (drilldown level)
-		std::string key;                  // description key of the action
-		localized_text name;              // button label (display_name, or the prettified key)
-		localized_text description;       // help text shown while highlighted
-		bool has_order           = false; // author-declared sort key present
+		std::string section;                 // config section the action lives in (drilldown level)
+		std::string key;                     // description key of the action
+		localized_text name;                 // button label (display_name, or the prettified key)
+		localized_text description;          // help text shown while highlighted
+		localized_text disabled_description; // shown instead of `description` while author-disabled (may be dynamic)
+		bool has_order           = false;    // author-declared sort key present
 		double order             = 0.0;
 		editable_context context = editable_context::any; // when the button is enabled (main-menu vs in-save)
 		bool disabled            = false; // greyed and non-interactive (author-declared, may be dynamic)

@@ -39,6 +39,7 @@ Hover any field in the editor for its documentation. The available fields on a s
 | `order` | number \| callback | Sort key for custom ordering config entries in the menu, lower first. |
 | `hidden` | boolean | Hide the setting from the menu entirely. Static only - use `disabled` for a condition that changes while the menu is open. |
 | `disabled` | boolean \| callback | Grey the setting out (read-only) while true. Updates live while the menu is open. See below. |
+| `disabledDescription` | string \| localization table \| callback | Description shown in place of `description` while the setting is greyed by its own `disabled` field, to explain why. Falls back to `description` when omitted. Not used for context-restricted or mod-disabled rows. |
 | `freetext` | boolean | Force a bounded number to be a free-text entry instead of a slider. |
 | `restartRequired` | boolean | Force the user to restart the game when this setting is changed. |
 | `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict when this setting can be changed: `"any"` (default), `"mainMenu"` (only from the main menu), `"inSave"` (only while a save is loaded - both in the Crossroads and mid-run), or `"inHub"` (only while in the Crossroads). When the current context does not match, the row is shown read-only with a note. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
@@ -51,7 +52,7 @@ Hover any field in the editor for its documentation. The available fields on a s
 Most fields can also be dynamically resolved through a function call, which is evaluated when the menu
 is opened and refreshed (after any other setting is changed). This lets a setting react to the live game
 state or to other settings. The following may be a **function** returning the value instead of a
-literal: `displayName`, `description`, `min`, `max`, `step`, `values`, `labels`, `order`, and
+literal: `displayName`, `description`, `disabledDescription`, `min`, `max`, `step`, `values`, `labels`, `order`, and
 `disabled`. The function runs in your mod's environment, so it can read your `config`, and call functions
 in your `mod` or the `game` namespace.
 
@@ -67,17 +68,24 @@ meta_reward_fix_chance_cap = {
   displayName = "Meta Reward Chance Cap",
   min = 30, max = 90,
   disabled = function() return not mod.config.meta_reward_fix end, -- greyed unless the fix toggle is on
+  disabledDescription = "Enable \"Fix Meta Reward Count\" above to change this.", -- shown while greyed
 },
 ```
 
 Use `disabled` (greys the row in place) for a condition that changes while the menu is open. `hidden` is
-static only - it is evaluated only when the menu builds, and cannot be changed dynamically.
+static only - it is evaluated only when the menu builds, and cannot be changed dynamically. Pair `disabled`
+with `disabledDescription` to explain why the row is greyed: while the row is disabled by its own `disabled`
+field, the description box shows `disabledDescription` instead of the normal `description` (falling back to
+`description` if you omit it). A greyed row still highlights on mouse hover so the note is readable. This does
+not apply to context-restricted rows (which show their own "change it in X" note) or while the whole mod is
+disabled.
 
 ## Action buttons
 
 A `configDesc` entry with an `action` function (and a key that has NO config value) renders as a button
 that runs the callback when pressed, instead of editing a setting. It supports `displayName`, `description`,
-`order`, `editableContext`, and `disabled` (grey the button live, e.g. until a value has changed).
+`disabledDescription`, `order`, `editableContext`, and `disabled` (grey the button live, e.g. until a value
+has changed).
 
 ```lua
 apply_scaling = {
@@ -85,6 +93,8 @@ apply_scaling = {
   displayName = "Apply Late Biome Scaling",
   description = "Apply the scaling values above to the current run.",
   editableContext = "inSave", -- greyed unless a save is loaded
+  disabled = function() return not mod.HasUnappliedScaling() end, -- greyed until a value changes
+  disabledDescription = "Change a scaling value above to enable this.", -- shown while greyed
 },
 ```
 

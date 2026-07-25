@@ -341,6 +341,11 @@ namespace big::mod_settings
 		sol::object display_name = desc["displayName"];
 		m.name                   = parse_localized(display_name);
 
+		// Alternative description shown while the row is greyed by its `disabled` field (empty -> fall back to the
+		// normal description). String or localization table, like displayName. If it was written as a function it has
+		// already been resolved to a concrete value by resolve_description before this runs.
+		m.disabled_description = parse_localized(desc["disabledDescription"]);
+
 		sol::object min_field = desc["min"];
 		if (min_field.get_type() == sol::type::number)
 		{
@@ -427,7 +432,7 @@ namespace big::mod_settings
 		// intentionally NOT dynamic: showing/hiding a row shifts the layout and the row set is only re-evaluated on a
 		// full rebuild, so a live-changing condition must use `disabled` instead. `editableContext` is a fixed design
 		// property of a setting, so it is static too.
-		for (const char* field : {"displayName", "description", "min", "max", "step", "values", "labels", "order", "disabled"})
+		for (const char* field : {"displayName", "description", "disabledDescription", "min", "max", "step", "values", "labels", "order", "disabled"})
 		{
 			if (desc[field].get_type() == sol::type::function)
 			{
@@ -548,8 +553,9 @@ namespace big::mod_settings
 	// Reads the static (non-function) action metadata common to collection and dynamic re-resolution.
 	static void read_action_fields(const sol::table& entry, action_info& a)
 	{
-		a.name        = parse_localized(entry["displayName"]);
-		a.description = describe(entry);
+		a.name                 = parse_localized(entry["displayName"]);
+		a.description          = describe(entry);
+		a.disabled_description = parse_localized(entry["disabledDescription"]);
 		if (sol::object o = entry["order"]; o.get_type() == sol::type::number)
 		{
 			a.has_order = true;
@@ -586,7 +592,7 @@ namespace big::mod_settings
 				a.section = section;
 				a.key     = k.as<std::string>();
 				read_action_fields(entry, a);
-				for (const char* field : {"displayName", "description", "order", "disabled"})
+				for (const char* field : {"displayName", "description", "disabledDescription", "order", "disabled"})
 				{
 					if (entry[field].get_type() == sol::type::function)
 					{

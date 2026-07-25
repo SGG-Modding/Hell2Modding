@@ -93,6 +93,12 @@ namespace big::mod_settings::sgg
 	// non-hoverable and non-selectable (used to fully disable a greyed action button).
 	inline constexpr std::size_t gui_component_button_selectable_offset = 0x5'51;
 
+	// Byte offset of GUIComponentButton::mUnderMouseTexture (sgg::TextureHandle, a 32-bit id). GUIComponentButton::Draw
+	// draws this hover-highlight overlay only when it is valid and mIsUseable@0x27 is set (gate at Draw+0xBF). A
+	// greyed-but-hoverable action (kept useable so it can show its description) clears this so it does not flash a
+	// clickable-looking hover glow. mSelectedTexture (selection overlay) is at 0x564 (SetSelectedTexture clears it).
+	inline constexpr std::size_t gui_component_button_under_mouse_texture_offset = 0x5'68;
+
 	// Byte offset of GUIComponentButton::mDisplayNameId (sgg::HashGuid: a 32-bit interned-string id). The engine
 	// derives a button's visible label from this id:. GUIComponentButton::UseDefaultText resolves the id back to its
 	// interned string, looks that up in the localized text data, and sets the label from the result (falling back to

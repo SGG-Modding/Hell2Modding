@@ -2280,6 +2280,24 @@ namespace big::mod_settings
 		}
 	}
 
+	// Description-box text for a context-restricted (editableContext-blocked) row: the scenario note on the first
+	// line(s), then the row's normal description below it, so the box explains BOTH why the row is read-only here and
+	// what it does. Either part may be empty (an empty note or description collapses to just the other). The break is a
+	// '\n', handled like the restart dialog's build_list_message; sync_description_box configures the box to honor it
+	// while keeping automatic word-wrap of each part.
+	static std::string note_then_description(const std::string& note, const std::string& description)
+	{
+		if (note.empty())
+		{
+			return description;
+		}
+		if (description.empty())
+		{
+			return note;
+		}
+		return note + "\n" + description;
+	}
+
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render
 	// as setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value). Each direct child
 	// section renders as a group row that drills into it. At the root section a boolean "enabled" entry (if present) is
@@ -2466,24 +2484,56 @@ namespace big::mod_settings
 					g_view_has_dynamic = true;
 				}
 				const bool ctx_blocked  = is_context_restricted(it.action.context);
-				const bool act_disabled = disabled || it.action.disabled || ctx_blocked;
+				const bool mod_off      = disabled; // the whole mod is disabled
+				const bool act_disabled = mod_off || it.action.disabled || ctx_blocked;
 				const std::string name  = resolve_localized(it.action.name);
 				const std::string label = escape_markup(name.empty() ? key_to_display(it.key) : name);
-				if (auto* row = make_button_row(screen, label.c_str(), act_disabled, /*block_input*/ act_disabled))
+
+				// A mod-off action is hard-disabled (block_input); an author-disabled or context-blocked action is only
+				// greyed (block_input=false), so it stays focusable/hoverable to show its note - clicks are still
+				// blocked by pr.disabled in the OnClicked hook. This mirrors context-restricted settings.
+				if (auto* row = make_button_row(screen, label.c_str(), act_disabled, /*block_input*/ mod_off))
 				{
-					// A greyed action button is fully inert: not hoverable, not selectable, not clickable (unlike a
-					// context-restricted setting, which stays focusable to show its note). Clearing mSelectable makes.
-					// MenuScreen::SetMouseOver. Skip it entirely, so it never highlights or takes the selection
-					// m_can_be_focused = false blocks focus too.
-					if (act_disabled)
+					// A mod-off action button is fully inert: clearing mSelectable makes MenuScreen::SetMouseOver skip
+					// it so it never highlights or takes the selection, and m_can_be_focused = false blocks keyboard
+					// focus too. A soft-disabled action keeps both so it can be highlighted (mouse) to read its note.
+					if (mod_off)
 					{
 						row->m_can_be_focused = false;
 						*reinterpret_cast<bool*>(reinterpret_cast<char*>(row) + sgg::gui_component_button_selectable_offset) = false;
 					}
+					else
+					{
+						// Soft-disabled (author-disabled or context-blocked) but kept useable so it can be highlighted
+						// to show its note. Clear the hover + selection overlays so it does not flash a clickable
+						// glow on mouse-over (the grey label already signals it is disabled, like a text row).
+						*reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(row) + sgg::gui_component_button_under_mouse_texture_offset) = 0;
+						if (g_set_selected_texture)
+						{
+							g_set_selected_texture(row, 0);
+						}
+					}
 					PanelRow pr{row, RowKind::action, stem, it.key};
 					pr.disabled       = act_disabled;
 					pr.target_section = it.action.section; // the section the action's callback lives in.
-					pr.description = ctx_blocked ? context_note(it.action.context) : resolve_localized(it.action.description);
+
+					// A context mismatch shows the scenario note first, then the normal description below it; an
+					// author-disabled action shows its disabledDescription (falling back to the normal description) so
+					// the author can explain why it is greyed.
+					if (ctx_blocked)
+					{
+						pr.description =
+						    note_then_description(context_note(it.action.context), resolve_localized(it.action.description));
+					}
+					else if (it.action.disabled)
+					{
+						const std::string ddesc = resolve_localized(it.action.disabled_description);
+						pr.description          = !ddesc.empty() ? ddesc : resolve_localized(it.action.description);
+					}
+					else
+					{
+						pr.description = resolve_localized(it.action.description);
+					}
 					g_rows.push_back(std::move(pr));
 				}
 				continue;
@@ -2611,9 +2661,18 @@ namespace big::mod_settings
 					pr.is_enabled_toggle = is_enabled_row;
 					pr.value_component   = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
 
-					// Context mismatch shows where to change it an author-disabled row shows its normal description
-					// (disabled_description support is a separate task).
-					pr.description = context_blocked ? context_note(ctx) : (meta ? resolve_localized(meta->description) : std::string{});
+					// A context mismatch shows the scenario note first, then the normal description below it; an
+					// author-disabled row shows its disabledDescription (falling back to the normal description) so the
+					// author can explain why it is greyed.
+					if (context_blocked)
+					{
+						pr.description = note_then_description(context_note(ctx), meta ? resolve_localized(meta->description) : std::string{});
+					}
+					else
+					{
+						const std::string ddesc = meta ? resolve_localized(meta->disabled_description) : std::string{};
+						pr.description = !ddesc.empty() ? ddesc : (meta ? resolve_localized(meta->description) : std::string{});
+					}
 					g_rows.push_back(pr);
 				}
 				continue;
@@ -2870,8 +2929,21 @@ namespace big::mod_settings
 		{
 			g_last_description_component = active;
 
-			// Escape markup so paths/brackets in the description render verbatim (see escape_markup).
-			const std::string shown = show ? escape_markup(*description) : std::string{};
+			// Escape markup so paths/brackets in the description render verbatim (see escape_markup), then turn any
+			// embedded newline into the box's hard-break escape. GUIComponentTextBox::Parse strips a raw 0x0A but
+			// honors the escape "\n" (backslash + n) as a wrap-independent hard break (via ParseEscapeSequence), so a
+			// context note stays on its own line above the description while each part still word-wraps. The escape is
+			// inserted AFTER escape_markup, which would otherwise double its backslash into a literal "\n". Padded
+			// " \n " like the engine's own AddLineBreak so the surrounding whitespace is eaten cleanly.
+			std::string shown;
+			if (show)
+			{
+				shown = escape_markup(*description);
+				for (std::size_t pos = 0; (pos = shown.find('\n', pos)) != std::string::npos; pos += 4)
+				{
+					shown.replace(pos, 1, " \\n ");
+				}
+			}
 			g_show_text(box, shown.c_str());
 
 			// ShowText only marks the lines dirty. The layout (and text height, which the box's justification uses to

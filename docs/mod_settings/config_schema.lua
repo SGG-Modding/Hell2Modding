@@ -43,6 +43,10 @@
 --- Grey the setting out (shown read-only, cannot be changed) while this is true. Unlike `hidden`, a `disabled`
 --- change updates live while the menu is open (e.g. grey a slider unless its parent toggle is enabled).
 ---@field disabled? mod_settings.dynamic_boolean
+--- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
+--- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
+--- while the whole mod is disabled. Defaults to the normal `description` when omitted.
+---@field disabledDescription? mod_settings.dynamic_string
 --- Force a bounded number (one with `min` and `max`) to a free-text text field instead of a slider.
 ---@field freetext? boolean
 --- Mark that changing this setting requires a game restart. The menu forces the player
@@ -77,6 +81,10 @@
 --- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
 --- grey an "Apply" button until a value has actually changed).
 ---@field disabled? mod_settings.dynamic_boolean
+--- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
+--- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
+--- while the whole mod is disabled. Defaults to the normal `description` when omitted.
+---@field disabledDescription? mod_settings.dynamic_string
 
 --- Each entry in `configDesc` can be a simple key:description string, a setting description table, an action
 --- button, or a nested table of descriptions mirroring a config group. The underlying .cfg file contents are
