@@ -129,20 +129,13 @@ namespace big::mod_settings
 	static constexpr std::uintptr_t push_back_rva = 0x14'1E'D0;
 
 	// sgg::MenuScreen::TeleportCursorTo(this, GUIComponent*) - the 2-arg overload that drops the controller/keyboard
-	// free-form cursor onto a component - and sgg::ConfigOptions::UseMouse, the global bool that is false in
-	// controller/keyboard mode. Both addressed by RVA off the anchor.
-	static constexpr std::uintptr_t teleport_cursor_rva  = 0x14'03'A0;
-	static constexpr std::uintptr_t config_use_mouse_rva = 0x83'69'15;
+	// free-form cursor onto a component. Addressed by RVA off the anchor.
+	static constexpr std::uintptr_t teleport_cursor_rva = 0x14'03'A0;
 
-	// sgg::ConfigOptions::Language: eastl string holding the current display-language code (e.g. "en", "zh-TW"). Used
-	// to pick text/blank characters the current locale's font can render.
-	static constexpr std::uintptr_t config_language_rva = 0x83'69'20;
-
-	// &sgg::Controls::Cancel (the remappable. Back/CancelBack/Cancel action that folds together controller B and
-	// keyboard Esc) and &sgg::Controls::Select (controller A + Enter). Their first int is the id indexing
-	// InputHandler's control-state array.
-	static constexpr std::uintptr_t config_cancel_rva = 0x55'12'20;
-	static constexpr std::uintptr_t config_select_rva = 0x55'1D'80;
+	// The config/control GLOBALS below (ConfigOptions::UseMouse / ConfigOptions::Language / Controls::Cancel /
+	// Controls::Select) used to be addressed by RVA off the anchor too, but they live in .data/.rdata, which a game
+	// update can grow and shift independently of .text, so an anchor-relative RVA cannot be trusted for them. They
+	// are named PDB globals, so they are now resolved by name (update-proof) - see set_up_hooks.
 
 	// sgg::GUIComponentNumBox field offsets (DIA-validated on the current Ship build) sizeof 0x5D0. Derives directly
 	// from GUIComponent (not GUIComponentButton).
@@ -201,7 +194,10 @@ namespace big::mod_settings
 	// fields) - the value is mFraction and the fill graphic redraws from it. The game has no factory for it
 	// (DoShowCategory hand-rolls the allocation + the four sub-components), so make_slider_row replicates that
 	// construction.
-	static constexpr std::uintptr_t slider_vtable_rva = 0x4D'8A'48; // ??_7GUIComponentSlider@sgg@@6B@ (off the anchor).
+	// ??_7GUIComponentSlider@sgg@@6B@. Preferred by name at runtime (see set_up_hooks); this anchor-relative RVA is
+	// only a fallback if the vtable public symbol is absent from the map. Lives in .rdata, which shifts on updates,
+	// so keep it in sync when refreshing for a new build.
+	static constexpr std::uintptr_t slider_vtable_rva = 0x4D'8A'68;
 	static constexpr std::size_t slider_sizeof        = 0x5'B0;
 	static constexpr std::size_t image_sizeof         = 0x5'78; // sgg::GUIComponentImage (mBacking / mFill)
 	static constexpr std::size_t textbox_sizeof       = 0x6'C0; // sgg::GUIComponentTextBox (mLabel / mValueTextBox)
@@ -4686,7 +4682,7 @@ namespace big::mod_settings
 		// Slider construction + drag hook (optional: if any is missing, bounded numbers fall back to the number-box
 		// stepper). The engine has no slider factory, so a slider is hand-built from the base GUIComponent / image /
 		// text-box constructors and Defaults - all resolved by name here. SetFraction is both the initial set and the
-		// drag hook (installed below). The slider vtable is addressed by RVA off the anchor once the build is verified.
+		// drag hook (installed below). The slider vtable is resolved by name (RVA fallback) once the build is verified.
 		g_gui_component_ctor = big::hades2_symbol_to_address["sgg::GUIComponent::GUIComponent"].as_func<void(void*, std::uint64_t)>();
 		g_image_ctor = big::hades2_symbol_to_address["sgg::GUIComponentImage::GUIComponentImage"].as_func<void(void*, std::uint64_t)>();
 		g_textbox_ctor = big::hades2_symbol_to_address["sgg::GUIComponentTextBox::GUIComponentTextBox"].as_func<void(void*, std::uint64_t)>();
@@ -4695,8 +4691,8 @@ namespace big::mod_settings
 		g_slider_set_fraction          = slider_set_fraction.as_func<void(void*, float, bool)>();
 
 		// Controller focus: ComponentFocused makes a row the focused option (so the stick reaches it),. GetState reads
-		// the Back/Cancel control edge for our drilldown back-nav. Both by name. The Controls::Cancel address is
-		// RVA-relative (resolved below). Optional - their absence only degrades controller support, not the tab.
+		// the Back/Cancel control edge for our drilldown back-nav. Both by name (Controls::Cancel is resolved by name
+		// above). Optional - their absence only degrades controller support, not the tab.
 		g_component_focused = big::hades2_symbol_to_address["sgg::MiscSettingsScreen::ComponentFocused"].as_func<void(void*, GUIComponent*)>();
 		g_set_mouse_over = big::hades2_symbol_to_address["sgg::MenuScreen::SetMouseOver"].as_func<void(void*, GUIComponent*)>();
 		g_input_get_state = big::hades2_symbol_to_address["sgg::InputHandler::GetState"].as_func<std::uint32_t(void*, const void*)>();
@@ -4715,11 +4711,34 @@ namespace big::mod_settings
 		g_save_profile = big::hades2_symbol_to_address["sgg::ProfileManager::SaveProfile"].as_func<char(void*, bool, bool)>();
 		g_active_profile = big::hades2_symbol_to_address["sgg::ProfileManager::ACTIVE_PROFILE"].as<void*>();
 
+		// Config/control GLOBALS, resolved by name (update-proof - they are named PDB data symbols that move with
+		// .data/.rdata across game updates, so an anchor-relative RVA cannot be trusted for them). Optional: a null
+		// UseMouse just makes us assume controller/keyboard mode (mouse checks are `g_use_mouse && *g_use_mouse`), a
+		// null language skips the locale font fallback, and null Cancel/Select only degrade controller back/select
+		// detection - none crash. UseMouse is the global bool that is false in controller/keyboard mode; Language is
+		// the eastl string with the current display-language code; Cancel/Select are the remappable Back (controller
+		// B / Esc) and Select (controller A / Enter) controls whose first int indexes InputHandler's state array.
+		g_use_mouse       = big::hades2_symbol_to_address["sgg::ConfigOptions::UseMouse"].as<const bool*>();
+		g_config_language = big::hades2_symbol_to_address["sgg::ConfigOptions::Language"].as<const char*>();
+		g_controls_cancel = big::hades2_symbol_to_address["sgg::Controls::Cancel"].as<const void*>();
+		g_controls_select = big::hades2_symbol_to_address["sgg::Controls::Select"].as<const void*>();
+
 		// The num-box factory (a template instantiation) and the restart-dialog ctor /. AddScreen overloads cannot be
 		// picked by name from the PDB, so they are addressed by hardcoded RVA off the button-ctor anchor. Those RVAs -
-		// and every struct offset this feature uses - are valid only for the Ship build they were captured. Fingerprint
-		// that build by checking the anchor sits at its known module RVA (game base taken from the live process). A
-		// mismatch means the game changed and our RVAs/offsets can no longer be trusted, so disable the whole tab.
+		// and every struct offset this feature uses - are valid only for the Ship build they were captured against.
+		// Symbols resolved by name above auto-adapt across game updates, but these hardcoded values do NOT, so a game
+		// update can move them and hang/crash the options screen. Gate the whole menu on the exact game build via its
+		// PDB GUID (a unique per-build id captured while the symbol map is built): after an update the GUID no longer
+		// matches, and the menu is cleanly skipped (the rom.mod_settings Lua config API is unaffected) until
+		// Hell2Modding is updated. Only the latest build is supported: to move to a new one, re-validate the
+		// RVAs/offsets against it (compare the new Ship Hades2.pdb), then replace this GUID (logged at startup and in
+		// the warning below) with the new build's. Current build: Hades II Ship v1.139251.
+		static constexpr const char* validated_pdb_guid = "48ca71f9-5fbb-4209-a14a9738171ce4eb";
+		const bool build_validated                      = big::hades2_pdb_guid == validated_pdb_guid;
+
+		// Secondary sanity check on top of the GUID allow-list: the anchor (button ctor) must sit at its known module
+		// RVA. A matching GUID already implies this, so a failure here means the PDB and the loaded exe disagree (e.g.
+		// a mismatched/hand-swapped PDB), which would make every RVA/offset untrustworthy.
 		uintptr_t game_base   = 0;
 		std::size_t game_size = 0;
 		::module_info_helper::get_module_base_and_size(&game_base, &game_size, nullptr);
@@ -4735,7 +4754,7 @@ namespace big::mod_settings
 			missing.push_back("eastl::vector<sgg::GUIComponent *,eastl::allocator_forge>::push_back");
 		}
 
-		if (!missing.empty() || !build_matches)
+		if (!missing.empty() || !build_matches || !build_validated)
 		{
 			std::string detail;
 			for (const auto* name : missing)
@@ -4743,9 +4762,16 @@ namespace big::mod_settings
 				detail += "\n    - missing symbol: ";
 				detail += name;
 			}
+			if (!build_validated)
+			{
+				detail += "\n    - game build not validated for this Hell2Modding version (PDB GUID '";
+				detail += big::hades2_pdb_guid.empty() ? "<unknown>" : big::hades2_pdb_guid;
+				detail += "'). The game likely updated; update validated_pdb_guid to this GUID after re-validating the "
+				          "engine offsets/RVAs against the new Ship build.";
+			}
 			if (!build_matches)
 			{
-				detail += "\n    - build fingerprint mismatch (button ctor not at the expected RVA; game updated?)";
+				detail += "\n    - build fingerprint mismatch (button ctor not at the expected RVA; PDB/exe mismatch?)";
 			}
 			LOG(WARNING) << "[mod_settings] Mods options tab disabled for this game build; the in-game mod-settings "
 			                "editor is skipped. The rom.mod_settings Lua config API is unaffected."
@@ -4753,17 +4779,26 @@ namespace big::mod_settings
 			return;
 		}
 
-		// Build verified and every required symbol resolved: derive the RVA-relative helpers and hook.
+		// Build verified and every required symbol resolved: derive the remaining anchor-relative helpers and hook.
+		// These are all .text functions (the templated num-box factory and the overloaded MessageDialog ctor /
+		// AddScreen that cannot be picked unambiguously by name, plus TeleportCursorTo). The config/control globals
+		// are resolved by name above (they move with .data/.rdata).
 		const auto anchor_base = anchor.as<uintptr_t>() - anchor_rva;
 		g_message_dialog_ctor  = reinterpret_cast<message_dialog_ctor_fn>(anchor_base + message_dialog_ctor_rva);
 		g_add_screen           = reinterpret_cast<add_screen_fn>(anchor_base + add_screen_rva);
 		g_numbox_factory       = reinterpret_cast<numbox_factory_fn>(anchor_base + numbox_factory_rva);
-		g_slider_vtable        = anchor_base + slider_vtable_rva;
 		g_teleport_cursor      = reinterpret_cast<teleport_cursor_fn>(anchor_base + teleport_cursor_rva);
-		g_use_mouse            = reinterpret_cast<const bool*>(anchor_base + config_use_mouse_rva);
-		g_config_language      = reinterpret_cast<const char*>(anchor_base + config_language_rva);
-		g_controls_cancel      = reinterpret_cast<const void*>(anchor_base + config_cancel_rva);
-		g_controls_select      = reinterpret_cast<const void*>(anchor_base + config_select_rva);
+
+		// Slider vtable: prefer the named public symbol (update-proof), fall back to the anchor-relative RVA (which
+		// lives in .rdata and shifts on updates) only if the vtable is absent from the symbol map.
+		if (const auto slider_vt = big::hades2_symbol_to_address["??_7GUIComponentSlider@sgg@@6B@"]; slider_vt)
+		{
+			g_slider_vtable = slider_vt.as<uintptr_t>();
+		}
+		else
+		{
+			g_slider_vtable = anchor_base + slider_vtable_rva;
+		}
 
 		g_feature_enabled = true;
 

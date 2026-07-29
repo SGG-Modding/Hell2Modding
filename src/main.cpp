@@ -2499,23 +2499,28 @@ static void read_game_pdb()
 	}
 
 	const auto h = infoStream.GetHeader();
+	const std::string pdb_guid =
+	    std::format("{:08x}-{:04x}-{:04x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+	                h->guid.Data1,
+	                h->guid.Data2,
+	                h->guid.Data3,
+	                h->guid.Data4[0],
+	                h->guid.Data4[1],
+	                h->guid.Data4[2],
+	                h->guid.Data4[3],
+	                h->guid.Data4[4],
+	                h->guid.Data4[5],
+	                h->guid.Data4[6],
+	                h->guid.Data4[7]);
+	// Expose the build identity so features gated on a validated game build (e.g. the native mod-settings menu) can
+	// disable cleanly after a game update instead of trusting stale hardcoded RVAs/offsets.
+	big::hades2_pdb_guid = pdb_guid;
 	LOGF(INFO,
-	     std::format("Version {}, signature {}, age {}, GUID "
-	                 "{:08x}-{:04x}-{:04x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+	     std::format("Version {}, signature {}, age {}, GUID {}",
 	                 static_cast<uint32_t>(h->version),
 	                 h->signature,
 	                 h->age,
-	                 h->guid.Data1,
-	                 h->guid.Data2,
-	                 h->guid.Data3,
-	                 h->guid.Data4[0],
-	                 h->guid.Data4[1],
-	                 h->guid.Data4[2],
-	                 h->guid.Data4[3],
-	                 h->guid.Data4[4],
-	                 h->guid.Data4[5],
-	                 h->guid.Data4[6],
-	                 h->guid.Data4[7]));
+	                 pdb_guid));
 
 
 	const PDB::DBIStream dbiStream = PDB::CreateDBIStream(rawPdbFile);
