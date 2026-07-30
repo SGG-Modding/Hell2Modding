@@ -26,7 +26,10 @@ directly (see below).
 
 ## Field reference
 
-Hover any field in the editor for its documentation. The available fields on a setting description are:
+Hover any field in the editor for its documentation. The available fields on a **setting** description are
+below. Two other kinds of `configDesc` entry have their own fields and sections: **action buttons** (an
+`action` function - see [Action buttons](#action-buttons)) and **virtual rows** (`virtual = true` with a
+`text` or `get`/`set` callback and no config value - see [Virtual rows](#virtual-rows)).
 
 | Field | Type | Purpose |
 | --- | --- | --- |
@@ -46,6 +49,12 @@ Hover any field in the editor for its documentation. The available fields on a s
 | `showAsPercentage` | boolean | Append "%" to the value. |
 | `isPercentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". |
 | `onChange` | `fun(key, new_value)` | Called after the setting is changed in the in-game menu. Use it to apply the change to the loaded run. See below. |
+
+## Config keys named like reserved fields
+
+If you happen to name a config key after one of the reserved fields above, the menu will still render them correctly,
+but it is highly recommended to **not** use reserved field names as config keys to prevent confusion and potential edge
+case breakage.
 
 ## Dynamic fields (functions)
 
@@ -97,6 +106,24 @@ apply_scaling = {
   disabledDescription = "Change a scaling value above to enable this.", -- shown while greyed
 },
 ```
+
+## Virtual rows
+
+A **virtual row** is a menu row that is not backed by a `config` value - its value comes from Lua callbacks.
+Declare it as a `configDesc` entry whose key has no matching `config` value, marked `virtual = true`.
+
+A virtual row is either **read-only** or **interactive**:
+
+- **Read-only:** give it a `text` field - a string, or a function returning a string/number/boolean - for
+  the value to show.
+- **Interactive:** give it `get` (reads the current value) and `set` (writes the edited value). The widget is
+  inferred from `get()`'s value and the metadata, exactly like a config setting is inferred from its config
+  value: a **boolean** is a toggle, a **number** with `min`+`max` is a slider (otherwise a number box), and any
+  type with a `values` list is an **enum picker**.
+
+Interactive rows also support `disabled`, `disabledDescription`, `editableContext`, `showAsPercentage`/
+`isPercentage`, and (for enums) `labels` - the same as config settings. `get`/`set`/`text` and the metadata
+fields may be functions, re-evaluated live.
 
 ## Reacting to changes (`onChange`)
 

@@ -22,7 +22,7 @@ namespace big::mod_settings
 	// note) when the current context does not match: any: editable anywhere (default live-read settings). main_menu:
 	// only from the main menu (greyed while a save is loaded). Forced for a mod's master "enabled" toggle and for any
 	// restartRequired setting. in_save: only while a save is loaded, both in the hub and mid-run (greyed at the main
-	// menu). in_hub: only while in the hub / Crossroads (greyed at the main menu AND mid-run), for settings unsafe to
+	// menu). in_hub: only while in the hub/Crossroads (greyed at the main menu AND mid-run), for settings unsafe to
 	// change during a run. Authors declare this per setting via
 	// `editableContext = "mainMenu" | "inSave" | "inHub" | "any"`.
 	enum class editable_context
@@ -134,9 +134,58 @@ namespace big::mod_settings
 	// Dynamic fields are resolved against the current game state (call on the game thread).
 	std::vector<action_info> get_actions(const std::string& guid, const std::string& section);
 
-	// Runs a config.lua action button's Lua callback protected, with errors logged. No-op if the guid / section / key
+	// Runs a config.lua action button's Lua callback protected, with errors logged. No-op if the guid/section/key
 	// does not resolve to an action. Call on the game thread while the Lua state is alive.
 	void invoke_action(const std::string& guid, const std::string& section, const std::string& key);
+
+	// A configDesc entry with NO backing config value that explicitly marks itself `virtual = true`. It renders as a
+	// menu row whose value comes from Lua callbacks instead of a .cfg config entry: a read-only row uses `text`, and an
+	// interactive row uses `get` (read) + `set` (write). Collected at load; the callables stay in the Lua descs
+	// registry and are resolved at render. The rest of its metadata (displayName/description/order/min/max/values/...)
+	// is read the same way as a config setting's, via resolve_setting_metadata against (section, key).
+	struct virtual_row_info
+	{
+		std::string section;
+		std::string key;
+		bool has_order   = false;
+		double order     = 0.0;
+		bool has_dynamic = false; // a name/description/values/min/max/text field is a Lua function (re-resolve at render)
+		bool interactive = false; // has a `set` callback (an editable get/set row) rather than a read-only `text` row
+	};
+
+	// The virtual (non-config) rows declared directly in config `section` of mod `guid` (not recursing into child
+	// sections), in config.lua source order.
+	std::vector<virtual_row_info> get_virtual_rows(const std::string& guid, const std::string& section);
+
+	// The display string for a READ-ONLY virtual row, from its `text` (a string or a function returning one) callback.
+	// Call on the game thread while the Lua state is alive. Empty when the row is unavailable or has no `text`.
+	std::string get_virtual_display(const std::string& guid, const std::string& section, const std::string& key);
+
+	// A virtual row's current typed value, read from its Lua `get()` callback. The kind determines which widget an
+	// interactive virtual row builds (like a config value's type does for a config row).
+	struct virtual_value
+	{
+		enum class kind
+		{
+			none,
+			boolean,
+			number,
+			string,
+		};
+		kind type          = kind::none;
+		bool as_bool       = false;
+		double as_number   = 0.0;
+		std::string as_string;
+	};
+
+	// Reads an interactive virtual row's current value by calling its `get()` callback (protected). Returns kind::none
+	// when the row has no `get`, is unavailable, or the call fails. Call on the game thread while the Lua state is
+	// alive.
+	virtual_value get_virtual_value(const std::string& guid, const std::string& section, const std::string& key);
+
+	// Writes a new value to an interactive virtual row by calling its `set(value)` callback (protected). No-op when the
+	// row has no `set`. Call on the game thread while the Lua state is alive.
+	void set_virtual_value(const std::string& guid, const std::string& section, const std::string& key, const virtual_value& value);
 
 	// Rank of a setting's definition in its config.lua source (0 = first). Used to order rows that have no
 	// author-declared `order` in config-file order. Returns INT_MAX for keys not bound via rom.mod_settings.load (e.g.

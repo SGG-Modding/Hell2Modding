@@ -62,6 +62,11 @@ namespace big::mod_settings
 	// invoked by navigation). Cleared each Lua-state init in bind_config_api.
 	static std::map<std::string, std::vector<action_info>> g_actions;
 
+	// Virtual rows declared in config.lua (configDesc entries marked `virtual = true` with no backing config value).
+	// Keyed by guid, in config.lua source order. Like g_actions, the get/set/text callables stay in the Lua-side
+	// description registry and are resolved at render. Cleared per-mod in clear_metadata_for.
+	static std::map<std::string, std::vector<virtual_row_info>> g_virtual_rows;
+
 	// The config section every mod's settings are bound under (matches SGG_Modding-Chalk, keeps the .cfg
 	// byte-compatible). Description tables in config.lua mirror the config table under this root.
 	static constexpr const char* root_section = "config";
@@ -527,8 +532,8 @@ namespace big::mod_settings
 
 	// Builds a shallow copy of a setting's description table with every dynamic (function) field replaced by its
 	// evaluated value, so the existing extract_metadata can read it as if the author had written static values.
-	// `onChange` and `action` callables are intentionally left as-is (they are invoked on their own events, not read
-	// as metadata).
+	// Callables invoked on their own events (not read as metadata) are intentionally left as-is: `onChange`, `action`,
+	// and a virtual row's `get`/`set`/`text` (get/text are called by get_virtual_display; set takes an argument).
 	static sol::table resolve_description(sol::state_view state, const sol::table& desc, const std::string& guid)
 	{
 		sol::table out = state.create_table();
@@ -540,7 +545,7 @@ namespace big::mod_settings
 				continue;
 			}
 			const std::string field = k.as<std::string>();
-			if (field == "onChange" || field == "action")
+			if (field == "onChange" || field == "action" || field == "get" || field == "set" || field == "text")
 			{
 				out[k] = v;
 				continue;
@@ -616,7 +621,169 @@ namespace big::mod_settings
 		}
 	}
 
-	// Finds the config entry for (section, key), or nullptr m_entries is keyed by config_definition, so this is a
+	// configDesc field names that are metadata OF a setting/group/action/virtual row, not child keys. When walking a
+	// desc table for child rows (virtual detection + orphan validation), these are skipped so a group's OWN
+	// displayName/description/order/... are not mistaken for missing config keys (a group desc table mixes the group's
+	// metadata with its child descriptions).
+	static bool is_reserved_desc_field(const std::string& key)
+	{
+		static const std::set<std::string> reserved = {
+		    "displayName",
+		    "description",
+		    "disabledDescription",
+		    "min",
+		    "max",
+		    "step",
+		    "values",
+		    "labels",
+		    "order",
+		    "hidden",
+		    "disabled",
+		    "freetext",
+		    "restartRequired",
+		    "editableContext",
+		    "showAsPercentage",
+		    "isPercentage",
+		    "onChange",
+		    "action",
+		    "virtual",
+		    "get",
+		    "set",
+		    "text",
+		};
+		return reserved.contains(key);
+	}
+
+	// Walks a mod's configDesc (guided by the config structure, like collect_actions) collecting virtual rows and
+	// validating every entry. A configDesc entry must resolve to one of: a config value (a config-backed setting or a
+	// group), an `action` function, or an explicit `virtual = true` marker. An entry that is NONE of these is almost
+	// always an author mistake (they described a key but forgot to add it to `config`), so it is logged. A `virtual`
+	// row with no `get`/`text` (nothing to display) is logged too. Recurses into config groups only, like the actions
+	// and defaults walks, so virtual rows live alongside config rows in a config-backed section.
+	static void collect_virtual_rows(const std::string& guid, const sol::table& config_tbl, const sol::object& desc_obj, const std::string& section, std::vector<virtual_row_info>& out)
+	{
+		if (desc_obj.is<sol::table>())
+		{
+			sol::table desc = desc_obj.as<sol::table>();
+			for (const auto& [k, v] : desc)
+			{
+				if (k.get_type() != sol::type::string)
+				{
+					continue;
+				}
+				const std::string key = k.as<std::string>();
+
+				// Skip the current node's own metadata fields (a group/root desc mixes them with child descriptions),
+				// so they are never mistaken for a child config key.
+				if (is_reserved_desc_field(key))
+				{
+					continue;
+				}
+
+				const std::string path    = section + "." + key;
+				const sol::object cfg_val = config_tbl[key];
+				const bool has_config     = cfg_val.valid() && cfg_val.get_type() != sol::type::lua_nil;
+
+				// A plain-string description for a key with no config value is an orphan (a described key never added
+				// to config). A string desc for a real config key is fine (bind_defaults handles it).
+				if (v.get_type() == sol::type::string)
+				{
+					if (!has_config)
+					{
+						LOG(WARNING) << "[mod_settings] " << guid << ": configDesc entry '" << path << "' has a description but no matching config value, and is not an action or a virtual row. Did you forget to add '" << key << "' to config, or mark it virtual = true?";
+					}
+					continue;
+				}
+				if (!v.is<sol::table>())
+				{
+					continue;
+				}
+				sol::table entry        = v.as<sol::table>();
+				const bool is_action    = entry["action"].get_type() == sol::type::function;
+				const sol::object vmark = entry["virtual"];
+				const bool is_virtual   = vmark.is<bool>() && vmark.as<bool>();
+
+				if (has_config)
+				{
+					// Config-backed setting or a config group (recursed below). `virtual` here is contradictory.
+					if (is_virtual)
+					{
+						LOG(WARNING) << "[mod_settings] " << guid << ": configDesc entry '" << path << "' is marked virtual = true but also has a config value; treating it as a normal config setting.";
+					}
+					continue;
+				}
+				if (is_action)
+				{
+					continue; // collected by collect_actions.
+				}
+				if (!is_virtual)
+				{
+					// No config value, no action, no virtual marker: the author most likely forgot the config entry.
+					LOG(WARNING) << "[mod_settings] " << guid << ": configDesc entry '" << path << "' has no matching config value and is not marked `virtual = true` or given an `action`. Did you forget to add '" << key << "' to config?";
+					continue;
+				}
+
+				virtual_row_info vr;
+				vr.section = section;
+				vr.key     = key;
+				if (sol::object o = entry["order"]; o.get_type() == sol::type::number)
+				{
+					vr.has_order = true;
+					vr.order     = o.as<double>();
+				}
+
+				const bool has_get  = entry["get"].get_type() == sol::type::function;
+				const bool has_set  = entry["set"].get_type() == sol::type::function;
+				const sol::object t = entry["text"];
+				const bool has_text = t.get_type() == sol::type::string || t.get_type() == sol::type::function;
+
+				// A row is interactive (an editable get/set widget) when it has a `set`, otherwise it is a read-only
+				// `text` row. get/set/text/values/min/max may be functions too (dynamic), so re-evaluate at render.
+				vr.interactive = has_set;
+				for (const char* field : {"displayName", "description", "text", "values", "min", "max", "step", "labels"})
+				{
+					if (entry[field].get_type() == sol::type::function)
+					{
+						vr.has_dynamic = true;
+						break;
+					}
+				}
+				if (has_get || entry["values"].valid()) // an interactive row's value is dynamic by nature.
+				{
+					vr.has_dynamic = vr.has_dynamic || vr.interactive;
+				}
+
+				if (vr.interactive)
+				{
+					// Interactive row: needs `get` to read its current value for the widget. `set` is present here.
+					if (!has_get)
+					{
+						LOG(WARNING) << "[mod_settings] " << guid << ": interactive virtual row '" << path << "' has a `set` but no `get`, so its widget cannot read a value; add a `get` callback.";
+						continue;
+					}
+				}
+				else if (!has_text)
+				{
+					// Read-only row: needs `text`. (A stray `get` with no `set` is not a display path.)
+					LOG(WARNING) << "[mod_settings] " << guid << ": virtual row '" << path << "' has no `text` (a string or a function returning one) and no `set` (to be interactive), so it has nothing to show.";
+				}
+				out.push_back(std::move(vr));
+			}
+		}
+
+		// Recurse into child config sections (a table config value is a group), like collect_actions.
+		for (const auto& [k, v] : config_tbl)
+		{
+			if (k.get_type() != sol::type::string || !v.is<sol::table>())
+			{
+				continue;
+			}
+			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[k] : sol::object(sol::lua_nil);
+			collect_virtual_rows(guid, v.as<sol::table>(), child_desc, section + "." + k.as<std::string>(), out);
+		}
+	}
+
+	// Finds the config entry for (section, key), or nullptr. m_entries is keyed by config_definition, so this is a
 	// direct map lookup.
 	static toml_v2::config_file::config_entry_base* find_entry(toml_v2::config_file* cf, const std::string& section, const std::string& key)
 	{
@@ -704,6 +871,38 @@ namespace big::mod_settings
 		};
 	}
 
+	// Parses a config key that is a positive-integer array index ("1", "2", ...), used to expose array-like sections
+	// through #, ipairs and inext. Returns false for an empty or non-digit key.
+	static bool parse_positive_index(const std::string& key, long& out)
+	{
+		if (key.empty())
+		{
+			return false;
+		}
+		long value = 0;
+		for (const char c : key)
+		{
+			if (c < '0' || c > '9')
+			{
+				return false;
+			}
+			value = value * 10 + (c - '0');
+		}
+		out = value;
+		return value > 0;
+	}
+
+	// Registry keys for the table-based config proxy machinery: one shared metatable, plus two weak-keyed maps from
+	// each wrapper table to the config_file and section it points at. Stored in the Lua registry so the free
+	// metamethods can recover them per call.
+	static constexpr const char* k_proxy_metatable   = "h2m_mod_config_metatable";
+	static constexpr const char* k_proxy_cf_map      = "h2m_mod_config_cf";
+	static constexpr const char* k_proxy_section_map = "h2m_mod_config_section";
+
+	// Builds the (empty) Lua table wrapper mods receive as their `config`, so `type(config) == "table"` (matching
+	// SGG_Modding-Chalk). Defined after mod_config_proxy, but the struct's child accessors call it, so forward-declare.
+	static sol::object make_proxy(sol::this_state ts, toml_v2::config_file* cf, const std::string& section);
+
 	// Live read/write view over a config_file section, returned to the mod as its `config` object. Reads/writes go
 	// straight through to the underlying config entries (so the in-game menu and the mod always see the same values).
 	// Nested sections resolve to child proxies. It holds a raw config_file pointer (not a sol reference): the
@@ -723,7 +922,7 @@ namespace big::mod_settings
 			const std::string child = section + "." + key;
 			if (has_section(cf, child))
 			{
-				return sol::make_object(ts, mod_config_proxy{cf, child});
+				return make_proxy(ts, cf, child);
 			}
 			return sol::lua_nil;
 		}
@@ -753,7 +952,194 @@ namespace big::mod_settings
 				}
 			}
 		}
+
+		// Snapshots this section's immediate children into a fresh Lua table: each leaf key maps to its current value
+		// and each direct sub-section name maps to a child proxy. The iteration metamethods hand this plain table to
+		// Lua's own pairs/next so consumers walk the live config exactly like a normal table (mirrors Chalk's wrapper).
+		sol::table children_snapshot(sol::this_state ts) const
+		{
+			sol::state_view lua(ts);
+			sol::table out           = lua.create_table();
+			const std::string prefix = section + ".";
+			std::set<std::string> seen_children;
+			for (const auto& [def, entry] : cf->m_entries)
+			{
+				if (def.m_section == section)
+				{
+					out[def.m_key] = entry_get(ts, entry.get());
+				}
+				else if (def.m_section.rfind(prefix, 0) == 0)
+				{
+					const std::string child =
+					    def.m_section.substr(prefix.size(), def.m_section.find('.', prefix.size()) - prefix.size());
+					if (seen_children.insert(child).second)
+					{
+						out[child] = make_proxy(ts, cf, prefix + child);
+					}
+				}
+			}
+			return out;
+		}
+
+		// __len: highest positive-integer leaf key at this level (array length), 0 for a purely string-keyed section.
+		std::size_t length() const
+		{
+			std::size_t n = 0;
+			for (const auto& [def, entry] : cf->m_entries)
+			{
+				long index = 0;
+				if (def.m_section == section && parse_positive_index(def.m_key, index) && static_cast<std::size_t>(index) > n)
+				{
+					n = static_cast<std::size_t>(index);
+				}
+			}
+			return n;
+		}
+
+		// __pairs: `for k, v in pairs(config)` walks one level (leaf values plus child proxies), like a plain table.
+		std::tuple<sol::object, sol::object, sol::object> pairs(sol::this_state ts) const
+		{
+			sol::state_view lua(ts);
+			sol::table snapshot              = children_snapshot(ts);
+			sol::protected_function pairs_fn = lua["pairs"];
+			sol::protected_function_result r = pairs_fn(snapshot);
+			return std::make_tuple(r.get<sol::object>(0), r.get<sol::object>(1), r.get<sol::object>(2));
+		}
+
+		// __ipairs (consulted by ipairs on Lua 5.2): iterate the 1..n integer-keyed leaves of an array-like section.
+		std::tuple<sol::object, sol::object, sol::object> ipairs(sol::this_state ts) const
+		{
+			sol::state_view lua(ts);
+			sol::table sequence = lua.create_table();
+			const std::size_t n = length();
+			for (std::size_t i = 1; i <= n; ++i)
+			{
+				if (auto* entry = find_entry(cf, section, std::to_string(i)))
+				{
+					sequence[i] = entry_get(ts, entry);
+				}
+			}
+			sol::protected_function ipairs_fn = lua["ipairs"];
+			sol::protected_function_result r  = ipairs_fn(sequence);
+			return std::make_tuple(r.get<sol::object>(0), r.get<sol::object>(1), r.get<sol::object>(2));
+		}
+
+		// __next (consulted by ModUtil's next/qrawpairs): step to the pair after `key` at this level.
+		std::tuple<sol::object, sol::object> next(sol::this_state ts, sol::object key) const
+		{
+			sol::state_view lua(ts);
+			sol::table snapshot              = children_snapshot(ts);
+			sol::protected_function next_fn  = lua["next"];
+			sol::protected_function_result r = next_fn(snapshot, key);
+			return std::make_tuple(r.get<sol::object>(0), r.get<sol::object>(1));
+		}
+
+		// __inext (consulted by ModUtil's inext/qrawipairs): step to index i + 1 of an array-like section.
+		std::tuple<sol::object, sol::object> inext(sol::this_state ts, sol::object index) const
+		{
+			long i = 0;
+			if (index.is<long>())
+			{
+				i = index.as<long>();
+			}
+			const long next_index = i + 1;
+			if (auto* entry = find_entry(cf, section, std::to_string(next_index)))
+			{
+				return std::make_tuple(sol::make_object(ts, next_index), entry_get(ts, entry));
+			}
+			return std::make_tuple(sol::object(sol::lua_nil), sol::object(sol::lua_nil));
+		}
 	};
+
+	sol::object make_proxy(sol::this_state ts, toml_v2::config_file* cf, const std::string& section)
+	{
+		sol::state_view lua(ts);
+		sol::table registry = lua.registry();
+		// The wrapper is an empty table: a shared metatable drives every read/write, and its (cf, section) live in the
+		// weak-keyed registry maps, so nothing leaks into rawpairs and the wrapper is collected with its section.
+		sol::table wrapper          = lua.create_table();
+		sol::table metatable        = registry[k_proxy_metatable];
+		sol::table cf_map           = registry[k_proxy_cf_map];
+		sol::table section_map      = registry[k_proxy_section_map];
+		wrapper[sol::metatable_key] = metatable;
+		cf_map[wrapper]             = cf;
+		section_map[wrapper]        = section;
+		return wrapper;
+	}
+
+	// Recovers the (cf, section) a wrapper table points at, as a throwaway proxy the free metamethods delegate to.
+	static mod_config_proxy recover(sol::this_state ts, const sol::table& wrapper)
+	{
+		sol::state_view lua(ts);
+		sol::table registry       = lua.registry();
+		sol::table cf_map         = registry[k_proxy_cf_map];
+		sol::table section_map    = registry[k_proxy_section_map];
+		toml_v2::config_file* cf  = cf_map[wrapper];
+		const std::string section = section_map[wrapper];
+		return mod_config_proxy{cf, section};
+	}
+
+	// Coerces a Lua index key to the string form config entries use (Chalk stringifies numeric keys). Returns false for
+	// a key that is neither a string nor a number.
+	static bool coerce_key(const sol::stack_object& key, std::string& out)
+	{
+		if (key.get_type() == sol::type::string)
+		{
+			out = key.as<std::string>();
+			return true;
+		}
+		if (key.get_type() == sol::type::number)
+		{
+			out = std::to_string(key.as<long long>());
+			return true;
+		}
+		return false;
+	}
+
+	static sol::object proxy_index(sol::this_state ts, sol::table self, sol::stack_object key)
+	{
+		std::string k;
+		if (!coerce_key(key, k))
+		{
+			return sol::lua_nil;
+		}
+		return recover(ts, self).index(ts, k);
+	}
+
+	static void proxy_new_index(sol::this_state ts, sol::table self, sol::stack_object key, sol::stack_object value)
+	{
+		std::string k;
+		if (!coerce_key(key, k))
+		{
+			return;
+		}
+		recover(ts, self).new_index(k, value);
+	}
+
+	static std::size_t proxy_length(sol::this_state ts, sol::table self)
+	{
+		return recover(ts, self).length();
+	}
+
+	static std::tuple<sol::object, sol::object, sol::object> proxy_pairs(sol::this_state ts, sol::table self)
+	{
+		return recover(ts, self).pairs(ts);
+	}
+
+	static std::tuple<sol::object, sol::object, sol::object> proxy_ipairs(sol::this_state ts, sol::table self)
+	{
+		return recover(ts, self).ipairs(ts);
+	}
+
+	static std::tuple<sol::object, sol::object> proxy_next(sol::this_state ts, sol::table self, sol::object key)
+	{
+		return recover(ts, self).next(ts, key);
+	}
+
+	static std::tuple<sol::object, sol::object> proxy_inext(sol::this_state ts, sol::table self, sol::object index)
+	{
+		return recover(ts, self).inext(ts, index);
+	}
 
 	// A setting's extracted metadata together with the section/key it belongs to, collected while walking config.lua
 	// and then folded into the registry.
@@ -940,6 +1326,14 @@ namespace big::mod_settings
 			collect_actions(defaults.as<sol::table>(), descriptions, root_section, actions);
 		}
 
+		// Collect virtual rows (configDesc entries marked `virtual = true` with no config value) and validate that
+		// every configDesc entry resolves to a config value, an action, or a virtual marker (warns otherwise).
+		std::vector<virtual_row_info> virtual_rows;
+		if (defaults.is<sol::table>())
+		{
+			collect_virtual_rows(guid, defaults.as<sol::table>(), descriptions, root_section, virtual_rows);
+		}
+
 		// Read config.lua source to recover the author's key order (Lua pairs() and the alphabetical config map both
 		// lose it), then rank every bound key by where it is defined.
 		std::string source_text;
@@ -958,6 +1352,12 @@ namespace big::mod_settings
 			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, def.m_key);
 			by_offset.emplace_back(off, def.m_section, def.m_key);
 		}
+		// Rank virtual rows in the same source-order space as the config entries so they interleave with config rows.
+		for (const auto& vr : virtual_rows)
+		{
+			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, vr.key);
+			by_offset.emplace_back(off, vr.section, vr.key);
+		}
 		std::stable_sort(by_offset.begin(),
 		                 by_offset.end(),
 		                 [](const auto& a, const auto& b)
@@ -970,6 +1370,16 @@ namespace big::mod_settings
 		std::stable_sort(actions.begin(),
 		                 actions.end(),
 		                 [&](const action_info& a, const action_info& b)
+		                 {
+			                 const std::size_t oa = source_text.empty() ? std::string::npos : find_key_definition(source_text, a.key);
+			                 const std::size_t ob = source_text.empty() ? std::string::npos : find_key_definition(source_text, b.key);
+			                 return oa < ob;
+		                 });
+
+		// Same for virtual rows.
+		std::stable_sort(virtual_rows.begin(),
+		                 virtual_rows.end(),
+		                 [&](const virtual_row_info& a, const virtual_row_info& b)
 		                 {
 			                 const std::size_t oa = source_text.empty() ? std::string::npos : find_key_definition(source_text, a.key);
 			                 const std::size_t ob = source_text.empty() ? std::string::npos : find_key_definition(source_text, b.key);
@@ -997,10 +1407,11 @@ namespace big::mod_settings
 			{
 				g_appearance_order[metadata_key(guid, section, key)] = rank++;
 			}
-			g_actions[guid] = std::move(actions);
+			g_actions[guid]      = std::move(actions);
+			g_virtual_rows[guid] = std::move(virtual_rows);
 		}
 
-		return sol::make_object(ts, mod_config_proxy{cf.get(), "config"});
+		return make_proxy(ts, cf.get(), "config");
 	}
 
 	std::optional<setting_metadata> resolve_setting_metadata(const std::string& guid, const std::string& section, const std::string& key)
@@ -1105,6 +1516,144 @@ namespace big::mod_settings
 		}
 	}
 
+	std::vector<virtual_row_info> get_virtual_rows(const std::string& guid, const std::string& section)
+	{
+		std::vector<virtual_row_info> result;
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_virtual_rows.find(guid);
+		if (it == g_virtual_rows.end())
+		{
+			return result;
+		}
+		for (const auto& vr : it->second)
+		{
+			if (vr.section == section)
+			{
+				result.push_back(vr);
+			}
+		}
+		return result;
+	}
+
+	std::string get_virtual_display(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		if (!big::g_lua_manager)
+		{
+			return {};
+		}
+		sol::state_view state  = big::g_lua_manager->lua_state();
+		const sol::object root = stored_descriptions(state, guid);
+		const sol::object desc = navigate_description(root, section, key);
+		if (!desc.is<sol::table>())
+		{
+			return {};
+		}
+		sol::table t = desc.as<sol::table>();
+
+		// The read-only display comes from `text`: a plain string, or a function returning a bool/number/string that
+		// is stringified. Evaluated protected so a mod error cannot crash the menu. (`get`/`set` is the separate
+		// editable value pair, added with interactive virtual rows; it is not a display path.)
+		const sol::object text = t["text"];
+		if (text.get_type() == sol::type::string)
+		{
+			return text.as<std::string>();
+		}
+		if (text.get_type() == sol::type::function)
+		{
+			sol::protected_function fn        = text;
+			sol::protected_function_result rv = fn();
+			if (!rv.valid())
+			{
+				const sol::error err = rv;
+				LOG(WARNING) << "[mod_settings] virtual row " << section << "." << key << " for " << guid << " failed: " << err.what();
+				return {};
+			}
+			return serialize_option(rv.get<sol::object>());
+		}
+		return {};
+	}
+
+	virtual_value get_virtual_value(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		virtual_value out;
+		if (!big::g_lua_manager)
+		{
+			return out;
+		}
+		sol::state_view state  = big::g_lua_manager->lua_state();
+		const sol::object root = stored_descriptions(state, guid);
+		const sol::object desc = navigate_description(root, section, key);
+		if (!desc.is<sol::table>())
+		{
+			return out;
+		}
+		const sol::object get = desc.as<sol::table>()["get"];
+		if (get.get_type() != sol::type::function)
+		{
+			return out;
+		}
+		sol::protected_function fn        = get;
+		sol::protected_function_result rv = fn();
+		if (!rv.valid())
+		{
+			const sol::error err = rv;
+			LOG(WARNING) << "[mod_settings] virtual row get " << section << "." << key << " for " << guid << " failed: " << err.what();
+			return out;
+		}
+		const sol::object v = rv.get<sol::object>();
+		switch (v.get_type())
+		{
+		case sol::type::boolean:
+			out.type    = virtual_value::kind::boolean;
+			out.as_bool = v.as<bool>();
+			break;
+		case sol::type::number:
+			out.type      = virtual_value::kind::number;
+			out.as_number = v.as<double>();
+			break;
+		case sol::type::string:
+			out.type      = virtual_value::kind::string;
+			out.as_string = v.as<std::string>();
+			break;
+		default: break; // kind::none - the widget falls back to a read-only display.
+		}
+		return out;
+	}
+
+	void set_virtual_value(const std::string& guid, const std::string& section, const std::string& key, const virtual_value& value)
+	{
+		if (!big::g_lua_manager)
+		{
+			return;
+		}
+		sol::state_view state  = big::g_lua_manager->lua_state();
+		const sol::object root = stored_descriptions(state, guid);
+		const sol::object desc = navigate_description(root, section, key);
+		if (!desc.is<sol::table>())
+		{
+			return;
+		}
+		const sol::object set = desc.as<sol::table>()["set"];
+		if (set.get_type() != sol::type::function)
+		{
+			return;
+		}
+		sol::protected_function fn = set;
+		sol::protected_function_result rv;
+		switch (value.type)
+		{
+		case virtual_value::kind::boolean: rv = fn(value.as_bool); break;
+		case virtual_value::kind::number:  rv = fn(value.as_number); break;
+		case virtual_value::kind::string:  rv = fn(value.as_string); break;
+		default:                           return; // nothing to write.
+		}
+		if (!rv.valid())
+		{
+			const sol::error err = rv;
+			LOG(WARNING) << "[mod_settings] virtual row set " << section << "." << key << " for " << guid << " failed: " << err.what();
+		}
+	}
+
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Excludes the calling mod from the in-game mod settings
 	// menu: it stays listed but greyed out and cannot be opened, with a note pointing the player to the mod's own
 	// description. Use it when the mod should not be edited in-game. Works with Chalk or rom.mod_settings.load.
@@ -1138,11 +1687,36 @@ namespace big::mod_settings
 			g_setting_default.clear();
 			g_opted_out_mods.clear();
 			g_actions.clear();
+			g_virtual_rows.clear();
+			g_described_keys.clear();
 		}
 
-		// Register the live-config proxy usertype once per state (mods never construct it. Instances are returned from
-		// load). Its index/new_index read/write the underlying config entries.
-		lua_ext.new_usertype<mod_config_proxy>("mod_config_proxy", sol::no_constructor, sol::meta_function::index, &mod_config_proxy::index, sol::meta_function::new_index, &mod_config_proxy::new_index);
+		// The config object handed to mods is a plain Lua table (so `type(config) == "table"`, matching
+		// SGG_Modding-Chalk), driven by one shared metatable. It reproduces Chalk's full metamethod surface so mods
+		// migrating off Chalk keep working: index/new_index read/write entries, and len/pairs/ipairs (plus ModUtil's
+		// next/inext, which it reads via rawget(getmetatable(t), '__next'/'__inext')) make the config iterable like a
+		// normal table. Each wrapper table's (cf, section) live in weak-keyed registry maps, so the wrapper stays empty
+		// (nothing leaks into rawpairs) and is collected with it.
+		sol::table proxy_metatable    = state.create_table();
+		proxy_metatable["__index"]    = &proxy_index;
+		proxy_metatable["__newindex"] = &proxy_new_index;
+		proxy_metatable["__len"]      = &proxy_length;
+		proxy_metatable["__pairs"]    = &proxy_pairs;
+		proxy_metatable["__ipairs"]   = &proxy_ipairs;
+		proxy_metatable["__next"]     = &proxy_next;
+		proxy_metatable["__inext"]    = &proxy_inext;
+
+		sol::table proxy_cf_map               = state.create_table();
+		sol::table cf_map_meta                = state.create_table_with("__mode", "k");
+		proxy_cf_map[sol::metatable_key]      = cf_map_meta;
+		sol::table proxy_section_map          = state.create_table();
+		sol::table section_map_meta           = state.create_table_with("__mode", "k");
+		proxy_section_map[sol::metatable_key] = section_map_meta;
+
+		sol::table registry           = state.registry();
+		registry[k_proxy_metatable]   = proxy_metatable;
+		registry[k_proxy_cf_map]      = proxy_cf_map;
+		registry[k_proxy_section_map] = proxy_section_map;
 
 		sol::table ns = lua_ext.create_named("mod_settings");
 		ns.set_function("load", &load);
