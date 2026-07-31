@@ -199,8 +199,8 @@ namespace big::mod_settings
 	// so keep it in sync when refreshing for a new build.
 	static constexpr std::uintptr_t slider_vtable_rva = 0x4D'8A'68;
 	static constexpr std::size_t slider_sizeof        = 0x5'B0;
-	static constexpr std::size_t image_sizeof         = 0x5'78; // sgg::GUIComponentImage (mBacking/mFill)
-	static constexpr std::size_t textbox_sizeof       = 0x6'C0; // sgg::GUIComponentTextBox (mLabel/mValueTextBox)
+	static constexpr std::size_t image_sizeof         = 0x5'78;       // sgg::GUIComponentImage (mBacking/mFill)
+	static constexpr std::size_t textbox_sizeof       = 0x6'C0;       // sgg::GUIComponentTextBox (mLabel/mValueTextBox)
 	static constexpr std::size_t menu_screen_container_offset = 0x50; // owner + 0x50 = the IGUIComponentContainer base
 	static constexpr std::size_t slider_parent_offset = 0x3'90; // GUIComponent::mParentContainer, SetParent writes
 
@@ -413,6 +413,11 @@ namespace big::mod_settings
 		bool is_enabled_toggle = false; // the mod's master "enabled" toggle
 		bool is_virtual_input  = false; // an interactive virtual row (value via Lua get/set, not a config entry)
 		bool is_toggle         = false; // a boolean toggle row (config bool, or an interactive virtual bool)
+
+		// The on/off state a virtual toggle was drawn with. A virtual toggle computes its flip from get(), but get()
+		// may return nil (the mod's value is not set yet, the case `type` covers) - the flip then falls back to this
+		// last-drawn state so the first click still works. Only meaningful for an interactive virtual bool row.
+		bool toggle_value = false;
 
 		// Author-provided description shown at the bottom of the screen while this row is highlighted (setting rows
 		// only empty for navigation rows).
@@ -1105,7 +1110,7 @@ namespace big::mod_settings
 
 		// Stretch the box only enough to fit a label wider than the native box (see button_label_*), so short labels
 		// keep the clean native box. Drawn box width = native * mScale * box_scale_x.
-		const float box_scale_x = std::max(1.0f, (measure_width(label) + button_label_padding)/button_label_capacity);
+		const float box_scale_x = std::max(1.0f, (measure_width(label) + button_label_padding) / button_label_capacity);
 
 		constexpr float button_scale = 0.8f;
 
@@ -1400,7 +1405,7 @@ namespace big::mod_settings
 			}
 		}
 		const double scale = std::pow(10.0, decimals);
-		shown              = std::round(shown * scale)/scale;
+		shown              = std::round(shown * scale) / scale;
 
 		std::string out = std::to_string(shown); // fixed 6-decimal form, e.g. "53.000000"
 		if (out.find('.') != std::string::npos)
@@ -1517,7 +1522,7 @@ namespace big::mod_settings
 		// Paint the starting value: map [min,max] -> 0..1 and set the fraction without notifying (so the SetFraction
 		// hook does not treat it as a user edit), then show the real value (not a percentage).
 		const double range = max_v - min_v;
-		const float frac   = (range > 0.0) ? static_cast<float>((initial - min_v)/range) : 0.0f;
+		const float frac   = (range > 0.0) ? static_cast<float>((initial - min_v) / range) : 0.0f;
 		g_slider_set_fraction(s, frac, false);
 		set_slider_value_text(reinterpret_cast<GUIComponent*>(s),
 		                      format_setting_display(initial, show_as_pct, is_pct, step_v).c_str());
@@ -1605,7 +1610,7 @@ namespace big::mod_settings
 				// too flags=0 destructs without the final operator delete, so we still _aligned_free the block
 				// ourselves.
 				void** vtbl = *reinterpret_cast<void***>(comp);
-				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset/sizeof(void*)]);
+				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset / sizeof(void*)]);
 				dtor(comp, 0);
 			}
 			else if (g_button_dtor)
@@ -2244,7 +2249,7 @@ namespace big::mod_settings
 						if (meta->has_step && meta->step > 0.0)
 						{
 							const double base = meta->has_min ? meta->min : 0.0;
-							v                 = base + std::round((v - base)/meta->step) * meta->step;
+							v                 = base + std::round((v - base) / meta->step) * meta->step;
 							v                 = clamp_range(v); // snapping may overshoot a bound
 						}
 						g_edit_entry->set_value_base<double>(v);
@@ -2291,7 +2296,7 @@ namespace big::mod_settings
 	{
 		if (g_edit_component && g_set_label)
 		{
-			const bool cursor_on    = ((GetTickCount64()/edit_cursor_blink_ms) % 2) == 0;
+			const bool cursor_on    = ((GetTickCount64() / edit_cursor_blink_ms) % 2) == 0;
 			const std::string label = render_edit_display(g_edit_buffer, g_edit_cursor, cursor_on);
 			g_set_label(g_edit_component, label.c_str());
 		}
@@ -2735,12 +2740,48 @@ namespace big::mod_settings
 				}
 
 				// Interactive row. Infer the widget from get()'s value type plus the metadata, exactly like a config
-				// setting is inferred from its config value type.
-				const virtual_value vv = get_virtual_value(stem, section, it.key);
-				const bool is_enum     = vmeta && !vmeta->values.empty();
-				const bool is_bool     = vv.type == virtual_value::kind::boolean;
-				const bool is_number   = vv.type == virtual_value::kind::number;
-				const double step      = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
+				// setting is inferred from its config value type. When get() returns nil at build time (the mod's state
+				// is not ready yet), the author can force the widget with `type` - synthesize a starting value from
+				// `default` (or a sensible fallback) so the widget still builds instead of falling back to read-only.
+				virtual_value vv = get_virtual_value(stem, section, it.key);
+				if (vv.type == virtual_value::kind::none && vmeta && vmeta->type != widget_type::inferred)
+				{
+					const std::string& dflt = vmeta->default_value; // empty when no default declared
+					switch (vmeta->type)
+					{
+					case widget_type::boolean:
+						vv.type    = virtual_value::kind::boolean;
+						vv.as_bool = (dflt == "true");
+						break;
+					case widget_type::number:
+					{
+						vv.type  = virtual_value::kind::number;
+						double n = vmeta->has_min ? vmeta->min : 0.0;
+						if (vmeta->has_default)
+						{
+							try
+							{
+								n = std::stod(dflt);
+							}
+							catch (...)
+							{
+							}
+						}
+						vv.as_number = n;
+						break;
+					}
+					case widget_type::string:
+					case widget_type::enumeration:
+						vv.type      = virtual_value::kind::string;
+						vv.as_string = dflt;
+						break;
+					default: break;
+					}
+				}
+				const bool is_enum   = vmeta && !vmeta->values.empty();
+				const bool is_bool   = vv.type == virtual_value::kind::boolean;
+				const bool is_number = vv.type == virtual_value::kind::number;
+				const double step    = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
 				const bool is_stepper = !is_enum && is_number && vmeta && vmeta->has_min && vmeta->has_max && !vmeta->freetext;
 
 				// The current value serialized the same way config values/enum options are, for enum matching and the
@@ -2882,7 +2923,8 @@ namespace big::mod_settings
 					}
 					else if (is_bool)
 					{
-						pr.is_toggle = true;
+						pr.is_toggle    = true;
+						pr.toggle_value = vv.as_bool; // last-drawn state, for the flip fallback when get() is nil
 					}
 					g_rows.push_back(pr);
 				}
@@ -3028,7 +3070,7 @@ namespace big::mod_settings
 				if (auto* ro_row = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false))
 				{
 					PanelRow pr{ro_row, RowKind::setting, stem, key, entry};
-					pr.disabled = true; // blocks every edit path (click/slider/num-box) via the row handlers
+					pr.disabled          = true; // blocks every edit path (click/slider/num-box) via the row handlers
 					pr.is_enabled_toggle = is_enabled_row;
 					pr.value_component   = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
 
@@ -3795,7 +3837,7 @@ namespace big::mod_settings
 			// shrank, e.g. a row became hidden), and then to the first index of the last page - so a partial final page
 			// (fewer than rows_per_page rows) keeps its own offset instead of being pulled up into a full page of rows.
 			const std::uint32_t row_count       = static_cast<std::uint32_t>(g_rows.size());
-			const std::uint32_t last_page_start = row_count > 0 ? ((row_count - 1)/rows_per_page) * rows_per_page : 0;
+			const std::uint32_t last_page_start = row_count > 0 ? ((row_count - 1) / rows_per_page) * rows_per_page : 0;
 			const std::uint32_t desired         = instant ? prev_start : g_pending_restore.scroll_index;
 			start                               = desired > last_page_start ? last_page_start : desired;
 		}
@@ -4004,6 +4046,13 @@ namespace big::mod_settings
 				any_changed = true;
 			}
 		}
+
+		// Interactive virtual rows are not config entries, so restore any that declare a `default` through their set()
+		// callback here (read-only rows and rows without a default are left untouched).
+		if (reset_virtual_rows_to_defaults(g_view_stem))
+		{
+			any_changed = true;
+		}
 		return any_changed;
 	}
 
@@ -4053,7 +4102,7 @@ namespace big::mod_settings
 				return s; // regular spaces render in the CJK font, the entries fit without non-breaking
 			}
 			std::string out;
-			out.reserve(s.size() + s.size()/4);
+			out.reserve(s.size() + s.size() / 4);
 			for (char c : s)
 			{
 				out += (c == ' ') ? std::string("\xC2\xA0") : std::string(1, c);
@@ -4434,7 +4483,7 @@ namespace big::mod_settings
 		double v      = min_v + static_cast<double>(f) * range;
 		if (step_v > 0.0 && range > 0.0)
 		{
-			v = min_v + std::round((v - min_v)/step_v) * step_v;
+			v = min_v + std::round((v - min_v) / step_v) * step_v;
 		}
 		if (v < min_v)
 		{
@@ -4472,7 +4521,7 @@ namespace big::mod_settings
 		}
 		const double cur = row->entry ? row->entry->get_value_base<double>() :
 		                                get_virtual_value(row->stem, g_view_section, row->setting_key).as_number;
-		const double idx = std::round((cur - min_v)/step_v);
+		const double idx = std::round((cur - min_v) / step_v);
 		double v         = min_v + (idx + dir) * step_v;
 		if (v < min_v)
 		{
@@ -4482,7 +4531,7 @@ namespace big::mod_settings
 		{
 			v = max_v;
 		}
-		g_slider_set_fraction(slider, static_cast<float>((v - min_v)/range), true);
+		g_slider_set_fraction(slider, static_cast<float>((v - min_v) / range), true);
 	}
 
 	// Discrete keyboard/controller stepping for our slider rows, and a disabled-row guard. The native
@@ -4562,13 +4611,14 @@ namespace big::mod_settings
 		{
 			stage_toggle_press_sound(self, !matched_row.entry->get_value_base<bool>());
 		}
-		else if (matched && !matched_row.disabled && matched_row.kind == RowKind::setting && matched_row.is_virtual_input)
+		else if (matched && !matched_row.disabled && matched_row.kind == RowKind::setting && matched_row.is_virtual_input
+		         && matched_row.is_toggle)
 		{
-			const auto cur = get_virtual_value(matched_row.stem, g_view_section, matched_row.setting_key);
-			if (cur.type == virtual_value::kind::boolean)
-			{
-				stage_toggle_press_sound(self, !cur.as_bool);
-			}
+			// Predict the flipped state for the press cue. get() drives the flip, but may be nil (value not set yet),
+			// so fall back to the row's last-drawn state - matching the flip below.
+			const auto cur    = get_virtual_value(matched_row.stem, g_view_section, matched_row.setting_key);
+			const bool cur_on = cur.type == virtual_value::kind::boolean ? cur.as_bool : matched_row.toggle_value;
+			stage_toggle_press_sound(self, !cur_on);
 		}
 
 		const bool result = big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
@@ -4643,18 +4693,19 @@ namespace big::mod_settings
 				{
 					enter_edit_mode(matched_row.value_component, entry);
 				}
-				else if (matched_row.is_virtual_input)
+				else if (matched_row.is_virtual_input && matched_row.is_toggle)
 				{
 					// Interactive virtual boolean: flip through the Lua set() callback and repaint the toggle. Like the
 					// virtual enum/slider, dependent-row refresh is handled by the settle timer that commit_row_bool
-					// arms (no instant rebuild - there is no master-enable greying to apply immediately).
+					// arms (no instant rebuild - there is no master-enable greying to apply immediately). get() drives
+					// the flip, but may be nil (the value is not set yet, the case `type` covers); fall back to the
+					// row's last-drawn state so the first click still toggles. After this set() runs, get() returns the
+					// stored value, so later clicks read it directly.
 					const auto cur = get_virtual_value(matched_row.stem, g_view_section, matched_row.setting_key);
-					if (cur.type == virtual_value::kind::boolean)
-					{
-						const bool new_value = !cur.as_bool;
-						commit_row_bool(&matched_row, new_value);
-						set_toggle_graphic(self, new_value);
-					}
+					const bool cur_on = cur.type == virtual_value::kind::boolean ? cur.as_bool : matched_row.toggle_value;
+					const bool new_value = !cur_on;
+					commit_row_bool(&matched_row, new_value);
+					set_toggle_graphic(self, new_value);
 				}
 				break;
 			}
@@ -4760,7 +4811,10 @@ namespace big::mod_settings
 		// those rows (e.g. an apply button enabling itself when a value changes). The rebuild frees and recreates the
 		// rows, so it is deferred two ways: a short debounce absorbs the per-frame slider hook, and while the user is
 		// still actively adjusting a row (with keyboard/controller, or an in-progress mouse drag) the rebuild is HELD
-		// until they finish - otherwise it would free the focused slider mid-adjust or interrupt a mouse drag.
+		// until they finish - otherwise it would free the focused slider mid-adjust or interrupt a mouse drag. The
+		// debounce also coalesces a burst of edits into a single rebuild: each commit re-arms the timer, only the final
+		// expiry rebuilds, build_panel clears the timer so its own rebuild cancels any still-pending one, and the
+		// !g_nav_pending guard folds this into a rebuild already queued by an instant path (a toggle / action).
 		if (g_dynamic_refresh_settle > 0.0f)
 		{
 			if (!on_mods_tab)
@@ -4783,6 +4837,19 @@ namespace big::mod_settings
 						g_pending_stem    = g_view_stem;
 						g_pending_section = g_view_section;
 						g_nav_pending     = true;
+
+						// Pin the row the user just edited so the rebuild keeps focus on it. Keyboard/controller focus
+						// is restored by build_panel's cursor tracking; in mouse mode g_keep_active_row drives the
+						// few-frame re-assert that steadies the prompt, description and highlight over the rebuild
+						// (a set() that changes a config value can otherwise blink them onto a neighbour). Mirrors the
+						// click/toggle path, which pins its row the same way.
+						if (GUIComponent* active = active_row_component(screen))
+						{
+							if (const PanelRow* fr = find_row(active))
+							{
+								g_keep_active_row = row_identity_of(*fr);
+							}
+						}
 					}
 				}
 			}

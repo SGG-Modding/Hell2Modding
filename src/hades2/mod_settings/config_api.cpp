@@ -426,6 +426,37 @@ namespace big::mod_settings
 
 		m.restart_required = description_requires_restart(desc);
 
+		// Virtual-row `type`: an author-forced widget kind for when get() may be nil at build time (config settings
+		// ignore this, their value always exists). Accepts "boolean"/"bool", "number", "string", "enum"/"enumeration".
+		if (sol::object type_field = desc["type"]; type_field.get_type() == sol::type::string)
+		{
+			const std::string t = type_field.as<std::string>();
+			if (t == "boolean" || t == "bool")
+			{
+				m.type = widget_type::boolean;
+			}
+			else if (t == "number")
+			{
+				m.type = widget_type::number;
+			}
+			else if (t == "string")
+			{
+				m.type = widget_type::string;
+			}
+			else if (t == "enum" || t == "enumeration")
+			{
+				m.type = widget_type::enumeration;
+			}
+		}
+
+		// Virtual-row `default`: the value a menu Reset restores the row to (config settings recover their own default
+		// from the .cfg / config.lua). Serialized the same way as an enum option value so it round-trips through set().
+		if (sol::object default_field = desc["default"]; default_field.valid() && default_field.get_type() != sol::type::lua_nil)
+		{
+			m.has_default   = true;
+			m.default_value = serialize_option(default_field);
+		}
+
 		// When the setting may be changed relative to a loaded save (`editableContext`). The menu forces the master
 		// "enabled" toggle and restartRequired settings to main_menu regardless, so authors need only annotate the
 		// in-between cases.
@@ -650,6 +681,8 @@ namespace big::mod_settings
 		    "get",
 		    "set",
 		    "text",
+		    "type",
+		    "default",
 		};
 		return reserved.contains(key);
 	}
@@ -1652,6 +1685,125 @@ namespace big::mod_settings
 			const sol::error err = rv;
 			LOG(WARNING) << "[mod_settings] virtual row set " << section << "." << key << " for " << guid << " failed: " << err.what();
 		}
+	}
+
+	// Parses a serialized scalar (as produced by serialize_option) back to a double, or 0.0 if it is not numeric.
+	static double parse_serialized_number(const std::string& s)
+	{
+		try
+		{
+			return std::stod(s);
+		}
+		catch (...)
+		{
+			return 0.0;
+		}
+	}
+
+	// The virtual_value kind an author-forced widget_type maps to (enum options and strings are both carried as
+	// strings). widget_type::inferred / an unmapped value yield kind::none.
+	static virtual_value::kind kind_of_widget(widget_type t)
+	{
+		switch (t)
+		{
+		case widget_type::boolean:     return virtual_value::kind::boolean;
+		case widget_type::number:      return virtual_value::kind::number;
+		case widget_type::string:
+		case widget_type::enumeration: return virtual_value::kind::string;
+		default:                       return virtual_value::kind::none;
+		}
+	}
+
+	// Builds a typed virtual_value from a serialized scalar for the given kind. kind::none yields a none value.
+	static virtual_value virtual_value_from_serialized(virtual_value::kind kind, const std::string& serialized)
+	{
+		virtual_value v;
+		v.type = kind;
+		switch (kind)
+		{
+		case virtual_value::kind::boolean: v.as_bool = (serialized == "true"); break;
+		case virtual_value::kind::number:  v.as_number = parse_serialized_number(serialized); break;
+		case virtual_value::kind::string:  v.as_string = serialized; break;
+		default:                           break;
+		}
+		return v;
+	}
+
+	// Best-effort kind for a serialized default when neither get() nor an explicit `type` pins it: "true"/"false" is a
+	// boolean, an all-numeric parse is a number, everything else is a string.
+	static virtual_value::kind guess_kind_from_serialized(const std::string& s)
+	{
+		if (s == "true" || s == "false")
+		{
+			return virtual_value::kind::boolean;
+		}
+		try
+		{
+			std::size_t consumed = 0;
+			(void)std::stod(s, &consumed);
+			if (consumed == s.size())
+			{
+				return virtual_value::kind::number;
+			}
+		}
+		catch (...)
+		{
+		}
+		return virtual_value::kind::string;
+	}
+
+	bool reset_virtual_rows_to_defaults(const std::string& guid)
+	{
+		std::vector<virtual_row_info> rows;
+		{
+			std::scoped_lock lock(g_metadata_mutex);
+			const auto it = g_virtual_rows.find(guid);
+			if (it == g_virtual_rows.end())
+			{
+				return false;
+			}
+			rows = it->second; // copy so the lock is not held across the Lua get/set callbacks below.
+		}
+
+		bool any_changed = false;
+		for (const auto& vr : rows)
+		{
+			if (!vr.interactive)
+			{
+				continue; // read-only rows have no set() to restore through.
+			}
+			const auto meta = resolve_setting_metadata(guid, vr.section, vr.key);
+			if (!meta || !meta->has_default)
+			{
+				continue; // only rows that declare a `default` are reset.
+			}
+
+			// Prefer the live get() kind, then an explicit `type`, then `values` (enum -> string), then a guess from
+			// the default's serialized form.
+			const virtual_value cur  = get_virtual_value(guid, vr.section, vr.key);
+			virtual_value::kind kind = cur.type;
+			if (kind == virtual_value::kind::none)
+			{
+				kind = kind_of_widget(meta->type);
+			}
+			if (kind == virtual_value::kind::none)
+			{
+				kind = !meta->values.empty() ? virtual_value::kind::string : guess_kind_from_serialized(meta->default_value);
+			}
+
+			const virtual_value target = virtual_value_from_serialized(kind, meta->default_value);
+			const bool unchanged       = cur.type == target.type
+			                       && ((kind == virtual_value::kind::boolean && cur.as_bool == target.as_bool)
+			                           || (kind == virtual_value::kind::number && cur.as_number == target.as_number)
+			                           || (kind == virtual_value::kind::string && cur.as_string == target.as_string));
+			if (unchanged)
+			{
+				continue;
+			}
+			set_virtual_value(guid, vr.section, vr.key, target);
+			any_changed = true;
+		}
+		return any_changed;
 	}
 
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Excludes the calling mod from the in-game mod settings

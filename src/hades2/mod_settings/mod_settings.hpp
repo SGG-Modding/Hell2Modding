@@ -33,6 +33,19 @@ namespace big::mod_settings
 		in_hub,
 	};
 
+	// An author-forced widget kind for a virtual row (config.lua `type`). Virtual rows normally infer their widget
+	// from get()'s value type, but get() may return nil at build time (the mod's state is not ready yet), which would
+	// fall back to a read-only row. Declaring `type` forces the widget regardless. Ignored for config-backed settings
+	// (their value always exists). `enumeration` is only needed when there is no `values` list to imply it.
+	enum class widget_type
+	{
+		inferred,
+		boolean,
+		number,
+		string,
+		enumeration,
+	};
+
 	// Author-declared metadata for a single setting, extracted from its config.lua description table by
 	// rom.mod_settings.load. Consulted by the settings menu. Only settings whose description is a rich table have an
 	// entry. The rest fall back to type-based rendering. Every field is an author-only input that cannot be inferred
@@ -84,6 +97,14 @@ namespace big::mod_settings
 		// is a no-op. The stored config value is never modified by either.
 		bool show_as_percentage = false;
 		bool is_percentage      = false;
+
+		// Virtual-row only (config.lua `type`/`default`). `type` forces the widget kind when get() cannot be relied
+		// on to infer it (see widget_type). `default` is the value a menu Reset restores the row to, via its set()
+		// callback (config settings recover their own default from the .cfg / config.lua instead), stored serialized
+		// like an enum option value. Both are ignored for config-backed settings.
+		widget_type type = widget_type::inferred;
+		bool has_default = false;
+		std::string default_value;
 	};
 
 	// True if a mod author declared this setting as requiring a game restart to take effect (via `restart_required =
@@ -147,8 +168,8 @@ namespace big::mod_settings
 	{
 		std::string section;
 		std::string key;
-		bool has_order   = false;
-		double order     = 0.0;
+		bool has_order = false;
+		double order   = 0.0;
 		bool has_dynamic = false; // a name/description/values/min/max/text field is a Lua function (re-resolve at render)
 		bool interactive = false; // has a `set` callback (an editable get/set row) rather than a read-only `text` row
 	};
@@ -172,9 +193,9 @@ namespace big::mod_settings
 			number,
 			string,
 		};
-		kind type          = kind::none;
-		bool as_bool       = false;
-		double as_number   = 0.0;
+		kind type        = kind::none;
+		bool as_bool     = false;
+		double as_number = 0.0;
 		std::string as_string;
 	};
 
@@ -186,6 +207,12 @@ namespace big::mod_settings
 	// Writes a new value to an interactive virtual row by calling its `set(value)` callback (protected). No-op when the
 	// row has no `set`. Call on the game thread while the Lua state is alive.
 	void set_virtual_value(const std::string& guid, const std::string& section, const std::string& key, const virtual_value& value);
+
+	// Restores every interactive virtual row of mod `guid` that declares a `default` to that default, via its set()
+	// callback. Read-only rows and rows without a `default` are left untouched. Returns true if any row's value
+	// actually changed. Used by the menu Reset (config-backed settings recover their own defaults separately). Call on
+	// the game thread while the Lua state is alive.
+	bool reset_virtual_rows_to_defaults(const std::string& guid);
 
 	// Rank of a setting's definition in its config.lua source (0 = first). Used to order rows that have no
 	// author-declared `order` in config-file order. Returns INT_MAX for keys not bound via rom.mod_settings.load (e.g.

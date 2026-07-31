@@ -91,7 +91,9 @@
 ---  - READ-ONLY: give it `text` (a string, or a function returning one).
 ---  - INTERACTIVE: give it `get` (read) and `set` (write). The widget is inferred from get()'s value and the
 ---    metadata, exactly like a config setting is inferred from its config value: a boolean is a toggle, a number
----    with `min`+`max` is a slider (else a number box), and any type with `values` is an enum picker.
+---    with `min`+`max` is a slider (else a number box), and any type with `values` is an enum picker. If get()
+---    can return nil at build time, force the widget with `type`. Give it a `default` to have the menu Reset
+---    restore it.
 --- `get`/`set`/`text` and the metadata fields (displayName/description/values/min/max/step/labels) may all be
 --- functions, re-evaluated live.
 ---@class (exact) mod_settings.virtual_description
@@ -106,6 +108,12 @@
 --- INTERACTIVE: writes the edited value back. Required for an interactive row (its presence makes the row
 --- interactive). For an enum row, receives the selected option as a STRING (the serialized form).
 ---@field set? fun(value: boolean | number | string)
+--- Force the widget kind when get() may return nil at build time (so it cannot be inferred). Only needed then;
+--- normally the widget is inferred from get()'s value. `"enum"` still needs `values`.
+---@field type? "boolean" | "number" | "string" | "enum"
+--- Value the menu Reset restores this row to, via its `set()` callback (config-backed settings recover their
+--- own default instead). Rows without a `default` are left untouched by Reset.
+---@field default? boolean | number | string
 --- Enum options: the values actually stored in the .cfg file.
 --- Providing this makes the setting a cycler over these options.
 ---@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]

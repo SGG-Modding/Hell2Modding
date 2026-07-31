@@ -125,6 +125,26 @@ Interactive rows also support `disabled`, `disabledDescription`, `editableContex
 `isPercentage`, and (for enums) `labels` - the same as config settings. `get`/`set`/`text` and the metadata
 fields may be functions, re-evaluated live.
 
+Two extra fields help interactive rows that have no `.cfg` backing:
+
+- **`type`** - force the widget kind (`"boolean"`, `"number"`, `"string"`, or `"enum"`) when `get()` can
+  return `nil` at build time and so cannot be inferred. Only needed then; `"enum"` still requires `values`.
+- **`default`** - the value the menu **Reset** restores the row to, applied through its `set()` callback.
+  Config-backed settings recover their own default automatically; a virtual row without a `default` is left
+  untouched by Reset.
+
+```lua
+local preset = nil -- not chosen yet, so get() returns nil until the player picks one
+local configDesc = {
+  preset = {
+    virtual = true, displayName = "Preset",
+    type = "enum", values = { "off", "balanced", "max" }, default = "balanced",
+    get = function() return preset end,
+    set = function(v) preset = v end,
+  },
+}
+```
+
 ## Reacting to changes (`onChange`)
 
 Give a setting an `onChange` function to e.g. apply its new value to the live game when the player
