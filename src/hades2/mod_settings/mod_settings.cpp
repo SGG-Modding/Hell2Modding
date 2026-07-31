@@ -322,6 +322,12 @@ namespace big::mod_settings
 	static slider_defaults_fn g_slider_defaults         = nullptr;
 	static slider_set_fraction_fn g_slider_set_fraction = nullptr;
 	static std::uintptr_t g_slider_vtable               = 0; // runtime
+	// A patched copy of the slider vtable (built in set_up_hooks) whose GetArea/GetScreenArea slots return a one-row
+	// hit rect (see slider_bounded_area), replacing the native ones that union the slider's sub-components into a
+	// screen-spanning rect. 128 slots comfortably covers the class's virtual table.
+	static constexpr std::size_t slider_vtable_slot_count                      = 128;
+	static std::uintptr_t        g_slider_vtable_copy[slider_vtable_slot_count] = {};
+	static std::uintptr_t        g_slider_vtable_patched                        = 0; // runtime
 	static teleport_cursor_fn g_teleport_cursor = nullptr;   // drops the controller cursor on a row (initial focus)
 	static set_mouse_over_fn g_set_mouse_over   = nullptr;   // MenuScreen::SetMouseOver (highlight + select a row)
 	static const bool* g_use_mouse              = nullptr;   // sgg::ConfigOptions::UseMouse (false in controller mode)
@@ -1438,6 +1444,23 @@ namespace big::mod_settings
 	// bounded numeric setting. The slider stores a normalized 0..1 fraction. We map the setting's [min,max] onto it and
 	// snap drags to `step` in the SetFraction hook. The engine has no factory for this type, so this replicates the
 	// construction DoShowCategory performs for the volume rows: allocate the block, run the base GUIComponent
+	// Row-sized hover/nav hit rect for our interactive slider rows, installed via the patched slider vtable
+	// (GetArea vtable +0x98 and GetScreenArea +0xA0). The native GUIComponentSlider::GetArea unions the slider's
+	// sub-components (bar, fill, label, value) into a rectangle spanning most of the screen; via the nearest-anchor
+	// tiebreak in MenuScreen::UpdateMouseOver that giant rect steals mouse hover from every other row on a page mixing
+	// sliders with other row types (and the polluted mouse-over then overrides keyboard nav). Returning a one-row rect
+	// (matching the toggle/text rows' footprint) makes the slider hit-test like any other row. Dragging is unaffected:
+	// it runs through GUIComponentSlider::HandleInput (hooked separately), not GetArea. IRectangle is {x,y,w,h} int32.
+	static void* slider_bounded_area(GUIComponent* self, std::int32_t* out)
+	{
+		const int left = static_cast<int>(row_location_x + row_text_offset_x); // option-name column start (~660)
+		out[0]         = left;
+		out[1]         = static_cast<int>(self->m_location_y) - 22;
+		out[2]         = static_cast<int>(row_location_x) + 22 - left; // out to the value column (~922 wide)
+		out[3]         = 44;                                           // one row tall, under row_pitch so no overlap
+		return out;
+	}
+
 	// constructor, install the slider vtable, zero the fields Defaults leaves untouched, then run Defaults and allocate
 	// the four owned sub-components (bar background, fill, label, value text). Named "OptionSlider" so
 	// ApplyDataToComponent applies the matching sjson template (bar graphics, colours, FadeSpeed, label styling).
@@ -1459,9 +1482,10 @@ namespace big::mod_settings
 		std::memset(s, 0, slider_sizeof);
 
 		// Base GUIComponent constructor (location passed by value. 0 = origin, overridden below by
-		// ApplyDataToComponent./finalize_row), then install the slider vtable over the base one.
+		// ApplyDataToComponent./finalize_row), then install the patched slider vtable (bounded GetArea) over the base
+		// one, falling back to the unpatched native vtable if the copy was not built.
 		g_gui_component_ctor(s, 0);
-		*reinterpret_cast<std::uintptr_t*>(s) = g_slider_vtable;
+		*reinterpret_cast<std::uintptr_t*>(s) = g_slider_vtable_patched ? g_slider_vtable_patched : g_slider_vtable;
 
 		// Defaults does not initialise mOnValueChanged or mValueTextBox, so zero them (the block is freshly malloc'd)
 		// before Defaults runs and before anything reads them.
@@ -5239,6 +5263,19 @@ namespace big::mod_settings
 		else
 		{
 			g_slider_vtable = anchor_base + slider_vtable_rva;
+		}
+
+		// Build a patched copy of the slider vtable whose GetArea (+0x98) and GetScreenArea (+0xA0) slots return a
+		// one-row hit rect. The native slider GetArea unions the slider's sub-components into a screen-spanning
+		// rectangle that, through the nearest-anchor hover tiebreak, hijacks mouse hover (and keyboard nav) from other
+		// rows on a mixed page. Copying the whole table keeps every other virtual (ctor/dtor/Draw/HandleInput/...)
+		// intact; only the two area getters are redirected.
+		if (g_slider_vtable)
+		{
+			std::memcpy(g_slider_vtable_copy, reinterpret_cast<const void*>(g_slider_vtable), sizeof(g_slider_vtable_copy));
+			g_slider_vtable_copy[0x98 / sizeof(std::uintptr_t)] = reinterpret_cast<std::uintptr_t>(&slider_bounded_area);
+			g_slider_vtable_copy[0xA0 / sizeof(std::uintptr_t)] = reinterpret_cast<std::uintptr_t>(&slider_bounded_area);
+			g_slider_vtable_patched                             = reinterpret_cast<std::uintptr_t>(g_slider_vtable_copy);
 		}
 
 		g_feature_enabled = true;
