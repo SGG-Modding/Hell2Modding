@@ -4621,6 +4621,15 @@ namespace big::mod_settings
 			stage_toggle_press_sound(self, !cur_on);
 		}
 
+		// A matched but disabled row (a greyed action button or a context-restricted setting that stays selectable so
+		// its note still shows on hover) must not react to a click. The base GUIComponent::OnClicked plays mPressSound
+		// and swaps the button's pressed graphic even though the row has no usable activate, so calling it would sound
+		// and visually "press" a control the user cannot use. Skip the base call and consume the click as a no-op.
+		if (matched && matched_row.disabled)
+		{
+			return false;
+		}
+
 		const bool result = big::g_hooking->get_original<hook_GUIComponentButton_OnClicked>()(self, location);
 
 		if (matched && !matched_row.disabled)
