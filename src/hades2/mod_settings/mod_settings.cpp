@@ -222,6 +222,7 @@ namespace big::mod_settings
 	static constexpr std::size_t vtable_on_mouse_off_offset     = 0x00'60; // GUIComponent::OnMouseOff slot
 	static constexpr std::size_t vtable_on_unselected_offset    = 0x00'88; // GUIComponent::OnUnselected slot
 	static constexpr std::size_t vtable_on_focus_off_offset     = 0x1'18;  // GUIComponent::OnFocusOff slot
+	static constexpr std::size_t vtable_set_location_offset     = 0x1'80;  // GUIComponent::SetLocation slot (moves the component and its children)
 
 	// Disabled-greying of a slider/num-box, which are multi-sub-component widgets: the button-style def text greying
 	// does not reach their separate label/value text boxes or their bar/arrow graphics, so each is greyed directly.
@@ -388,6 +389,13 @@ namespace big::mod_settings
 	static constexpr float row_base_y            = 300.0f;  // first row's Y - matches the vanilla option templates
 	static constexpr float row_pitch             = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
 	static constexpr std::uint32_t rows_per_page = 10;      // vanilla ItemsPerPage = 10
+
+	// Action-button rows use the taller Button_Secondary box, which crowds the neighbouring setting rows on the uniform
+	// row pitch. apply_button_spacing nudges each action button down by this lead and shifts the rows below it by
+	// lead+trail, giving the buttons vertical breathing room (applied through the engine's own SetLocation, so it is
+	// drift-free - see apply_button_spacing).
+	static constexpr float button_extra_lead  = 14.0f;
+	static constexpr float button_extra_trail = 14.0f;
 
 	// Config sections. Both rom.mod_settings.load and Chalk bind a mod's settings under the root "config" section.
 	// Nested groups are dot-separated child sections (e.g. "config.biome_pool").
@@ -3772,6 +3780,21 @@ namespace big::mod_settings
 		reinterpret_cast<void (*)(void*)>(fn)(comp);
 	}
 
+	// Moves a row (and its owned child components) to an absolute location via the engine's own SetLocation (GUIComponent
+	// vtable slot +0x180) - the same call UpdateScrollState uses to lay rows on the grid. Going through SetLocation
+	// (rather than writing m_location_y directly) keeps a row's children - a slider's bar/label, a button's label - in
+	// step, avoiding the per-frame drift a raw location write causes. The native call passes the Vector2 packed in one
+	// 64-bit register (y in the high half, x in the low), which we reproduce here.
+	static void set_component_location(GUIComponent* comp, float x, float y)
+	{
+		char* vtable = *reinterpret_cast<char**>(comp);
+		auto fn      = *reinterpret_cast<void (**)(void*, std::uint64_t)>(vtable + vtable_set_location_offset);
+		std::uint32_t xb, yb;
+		std::memcpy(&xb, &x, sizeof xb);
+		std::memcpy(&yb, &y, sizeof yb);
+		fn(comp, (static_cast<std::uint64_t>(yb) << 32) | xb);
+	}
+
 	// Reverts a stale highlight left on the wrong slider or num-box row. Unlike a button, these have no Draw-time
 	// highlight gate: their lit look is child state set by an OnXxxOn handler and undone only by the matching OnXxxOff,
 	// never re-derived in Draw. A rebuild or our hover re-assert (which writes mMouseOverComponent directly, bypassing
@@ -4871,6 +4894,42 @@ namespace big::mod_settings
 		return result;
 	}
 
+	// Restores vertical breathing room around action-button rows (Apply/Reset), whose taller Button_Secondary box would
+	// otherwise crowd the neighbouring setting rows on the uniform grid. Run right after the native UpdateScrollState
+	// has laid every on-page row on the grid: within the current page we nudge each action button down by
+	// button_extra_lead and shift the rows below it by lead+trail (accumulated). The shift is applied through the
+	// engine's own SetLocation so each row's child components follow (a raw m_location_y write leaves them behind, which
+	// is what drove the earlier slider-bar drift). It is page-aware and reapplied every frame off the freshly-gridded
+	// positions, so it never accumulates.
+	static void apply_button_spacing(MiscSettingsScreen* screen)
+	{
+		const std::size_t first = screen->m_page_start_index;
+		const std::size_t last  = first + rows_per_page;
+		float extra             = 0.0f;
+		for (std::size_t i = first; i < last && i < g_rows.size(); ++i)
+		{
+			GUIComponent* c = g_rows[i].component;
+			if (!c)
+			{
+				continue;
+			}
+			float shift;
+			if (g_rows[i].kind == RowKind::action)
+			{
+				shift = extra + button_extra_lead;
+				extra += button_extra_lead + button_extra_trail;
+			}
+			else
+			{
+				shift = extra;
+			}
+			if (shift != 0.0f)
+			{
+				set_component_location(c, c->m_location_x, c->m_location_y + shift);
+			}
+		}
+	}
+
 	// Points the native scroll arrows at the keyboard/controller nav so it can page. The spatial search
 	// (SearchInDirection) walks a ray from the selected row in the pressed direction and picks the nearest selectable
 	// component whose eval point (location + mFreeFormSelectOffset) is close to the ray. Off-page rows are unselectable
@@ -4912,8 +4971,9 @@ namespace big::mod_settings
 	}
 
 	// Detour on the native scroll pass. The original lays every on-page row on the uniform grid (writing each row's
-	// mLocation). We hook it to re-aim the scroll arrows' keyboard-nav eval points at the new page edges after each
-	// layout (see enable_arrow_keyboard_paging), inside MiscSettingsScreen::Update before the row hit-test.
+	// mLocation). We hook it to give the action-button rows their vertical breathing room (apply_button_spacing) and to
+	// re-aim the scroll arrows' keyboard-nav eval points at the new page edges after each layout (see
+	// enable_arrow_keyboard_paging), inside MiscSettingsScreen::Update before the row hit-test.
 	static void hook_MiscSettingsScreen_UpdateScrollState(void* self)
 	{
 		big::g_hooking->get_original<hook_MiscSettingsScreen_UpdateScrollState>()(self);
@@ -4922,6 +4982,7 @@ namespace big::mod_settings
 		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
 		if (on_mods_tab)
 		{
+			apply_button_spacing(screen);
 			enable_arrow_keyboard_paging(screen);
 		}
 	}
