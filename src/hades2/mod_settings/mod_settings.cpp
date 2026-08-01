@@ -231,14 +231,31 @@ namespace big::mod_settings
 	// (slider bar) tints from mColor every frame, so writing mColor (and mColorTarget so a lerp does not undo it) dims
 	// it. Offsets on the text box/image component are absolute.
 	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53;  // GUIComponentTextBox::mUseDisabledTextColor
+	// Normal (0x1B4) and selected (0x1D0) text colours on the child text box, from the component def
+	// (component_def_offset 0xA8 + def_text_red 0x10C/def_sel_text_red 0x128). A Slider/NumBox Draw sets
+	// mUseDisabledTextColor from mIsUseable each frame, so a still-selectable (mIsUseable=1) greyed row would ignore
+	// the disabled colour and paint the bright normal (and, on hover, the selected) colour instead. Greying these two
+	// as well keeps the label grey in every state - matches how set_def_text_grey greys a button row's own def.
+	static constexpr std::size_t textbox_text_red               = 0x1'B4;  // mData.mDef.mTextRed (float)
+	static constexpr std::size_t textbox_selected_text_red      = 0x1'D0;  // mData.mDef.mSelectedTextRed (float)
 	static constexpr std::size_t textbox_disabled_text_red      = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
 	static constexpr std::size_t textbox_disabled_text_green    = 0x1'EC;  // mDisabledTextGreen (float)
 	static constexpr std::size_t textbox_disabled_text_blue     = 0x1'F0;  // mDisabledTextBlue (float)
 	static constexpr std::size_t textbox_disabled_text_alpha    = 0x1'F4;  // mDisabledTextAlpha (float)
 	static constexpr std::size_t image_color_offset             = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
 	static constexpr std::size_t image_color_target_offset      = 0x00'78; // mColorTarget (packed RGBA)
+	static constexpr std::size_t button_graphic_color_offset    = 0x5'5C;  // GUIComponentButton::mButtonColor - the colour Draw paints the toggle graphic with
+	static constexpr std::size_t component_color_target_offset  = 0x00'78; // GUIComponent::mColorTarget (Update eases mButtonColor toward this)
+	static constexpr std::size_t def_sel_red                    = 0xFC;    // ComponentDataDef::mSelectedRed; set <0 to disable the selected-colour override in Draw/On(Un)Selected
 	static constexpr float disabled_text_grey                   = 0.22f; // matches set_def_text_grey (toggle/text rows)
 	static constexpr std::uint32_t disabled_graphic_grey        = 0xFF'66'66'66; // opaque 0.4 grey (packed A,B,G,R)
+	// GUIComponentTextBox::SetTextColor is vtable slot +0x160; it writes the cached runtime mTextColor (which the text
+	// box Draw renders when neither the disabled nor selected colour flag is set). The template caches a bright colour
+	// at build, and greying the def alone does not update it, so a still-selectable greyed widget label stays bright -
+	// we re-apply this grey through SetTextColor instead (the same call MiscSettingsScreen::UpdateButtonStates uses to
+	// grey a still-hoverable option). Packed the same A,B,G,R way as disabled_graphic_grey (opaque 0.22 grey).
+	static constexpr std::size_t vtable_set_text_color_offset   = 0x1'60;
+	static constexpr std::uint32_t disabled_label_grey_packed   = 0xFF'38'38'38;
 
 	// A GUIComponentAnimation (the num-box's box/frame graphic) tints from its own mColor. NumBox::OnSelected turns the
 	// box black by writing the selected colour here (opaque black for the OptionNumBox template); we write the same on
@@ -371,12 +388,6 @@ namespace big::mod_settings
 	static constexpr float row_base_y            = 300.0f;  // first row's Y - matches the vanilla option templates
 	static constexpr float row_pitch             = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
 	static constexpr std::uint32_t rows_per_page = 10;      // vanilla ItemsPerPage = 10
-
-	// Action-button rows use the taller Button_Secondary box, which overflows the uniform row pitch. After the native
-	// layout, sync_button_spacing nudges each button down by this lead and shifts the rows below it by lead+trail, so
-	// buttons get vertical breathing room without overlapping.
-	static constexpr float button_extra_lead  = 14.0f;
-	static constexpr float button_extra_trail = 14.0f;
 
 	// Config sections. Both rom.mod_settings.load and Chalk bind a mod's settings under the root "config" section.
 	// Nested groups are dot-separated child sections (e.g. "config.biome_pool").
@@ -928,6 +939,17 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(b + textbox_disabled_text_blue)    = disabled_text_grey;
 		*reinterpret_cast<float*>(b + textbox_disabled_text_alpha)   = 1.0f;
 		*reinterpret_cast<bool*>(b + textbox_use_disabled_color_off) = true;
+
+		// Also grey the normal and selected text colours (red/green/blue triples). A still-selectable greyed row keeps
+		// mIsUseable=1, so Slider/NumBox Draw clears mUseDisabledTextColor and the label falls back to the normal
+		// colour (and the selected colour on hover) - greying both keeps it greyed in every state, with no hover
+		// highlight. The disabled-only path (mIsUseable=0) is unaffected since these just match the disabled grey.
+		for (const std::size_t base : {textbox_text_red, textbox_selected_text_red})
+		{
+			*reinterpret_cast<float*>(b + base + 0x0) = disabled_text_grey;
+			*reinterpret_cast<float*>(b + base + 0x4) = disabled_text_grey;
+			*reinterpret_cast<float*>(b + base + 0x8) = disabled_text_grey;
+		}
 	}
 
 	// Dims a GUIComponentImage (a slider's bar backing/fill) to the disabled grey. Image::Draw tints from mColor each
@@ -942,6 +964,21 @@ namespace big::mod_settings
 		char* b                                                          = static_cast<char*>(image);
 		*reinterpret_cast<std::uint32_t*>(b + image_color_offset)        = disabled_graphic_grey;
 		*reinterpret_cast<std::uint32_t*>(b + image_color_target_offset) = disabled_graphic_grey;
+	}
+
+	// Greys a disabled toggle's on/off ring so it reads greyed from frame one. The ring (mNormalTexture) is a bare
+	// texture id with no colour of its own - GUIComponentButton::Draw paints it with mButtonColor@0x55C, which starts
+	// black and the engine only eases to the greyed mColorTarget@0x78 in Update/on selection, so an untouched disabled
+	// toggle shows black until a hover eases it grey. We set the live paint colour AND the ease target to the disabled
+	// grey (so Update sees them equal and never eases away), and set the def's mSelectedRed < 0 so Draw/On(Un)Selected
+	// skip the selected-colour override - the ring then reads greyed at rest and stays greyed through hover/selection.
+	// All are fixed-offset writes on the button itself (no child-pointer dereference), unlike the slider's owned images.
+	static void grey_toggle_graphic(GUIComponent* row)
+	{
+		char* b                                                            = reinterpret_cast<char*>(row);
+		*reinterpret_cast<std::uint32_t*>(b + button_graphic_color_offset)   = disabled_graphic_grey;
+		*reinterpret_cast<std::uint32_t*>(b + component_color_target_offset) = disabled_graphic_grey;
+		*reinterpret_cast<float*>(b + component_def_offset + def_sel_red)    = -1.0f;
 	}
 
 	// Sets a row's normal text colour to the native settings-option grey (0.55) used by the game's own.
@@ -1047,8 +1084,10 @@ namespace big::mod_settings
 	// A toggle row (boolean setting): a left-justified label plus the native on/off toggle switch graphic on the right.
 	// The OptionToggleButton template already supplies the toggle graphic, left-justified text and text area we only
 	// realign it to our row grid (mY/mSpacing, read directly by UpdateScrollState) and choose the on/off graphic.
-	// Disabled rows are greyed and made non-interactable.
-	static GUIComponent* make_toggle_row(MiscSettingsScreen* screen, const char* label, bool is_on, bool disabled = false)
+	// Disabled rows grey their ring (grey_toggle_graphic) and label from frame one. By default (block_input=true, the
+	// whole-mod-off case) they also drop mIsUseable via Disable so keyboard nav and mouse hover skip the row. Pass
+	// block_input=false to keep the row mouse-hoverable for its note (context/author-disabled), still greyed.
+	static GUIComponent* make_toggle_row(MiscSettingsScreen* screen, const char* label, bool is_on, bool disabled = false, bool block_input = true)
 	{
 		auto* row = create_button(screen);
 		if (!row)
@@ -1087,9 +1126,20 @@ namespace big::mod_settings
 
 		set_toggle_graphic(row, is_on);
 
-		if (disabled && g_disable)
+		if (disabled)
 		{
-			g_disable(row);
+			// Grey the on/off ring from frame one (it has no colour of its own and would otherwise stay black until a
+			// hover eases it grey - see grey_toggle_graphic).
+			grey_toggle_graphic(reinterpret_cast<GUIComponent*>(row));
+
+			if (block_input && g_disable)
+			{
+				// Whole-mod-off toggle: also drop mIsUseable (via Disable) so keyboard nav and mouse hover skip the row
+				// - the same path the menu has always used for a disabled option (edits are already blocked by
+				// pr.disabled). A context/author-disabled toggle (block_input=false) keeps mIsUseable so it stays
+				// mouse-hoverable for its note.
+				g_disable(row);
+			}
 		}
 
 		finalize_row(screen, row);
@@ -1291,7 +1341,7 @@ namespace big::mod_settings
 	// Returns the num-box component (not a GUIComponentButton, so it never routes through the OnClicked hook). When
 	// `value_labels` is non-null. The box is an enum cycler: it steps the integer index and its value text is
 	// overridden to the matching label instead of the raw number.
-	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled, const std::vector<std::string>* value_labels = nullptr)
+	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled, const std::vector<std::string>* value_labels = nullptr, bool block_input = true)
 	{
 		if (!g_numbox_factory || !g_numbox_set_range || !g_numbox_set_value || !g_apply_data || !g_show_text)
 		{
@@ -1370,18 +1420,22 @@ namespace big::mod_settings
 		if (disabled)
 		{
 			// mDisableInput is the num-box's own input gate (its HandleInput early-outs on it), blocking both the
-			// arrow-clicks and keyboard/controller stepping - mIsUseable does NOT gate num-box input. Also clear
-			// mIsUseable so it is non-selectable (nav/hover skip it and NumBox::Draw greys the label from mIsUseable)
-			// and grey the value box. The arrows are left visible (just inert, since mDisableInput blocks their click).
-			// The box graphic is set to the hovered/selected black so a disabled enum reads with the same black
-			// background it shows on hover (the box is non-selectable, so nothing reverts this write).
+			// arrow-clicks and keyboard/controller stepping - mIsUseable does NOT gate num-box input, so it is always
+			// set on a disabled box. Grey the label and value boxes (grey_text_box also greys their normal/selected
+			// colours so a still-selectable box stays greyed and does not highlight on hover). When block_input is set
+			// (the whole-mod-off case) also clear mIsUseable so nav/hover skip it and force the box to the hovered
+			// black so it reads consistently; a still-selectable (block_input=false) context/author-disabled box keeps
+			// mIsUseable so it stays hoverable for its note and leaves the box graphic at its greyed default.
 			*reinterpret_cast<bool*>(nb_bytes + numbox_disable_input_offset) = true;
-			nb->m_is_useable                                                 = false;
 			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_label_text_offset));
 			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset));
-			if (auto* box = *reinterpret_cast<char**>(nb_bytes + numbox_anim_offset))
+			if (block_input)
 			{
-				*reinterpret_cast<std::uint32_t*>(box + animation_color_offset) = numbox_hover_bg_black;
+				nb->m_is_useable = false;
+				if (auto* box = *reinterpret_cast<char**>(nb_bytes + numbox_anim_offset))
+				{
+					*reinterpret_cast<std::uint32_t*>(box + animation_color_offset) = numbox_hover_bg_black;
+				}
 			}
 		}
 
@@ -1467,7 +1521,7 @@ namespace big::mod_settings
 	// Teardown mirrors the num-box: destroy_rows routes it through the vtable deleting destructor (which frees the
 	// sub-components) then _aligned_free. Returns null if any required engine helper is missing, in which case the
 	// caller falls back to a number-box stepper.
-	static GUIComponent* make_slider_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool show_as_pct, bool is_pct, bool disabled)
+	static GUIComponent* make_slider_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool show_as_pct, bool is_pct, bool disabled, bool block_input = true)
 	{
 		if (!g_gui_component_ctor || !g_image_ctor || !g_textbox_ctor || !g_slider_defaults || !g_slider_set_fraction || !g_slider_vtable || !g_apply_data || !g_show_text)
 		{
@@ -1553,12 +1607,17 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
-			// Non-interactive (mIsUseable=0 makes it non-selectable, so nav/hover skip it and Slider::Draw greys the
-			// label from mIsUseable), plus explicit greying of the parts Draw leaves bright: the value box and both bar
-			// images. Mouse-drag is separately blocked in the HandleInput hook (the native drag path ignores
+			// Grey every visible part explicitly: the value box and both bar images, plus the label (which Slider::Draw
+			// would otherwise only grey off mIsUseable). block_input=true also clears mIsUseable so nav/hover skip the
+			// row (the whole-mod-off case). block_input=false keeps it selectable so a context-restricted or
+			// author-disabled slider stays greyed-but-visible and hoverable to show its note, with edits blocked by
+			// pr.disabled. Mouse-drag is separately blocked in the HandleInput hook (the native drag path ignores
 			// mIsUseable).
-			auto* sc         = reinterpret_cast<GUIComponent*>(s);
-			sc->m_is_useable = false;
+			auto* sc = reinterpret_cast<GUIComponent*>(s);
+			if (block_input)
+			{
+				sc->m_is_useable = false;
+			}
 			grey_text_box(*reinterpret_cast<void**>(s + slider_label_offset));
 			grey_text_box(*reinterpret_cast<void**>(s + slider_value_text_offset));
 			grey_image(*reinterpret_cast<void**>(s + slider_backing_offset));
@@ -3073,30 +3132,76 @@ namespace big::mod_settings
 			const bool context_blocked = is_context_restricted(ctx);
 			if (!disabled && (context_blocked || author_disabled))
 			{
-				std::string vtext;
+				// Greyed but still visible: the setting keeps its real widget (toggle/enum cycler/slider), greyed
+				// and focusable so the description box can explain why it is unavailable, with edits blocked by
+				// pr.disabled in the row handlers. Only a plain string falls back to a greyed key + value text row.
+				// block_input=false keeps each widget selectable (hoverable for its note) while still greyed.
+				GUIComponent* ro_row   = nullptr;
+				GUIComponent* ro_value = nullptr;
+				bool ro_is_toggle      = false;
+				bool ro_is_enum        = false;  // real enum cycler (carries values/labels)
+				bool ro_is_numbox      = false;  // numeric num-box (stepper fallback when the slider cannot be built)
+				bool ro_is_slider      = false;
 				if (entry->type() == typeid(bool))
 				{
-					vtext = entry->get_value_base<bool>() ? "true" : "false";
+					ro_row       = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), /*disabled*/ true, /*block_input*/ false);
+					ro_is_toggle = ro_row != nullptr;
 				}
-				else if (is_enum && enum_index >= 0 && enum_index < static_cast<int>(enum_labels.size()))
+				else if (is_enum)
 				{
-					vtext = enum_labels[enum_index];
+					ro_row = make_numbox_row(screen, label.c_str(), 0.0, static_cast<double>(enum_values.size() - 1), 1.0, static_cast<double>(enum_index), /*disabled*/ true, &enum_labels, /*block_input*/ false);
+					ro_is_enum = ro_row != nullptr;
 				}
 				else if (is_stepper)
 				{
-					vtext = format_setting_display(entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, step);
+					ro_row = make_slider_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, /*disabled*/ true, /*block_input*/ false);
+					ro_is_slider = ro_row != nullptr;
+					if (!ro_row)
+					{
+						ro_row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), /*disabled*/ true, nullptr, /*block_input*/ false);
+						ro_is_numbox = ro_row != nullptr;
+					}
 				}
-				else
+				if (!ro_row)
 				{
-					vtext = truncate_value(entry->get_serialized_value());
+					// Plain string (or a widget that could not be built): greyed key + value text row.
+					const std::string vtext = truncate_value(entry->get_serialized_value());
+					ro_row                  = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false);
+					if (ro_row)
+					{
+						ro_value = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
+					}
 				}
 
-				if (auto* ro_row = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false))
+				if (ro_row)
 				{
 					PanelRow pr{ro_row, RowKind::setting, stem, key, entry};
 					pr.disabled          = true; // blocks every edit path (click/slider/num-box) via the row handlers
 					pr.is_enabled_toggle = is_enabled_row;
-					pr.value_component   = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
+					if (ro_is_slider || ro_is_numbox)
+					{
+						pr.is_slider          = ro_is_slider;  // slider drag bar, or ...
+						pr.is_stepper         = ro_is_numbox;  // ... num-box stepper fallback (shares the revert path)
+						pr.stepper_min        = meta->min;
+						pr.stepper_max        = meta->max;
+						pr.stepper_step       = step;
+						pr.show_as_percentage = meta->show_as_percentage;
+						pr.is_percentage      = meta->is_percentage;
+					}
+					else if (ro_is_enum)
+					{
+						pr.is_enum     = true;
+						pr.enum_values = enum_values;
+						pr.enum_labels = enum_labels;
+					}
+					else if (ro_is_toggle)
+					{
+						pr.is_toggle = true;
+					}
+					else
+					{
+						pr.value_component = ro_value;
+					}
 
 					// A context mismatch shows the scenario note first, then the normal description below it; an
 					// author-disabled row shows its disabledDescription (falling back to the normal description) so the
@@ -3225,46 +3330,6 @@ namespace big::mod_settings
 			value->m_fade_opacity = key->m_fade_opacity;
 			value->m_fade_target  = key->m_fade_target;
 			value->m_hidden       = key->m_hidden;
-		}
-	}
-
-	// Gives action-button rows extra vertical room. The native UpdateScrollState lays every on-page row on a uniform
-	// 45px grid, but the Button_Secondary box is taller, so consecutive buttons would overlap. Walking the on-page rows
-	// top to bottom, each button is nudged down by button_extra_lead. Every row below it is shifted by
-	// button_extra_lead + button_extra_trail. Runs from the UpdateScrollState detour (right after the grid layout it
-	// undoes, and before the row hit-test in the same Update) so the hover/click rects stay aligned with the drawn
-	// buttons.
-	static void sync_button_spacing(MiscSettingsScreen* screen)
-	{
-		const std::size_t first = screen->m_page_start_index;
-		const std::size_t last  = first + rows_per_page;
-		float extra             = 0.0f;
-		for (std::size_t i = first; i < last && i < g_rows.size(); ++i)
-		{
-			GUIComponent* c = g_rows[i].component;
-			if (!c)
-			{
-				continue;
-			}
-			if (g_rows[i].kind == RowKind::action)
-			{
-				c->m_location_y += extra + button_extra_lead;
-				extra           += button_extra_lead + button_extra_trail;
-
-				// The mouse hover/click hit-test reads the button's child label location, not the button's own
-				// (GUIComponentButton::GetArea returns the label's text area), so move the label to the shifted button
-				// position or the hit rect stays on the unshifted grid slot. Absolute assignment (label follows the
-				// button) avoids drift: UpdateScrollState resets both to the grid each frame via the button's.
-				// SetLocation before this runs.
-				if (auto* label = *reinterpret_cast<GUIComponent**>(reinterpret_cast<char*>(c) + button_label_offset))
-				{
-					label->m_location_y = c->m_location_y;
-				}
-			}
-			else
-			{
-				c->m_location_y += extra;
-			}
 		}
 	}
 
@@ -3735,8 +3800,10 @@ namespace big::mod_settings
 
 			if (row.is_slider)
 			{
-				// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over.
-				if (row.component != menu->m_mouse_over_component)
+				// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over -
+				// but a disabled (greyed, still-selectable) row is reverted even while hovered, so its bar/label never
+				// light up: it must read as greyed no matter the cursor.
+				if (row.disabled || row.component != menu->m_mouse_over_component)
 				{
 					if (auto* label = *reinterpret_cast<char**>(s + slider_label_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
 					{
@@ -3744,23 +3811,69 @@ namespace big::mod_settings
 					}
 				}
 
-				// Focused look lives on mFocused/the value textbox. Revert it unless this row is the focused option.
-				if (row.component != screen->m_component_focused && *reinterpret_cast<bool*>(s + slider_focused_offset))
+				// Focused look lives on mFocused/the value textbox. Revert it unless this row is the focused option (a
+				// disabled row is never focused, so it is always reverted here).
+				if ((row.disabled || row.component != screen->m_component_focused) && *reinterpret_cast<bool*>(s + slider_focused_offset))
 				{
 					call_component_vfn(row.component, vtable_on_focus_off_offset);
 				}
 			}
-			else if ((row.is_enum || row.is_stepper) && mouse_mode)
+			else if ((row.is_enum || row.is_stepper) && (mouse_mode || row.disabled))
 			{
 				// Num-box selected look (black box + green label) set by OnSelected, on the label textbox mUseSelected
-				// flag. Revert via OnUnselected (not OnMouseOff, a no-op here) unless it is the live mouse-over.
-				if (row.component != menu->m_mouse_over_component)
+				// flag. Revert via OnUnselected (not OnMouseOff, a no-op here) unless it is the live mouse-over - a
+				// disabled (greyed, still-selectable) row is reverted even while hovered so it stays greyed.
+				if (row.disabled || row.component != menu->m_mouse_over_component)
 				{
 					if (auto* label = *reinterpret_cast<char**>(s + numbox_label_text_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
 					{
 						call_component_vfn(row.component, vtable_on_unselected_offset);
 					}
 				}
+			}
+		}
+	}
+
+	// Keeps a greyed-but-still-selectable widget row's label (and value) text greyed. Such a row keeps mIsUseable=1 so
+	// the mouse can still hover it for its note, but a widget's Draw writes the label text box's colour flags from
+	// mIsUseable every frame, clearing the disabled flag so the label falls back to its cached bright mTextColor (set
+	// once from the bright template def at build - greying the def afterwards does not update the cached value). We
+	// re-apply the grey through the text box's own SetTextColor each frame (the same call the engine's
+	// UpdateButtonStates uses to grey a still-hoverable option), which writes that cached mTextColor directly. The
+	// selected-colour def is greyed too (grey_text_box) so a hover that briefly sets the selected flag stays grey.
+	static void keep_disabled_labels_grey()
+	{
+		const auto grey_label = [](char* base, std::size_t tb_offset)
+		{
+			auto* tb = *reinterpret_cast<void**>(base + tb_offset);
+			if (!tb)
+			{
+				return;
+			}
+			char* vtable = *reinterpret_cast<char**>(tb);
+			auto fn      = *reinterpret_cast<void (**)(void*, std::uint32_t)>(vtable + vtable_set_text_color_offset);
+			fn(tb, disabled_label_grey_packed);
+		};
+		for (const auto& row : g_rows)
+		{
+			if (!row.disabled || !row.component)
+			{
+				continue;
+			}
+			char* s = reinterpret_cast<char*>(row.component);
+			if (row.is_slider)
+			{
+				grey_label(s, slider_label_offset);
+				grey_label(s, slider_value_text_offset);
+			}
+			else if (row.is_enum || row.is_stepper)
+			{
+				grey_label(s, numbox_label_text_offset);
+				grey_label(s, numbox_value_text_offset);
+			}
+			else if (row.is_toggle)
+			{
+				grey_label(s, button_label_offset);
 			}
 		}
 	}
@@ -3888,9 +4001,7 @@ namespace big::mod_settings
 		// A view change leaves the freshly built rows at mFadeOpacity 0 (finalize_row). The native ease
 		// (GUIComponent::Update) then fades the on-page rows in toward mFadeTarget == 1, matching the game's own
 		// category-switch transition. Off-page rows are held transparent in sync_scroll_fade. Value displays are not
-		// laid out by the scroll pass place them on their key rows now. The action-button vertical spacing is applied
-		// in the UpdateScrollState detour (which the direct g_update_scroll call above routes through), so the key rows
-		// are already shifted here.
+		// laid out by the scroll pass place them on their key rows now.
 		sync_value_columns();
 
 		// Take the disabled/greyed rows out of the keyboard/controller nav so the cursor only lands on interactable
@@ -4766,8 +4877,8 @@ namespace big::mod_settings
 	// (fade target 0), so from the last on-page row the ray finds nothing below and cannot advance. We make each arrow
 	// the target instead by placing its eval point exactly where the next (down) or previous (up) row would be: one
 	// row_pitch beyond the actual last/first visible row, at that row's location. Because the offset is set relative
-	// to the arrow's own location, any shared parent offset cancels, so the eval point tracks the real row position
-	// even after the action-button spacing shifts rows. The arrow's own auto-activate then fires ScrollDown/ScrollUp
+	// to the arrow's own location, any shared parent offset cancels, so the eval point tracks the real row position.
+	// The arrow's own auto-activate then fires ScrollDown/ScrollUp
 	// when the nav lands on it. Off the last/first page the arrow is hidden and unselectable, so this is inert there.
 	static void enable_arrow_keyboard_paging(MiscSettingsScreen* screen)
 	{
@@ -4801,10 +4912,8 @@ namespace big::mod_settings
 	}
 
 	// Detour on the native scroll pass. The original lays every on-page row on the uniform grid (writing each row's
-	// mLocation), so it is the point where our action-button spacing must be (re)applied: running it here, inside
-	// MiscSettingsScreen::Update BEFORE the row hit-test in MenuScreen::Update, keeps the hover/click rects aligned
-	// with the drawn (shifted) buttons. Applying the shift after the original Update instead left the hit-test on the
-	// unshifted grid, so a button's hover box sat above its visual and bled into the row above.
+	// mLocation). We hook it to re-aim the scroll arrows' keyboard-nav eval points at the new page edges after each
+	// layout (see enable_arrow_keyboard_paging), inside MiscSettingsScreen::Update before the row hit-test.
 	static void hook_MiscSettingsScreen_UpdateScrollState(void* self)
 	{
 		big::g_hooking->get_original<hook_MiscSettingsScreen_UpdateScrollState>()(self);
@@ -4813,7 +4922,6 @@ namespace big::mod_settings
 		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
 		if (on_mods_tab)
 		{
-			sync_button_spacing(screen);
 			enable_arrow_keyboard_paging(screen);
 		}
 	}
@@ -4941,10 +5049,13 @@ namespace big::mod_settings
 		// native prompts alone).
 		sync_prompts(screen, on_mods_tab);
 
-		// Revert any slider/num-box highlight left stranded on the wrong row by a rebuild or the hover re-assert.
+		// Revert any slider/num-box highlight left stranded on the wrong row by a rebuild or the hover re-assert, and
+		// re-assert the greyed-label colour flag on disabled-but-selectable widget rows (the widgets clear it each
+		// frame from mIsUseable).
 		if (on_mods_tab)
 		{
 			clear_stale_widget_highlight(screen);
+			keep_disabled_labels_grey();
 		}
 
 		return result;
