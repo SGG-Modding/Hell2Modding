@@ -56,6 +56,21 @@ If you happen to name a config key after one of the reserved fields above, the m
 but it is highly recommended to **not** use reserved field names as config keys to prevent confusion and potential edge
 case breakage.
 
+## Menu grouping (`group` and `groups`)
+
+The in-game menu layout can be **decoupled** from your config file structure. `configDesc` must still mirror the config
+(`config.debugging.logLevel` is described at `configDesc.debugging.logLevel`), but where each row *appears* in the menu
+is independent:
+
+- By default a row appears under its **config section** - so a nested config nests in the menu automatically.
+- Add a **`group`** property to any entry (setting, action, or virtual row) to move it into a different menu
+  category. It is a string for a single level, or an array for a nested path. This works for flat *and* nested config
+  keys, and doesn't change where the value is stored in the .cfg file.
+- Declare menu categories that do **not** exist as config sections in a top-level **`groups`** table (keyed by the id
+  used in a `group`), each with an optional `displayName`, `description`, `order`, and nested `groups`.
+
+This lets you keep a flat config but present any grouping you like, or re-nest an already-nested config another way.
+
 ## Dynamic fields (functions)
 
 Most fields can also be dynamically resolved through a function call, which is evaluated when the menu

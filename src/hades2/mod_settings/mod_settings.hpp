@@ -46,6 +46,26 @@ namespace big::mod_settings
 		enumeration,
 	};
 
+	// An author-declared menu group (configDesc `groups`): a category in the in-game menu that does NOT correspond to a
+	// config section. It lets a mod present a flat (or differently nested) config under an arbitrary menu tree, by
+	// moving entries into these groups with a per-entry `group`. `id` is the identity used in a `group` path (the table
+	// key in configDesc.groups); name/description are shown in the menu (resolved to the current language); order sorts
+	// it among its siblings (else first-declared order); children are nested sub-groups.
+	struct menu_group
+	{
+		std::string id;
+		localized_text name;
+		localized_text description;
+		bool has_order = false;
+		double order   = 0.0;
+		std::vector<menu_group> children;
+	};
+
+	// The author-declared menu group tree (configDesc `groups`) for mod `guid`, empty when none was declared. The
+	// settings menu uses it for the display name/order/description of groups a per-entry `group` references but that
+	// do not exist as config sections. Populated fresh each Lua-state init by rom.mod_settings.load.
+	std::vector<menu_group> mod_menu_groups(const std::string& guid);
+
 	// Author-declared metadata for a single setting, extracted from its config.lua description table by
 	// rom.mod_settings.load. Consulted by the settings menu. Only settings whose description is a rich table have an
 	// entry. The rest fall back to type-based rendering. Every field is an author-only input that cannot be inferred
@@ -105,6 +125,12 @@ namespace big::mod_settings
 		widget_type type = widget_type::inferred;
 		bool has_default = false;
 		std::string default_value;
+
+		// Menu placement override (configDesc `group`): the author-declared menu path this entry appears under instead
+		// of its config-section default. Empty -> placed by its config section. Each segment is a config child section
+		// or an author group declared in configDesc `groups` (see menu_group). Applies to settings, actions and
+		// virtual rows alike.
+		std::vector<std::string> group;
 	};
 
 	// True if a mod author declared this setting as requiring a game restart to take effect (via `restart_required =
@@ -149,6 +175,7 @@ namespace big::mod_settings
 		editable_context context = editable_context::any; // when the button is enabled (main-menu vs in-save)
 		bool disabled            = false; // greyed and non-interactive (author-declared, may be dynamic)
 		bool has_dynamic         = false; // name/description/order/disabled is a Lua function
+		std::vector<std::string> group;   // menu placement override (configDesc `group`), empty -> config section
 	};
 
 	// The action buttons declared directly in config `section` of mod `guid` (not recursing into child sections).
@@ -172,6 +199,7 @@ namespace big::mod_settings
 		double order   = 0.0;
 		bool has_dynamic = false; // a name/description/values/min/max/text field is a Lua function (re-resolve at render)
 		bool interactive = false; // has a `set` callback (an editable get/set row) rather than a read-only `text` row
+		std::vector<std::string> group; // menu placement override (configDesc `group`), empty -> config section
 	};
 
 	// The virtual (non-config) rows declared directly in config `section` of mod `guid` (not recursing into child

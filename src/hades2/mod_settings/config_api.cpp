@@ -68,6 +68,11 @@ namespace big::mod_settings
 	// description registry and are resolved at render. Cleared per-mod in clear_metadata_for.
 	static std::map<std::string, std::vector<virtual_row_info>> g_virtual_rows;
 
+	// Author-declared menu group trees (top-level configDesc `groups`), keyed by guid. These are the menu categories a
+	// per-entry `group` can reference that do not correspond to a config section. Cleared each Lua-state init in
+	// bind_config_api. mod_menu_groups returns an empty tree for mods that declared none.
+	static std::map<std::string, std::vector<menu_group>> g_menu_groups;
+
 	// The config section every mod's settings are bound under (matches SGG_Modding-Chalk, keeps the .cfg
 	// byte-compatible). Description tables in config.lua mirror the config table under this root.
 	static constexpr const char* root_section = "config";
@@ -162,6 +167,13 @@ namespace big::mod_settings
 		std::scoped_lock lock(g_metadata_mutex);
 		const auto it = g_opted_out_mods.find(guid);
 		return it != g_opted_out_mods.end() ? it->second : localized_text{};
+	}
+
+	std::vector<menu_group> mod_menu_groups(const std::string& guid)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_menu_groups.find(guid);
+		return it != g_menu_groups.end() ? it->second : std::vector<menu_group>{};
 	}
 
 	// Finds the byte offset of a key's definition ("<key> =") in config.lua source, whole-word and not "==", or npos.
@@ -271,6 +283,65 @@ namespace big::mod_settings
 			}
 		}
 		return {};
+	}
+
+	// Parses a configDesc `group` field into a menu path (the ordered group segments the entry is moved under). Accepts
+	// a plain string (a single-level group) or an array of strings (a nested path). Non-string entries are ignored.
+	// Empty result means no override (the entry keeps its config-section placement).
+	static std::vector<std::string> parse_group(const sol::object& o)
+	{
+		std::vector<std::string> out;
+		if (o.get_type() == sol::type::string)
+		{
+			out.push_back(o.as<std::string>());
+		}
+		else if (o.is<sol::table>())
+		{
+			sol::table t = o.as<sol::table>();
+			for (std::size_t i = 1; i <= t.size(); ++i)
+			{
+				sol::object seg = t[i];
+				if (seg.get_type() == sol::type::string)
+				{
+					out.push_back(seg.as<std::string>());
+				}
+			}
+		}
+		return out;
+	}
+
+	// Recursively parses a configDesc `groups` table into menu_group nodes. Each key is a group's identity (used in a
+	// `group` path); its value is a metadata table carrying an optional localized `displayName`/`description`, a numeric
+	// `order`, and a nested `groups` table of sub-groups. Non-table values are skipped. Order among siblings: explicit
+	// `order` first (ascending), then declaration order is unspecified in Lua, so callers fall back to the id.
+	static std::vector<menu_group> parse_menu_groups(const sol::object& groups_obj)
+	{
+		std::vector<menu_group> out;
+		if (!groups_obj.is<sol::table>())
+		{
+			return out;
+		}
+		groups_obj.as<sol::table>().for_each(
+		    [&out](const sol::object& k, const sol::object& v)
+		    {
+			    if (k.get_type() != sol::type::string || !v.is<sol::table>())
+			    {
+				    return;
+			    }
+			    sol::table gt = v.as<sol::table>();
+			    menu_group g;
+			    g.id          = k.as<std::string>();
+			    g.name        = parse_localized(gt["displayName"]);
+			    g.description = parse_localized(gt["description"]);
+			    if (sol::object order = gt["order"]; order.get_type() == sol::type::number)
+			    {
+				    g.has_order = true;
+				    g.order     = order.as<double>();
+			    }
+			    g.children = parse_menu_groups(gt["groups"]);
+			    out.push_back(std::move(g));
+		    });
+		return out;
 	}
 
 	// True if a config.lua description table declares `restartRequired = true`.
@@ -485,6 +556,9 @@ namespace big::mod_settings
 			}
 		}
 
+		// Menu placement override: the author-declared `group` this entry appears under instead of its config section.
+		m.group = parse_group(desc["group"]);
+
 		return m;
 	}
 
@@ -610,6 +684,7 @@ namespace big::mod_settings
 			a.disabled = d.as<bool>();
 		}
 		a.context = parse_editable_context(entry["editableContext"], editable_context::any);
+		a.group   = parse_group(entry["group"]);
 	}
 
 	// Walks a mod's configDesc (guided by the config defaults structure, like bind_defaults) collecting action buttons:
@@ -691,6 +766,8 @@ namespace big::mod_settings
 		    "text",
 		    "type",
 		    "default",
+		    "group",  // per-entry menu placement override
+		    "groups", // top-level author group-tree declaration (root configDesc only)
 		};
 		return reserved.contains(key);
 	}
@@ -767,6 +844,7 @@ namespace big::mod_settings
 				virtual_row_info vr;
 				vr.section = section;
 				vr.key     = key;
+				vr.group   = parse_group(entry["group"]);
 				if (sol::object o = entry["order"]; o.get_type() == sol::type::number)
 				{
 					vr.has_order = true;
@@ -1375,6 +1453,14 @@ namespace big::mod_settings
 			collect_virtual_rows(guid, defaults.as<sol::table>(), descriptions, root_section, virtual_rows);
 		}
 
+		// Parse the author-declared menu group tree (top-level configDesc `groups`), the categories a per-entry `group`
+		// can target that do not exist as config sections.
+		std::vector<menu_group> menu_groups;
+		if (descriptions.is<sol::table>())
+		{
+			menu_groups = parse_menu_groups(descriptions.as<sol::table>()["groups"]);
+		}
+
 		// Read config.lua source to recover the author's key order (Lua pairs() and the alphabetical config map both
 		// lose it), then rank every bound key by where it is defined.
 		std::string source_text;
@@ -1450,6 +1536,7 @@ namespace big::mod_settings
 			}
 			g_actions[guid]      = std::move(actions);
 			g_virtual_rows[guid] = std::move(virtual_rows);
+			g_menu_groups[guid]  = std::move(menu_groups);
 		}
 
 		return make_proxy(ts, cf.get(), "config");
@@ -1501,7 +1588,7 @@ namespace big::mod_settings
 			}
 			for (const auto& a : it->second)
 			{
-				if (a.section == section)
+				if (section.empty() || a.section == section) // empty section = all sections (menu-path bucketing)
 				{
 					result.push_back(a);
 				}
@@ -1568,7 +1655,7 @@ namespace big::mod_settings
 		}
 		for (const auto& vr : it->second)
 		{
-			if (vr.section == section)
+			if (section.empty() || vr.section == section) // empty section = all sections (menu-path bucketing)
 			{
 				result.push_back(vr);
 			}
@@ -1855,6 +1942,7 @@ namespace big::mod_settings
 			g_opted_out_mods.clear();
 			g_actions.clear();
 			g_virtual_rows.clear();
+			g_menu_groups.clear();
 			g_described_keys.clear();
 		}
 

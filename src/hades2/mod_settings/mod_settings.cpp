@@ -14,6 +14,7 @@
 #include <malloc.h>
 #include <map>
 #include <memory/gm_address.hpp>
+#include <set>
 #include <sstream>
 #include <string>
 #include <toml_v2/config_file.hpp>
@@ -483,6 +484,12 @@ namespace big::mod_settings
 
 		// Group rows (RowKind::group) only: the child config section this row drills into.
 		std::string target_section;
+
+		// The entry's REAL config section (for virtual-row Lua I/O: get/set/text). A `group` override can place a row
+		// on a menu page whose path differs from the entry's config section, so runtime commits must use this, not the
+		// view path. Config settings carry their section on `entry`; actions on `target_section`; only virtual rows
+		// need this stored. Empty -> falls back to the current view path.
+		std::string config_section;
 	};
 
 	static std::vector<PanelRow> g_rows;
@@ -2248,13 +2255,14 @@ namespace big::mod_settings
 		}
 		else if (row->is_virtual_input)
 		{
-			const auto cur = get_virtual_value(row->stem, g_view_section, row->setting_key);
+			const std::string& vsec = !row->config_section.empty() ? row->config_section : g_view_section;
+			const auto cur = get_virtual_value(row->stem, vsec, row->setting_key);
 			if (!(cur.type == virtual_value::kind::boolean && cur.as_bool == v))
 			{
 				virtual_value nv;
 				nv.type    = virtual_value::kind::boolean;
 				nv.as_bool = v;
-				set_virtual_value(row->stem, g_view_section, row->setting_key, nv);
+				set_virtual_value(row->stem, vsec, row->setting_key, nv);
 				changed = true;
 			}
 		}
@@ -2280,13 +2288,14 @@ namespace big::mod_settings
 		}
 		else if (row->is_virtual_input)
 		{
-			const auto cur = get_virtual_value(row->stem, g_view_section, row->setting_key);
+			const std::string& vsec = !row->config_section.empty() ? row->config_section : g_view_section;
+			const auto cur = get_virtual_value(row->stem, vsec, row->setting_key);
 			if (!(cur.type == virtual_value::kind::number && cur.as_number == v))
 			{
 				virtual_value nv;
 				nv.type      = virtual_value::kind::number;
 				nv.as_number = v;
-				set_virtual_value(row->stem, g_view_section, row->setting_key, nv);
+				set_virtual_value(row->stem, vsec, row->setting_key, nv);
 				changed = true;
 			}
 		}
@@ -2314,13 +2323,14 @@ namespace big::mod_settings
 		}
 		else if (row->is_virtual_input)
 		{
-			const auto cur = get_virtual_value(row->stem, g_view_section, row->setting_key);
+			const std::string& vsec = !row->config_section.empty() ? row->config_section : g_view_section;
+			const auto cur = get_virtual_value(row->stem, vsec, row->setting_key);
 			if (!(cur.type == virtual_value::kind::string && cur.as_string == serialized))
 			{
 				virtual_value nv;
 				nv.type      = virtual_value::kind::string;
 				nv.as_string = serialized;
-				set_virtual_value(row->stem, g_view_section, row->setting_key, nv);
+				set_virtual_value(row->stem, vsec, row->setting_key, nv);
 				changed = true;
 			}
 		}
@@ -2577,6 +2587,63 @@ namespace big::mod_settings
 		return cfg->try_get_entry(def) != nullptr;
 	}
 
+	// Menu paths from a `group` override that resolved to neither a config section nor a declared category, already
+	// warned about (keyed "<stem>\0<path>"), so the per-frame rebuild logs each bad target only once.
+	static std::set<std::string> g_warned_group_overrides;
+
+	// The menu path an entry appears at: its `group` override (resolved to a root_section-rooted dotted path) if it has
+	// one, else the entry's own config section. Author-group segments and config-section names share this path space,
+	// so navigation, bucketing and RowIdentity all keep using dotted-string paths.
+	static std::string menu_path_of(const std::string& config_section, const std::vector<std::string>& group)
+	{
+		if (group.empty())
+		{
+			return config_section;
+		}
+		std::string p = root_section;
+		for (const auto& seg : group)
+		{
+			p.push_back('.');
+			p.append(seg);
+		}
+		return p;
+	}
+
+	// Finds an author-declared menu group (configDesc `groups`) by its full menu path (walking the tree by the segments
+	// after root_section), or nullptr if the path names no author group (e.g. it is a config section instead).
+	static const menu_group* find_author_group(const std::vector<menu_group>& tree, const std::string& menu_path)
+	{
+		const std::string prefix = std::string(root_section) + ".";
+		if (menu_path.rfind(prefix, 0) != 0)
+		{
+			return nullptr;
+		}
+		std::string rest             = menu_path.substr(prefix.size());
+		const std::vector<menu_group>* level = &tree;
+		const menu_group* found      = nullptr;
+		while (!rest.empty())
+		{
+			const auto dot        = rest.find('.');
+			const std::string seg = rest.substr(0, dot);
+			found                 = nullptr;
+			for (const auto& g : *level)
+			{
+				if (g.id == seg)
+				{
+					found = &g;
+					break;
+				}
+			}
+			if (!found)
+			{
+				return nullptr;
+			}
+			level = &found->children;
+			rest  = (dot == std::string::npos) ? std::string{} : rest.substr(dot + 1);
+		}
+		return found;
+	}
+
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render
 	// as setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value). Each direct child
 	// section renders as a group row that drills into it. At the root section a boolean "enabled" entry (if present) is
@@ -2590,7 +2657,11 @@ namespace big::mod_settings
 			bool is_group = false;
 			std::string key;                                          // leaf key, or the group's last path segment
 			toml_v2::config_file::config_entry_base* entry = nullptr; // leaf only
-			std::string child_section;                                // group only (full "config.x.y" path)
+			std::string child_section;                                // group only (full menu path, e.g. "config.x.y")
+			std::string config_section;                               // the entry's REAL config section (for virtual I/O; group: its parent config section)
+			bool is_author_group = false;                             // group only: declared in configDesc `groups` (not a config section)
+			localized_text author_name;                               // author-group display name (is_author_group only)
+			localized_text author_description;                        // author-group description (is_author_group only)
 			bool has_order  = false;
 			double order    = 0.0;
 			int appearance  = INT_MAX;        // config.lua source rank (fallback order)
@@ -2602,10 +2673,107 @@ namespace big::mod_settings
 		};
 
 		std::vector<panel_item> items;
-		std::map<std::string, panel_item> groups; // child section path -> group item (keeps its min appearance).
+		std::map<std::string, panel_item> groups; // child menu path -> group item (keeps its min appearance).
 		toml_v2::config_file::config_entry_base* enabled_entry = nullptr;
 		toml_v2::config_file* view_cfg                         = nullptr; // this mod's config file (for child lookups)
 		const std::string section_prefix                       = section + ".";
+
+		// The author-declared menu groups (configDesc `groups`) - the categories a per-entry `group` can target that do
+		// not exist as config sections. Looked up when a child group is created to pick its display name/order/source.
+		const std::vector<menu_group> author_groups = mod_menu_groups(stem);
+
+		// Resolves an entry's menu path: its `group` override (validated) else its config section. A `group` that names
+		// neither a declared author group nor a config section is logged once and falls back to the config-section
+		// placement, so a typo leaves the row visible where its value lives rather than stranding it in a bogus group.
+		auto resolve_menu_path = [&](const std::string& csection, const std::vector<std::string>& group) -> std::string
+		{
+			if (group.empty())
+			{
+				return csection;
+			}
+			const std::string m = menu_path_of(csection, group);
+			if (find_author_group(author_groups, m))
+			{
+				return m; // a declared author group (the common case)
+			}
+			if (view_cfg) // or an existing config section the row is being merged into
+			{
+				const std::string desc_prefix = m + ".";
+				for (const auto& [k, e] : view_cfg->m_entries)
+				{
+					if (k.m_section == m || k.m_section.rfind(desc_prefix, 0) == 0)
+					{
+						return m;
+					}
+				}
+			}
+			const std::string warn_key = stem + '\0' + m;
+			if (g_warned_group_overrides.insert(warn_key).second)
+			{
+				LOG(WARNING) << "[mod_settings] " << stem << ": `group` target '" << m << "' is neither a config section nor a category declared in configDesc `groups`; the row falls back to its config-section placement. Declare it in `groups` if it is a new menu category.";
+			}
+			return csection;
+		};
+
+		// Where an entry (living in config section `csection`, with an optional `group` override) sits relative to the
+		// current view `section`: 0 = not on this page (skip), 1 = a direct row here, 2 = inside a child group (its full
+		// menu path returned in child_out). The entry's menu path is its `group` override else its config section, so a
+		// flat config can be regrouped and a nested one re-nested without moving the actual config value.
+		auto placement = [&](const std::string& csection, const std::vector<std::string>& group, std::string& child_out) -> int
+		{
+			const std::string m = resolve_menu_path(csection, group);
+			if (m == section)
+			{
+				return 1;
+			}
+			if (m.rfind(section_prefix, 0) == 0)
+			{
+				const std::string rest = m.substr(section_prefix.size());
+				child_out              = section_prefix + rest.substr(0, rest.find('.'));
+				return 2;
+			}
+			return 0;
+		};
+
+		// Creates (or ranks lower) the child group row at menu path `child_path`. A group declared in configDesc
+		// `groups` (find_author_group) takes its name/order/description from there; otherwise it is a config-derived
+		// group whose metadata comes from its configDesc entry at the matching config section (resolved in the render).
+		auto ensure_group = [&](const std::string& child_path, int app)
+		{
+			if (const auto git = groups.find(child_path); git != groups.end())
+			{
+				if (app < git->second.appearance)
+				{
+					git->second.appearance = app;
+				}
+				return;
+			}
+			panel_item g;
+			g.is_group      = true;
+			g.child_section = child_path;
+			g.appearance    = app;
+			g.key           = child_path.substr(child_path.rfind('.') + 1); // the child's last path segment
+			if (const menu_group* ag = find_author_group(author_groups, child_path))
+			{
+				g.is_author_group    = true;
+				g.author_name        = ag->name;
+				g.author_description = ag->description;
+				if (ag->has_order)
+				{
+					g.has_order = true;
+					g.order     = ag->order;
+				}
+			}
+			else if (const auto meta = resolved_metadata(stem, section, g.key); meta && meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
+			{
+				// Config-derived group: its menu path equals its config section and the view is its parent section, so
+				// its metadata is configDesc.<section>.<child> (resolved here for order, and again in the render for the
+				// name/description). Defer the order to a real config child named "order" (see config_child_exists).
+				g.has_order = true;
+				g.order     = meta->order;
+			}
+			groups.emplace(child_path, std::move(g));
+		};
 
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
@@ -2628,24 +2796,30 @@ namespace big::mod_settings
 					enabled_entry = entry.get();
 				}
 
-				if (key.m_section == section)
+				// Hide config keys that carry no configDesc entry, so a mod's internal or bookkeeping values do not
+				// clutter its settings page. A key counts as described if it has metadata/a description from our loader
+				// (g_described_keys) or a plain description string bound by Chalk (entry_has_description). The one
+				// exception is the master "enabled" toggle, always shown so the mod stays toggleable even when its
+				// author did not describe it.
+				const bool is_enabled_toggle = key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key);
+				if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key) && !entry_has_description(entry.get()))
 				{
-					// Hide config keys that carry no configDesc entry, so a mod's internal or bookkeeping values do not
-					// clutter its settings page. A key counts as described if it has metadata/a description from our
-					// loader (g_described_keys) or a plain description string bound by Chalk (entry_has_description).
-					// The one exception is the master "enabled" toggle, always shown so the mod stays toggleable even
-					// when its author did not describe it.
-					const bool is_enabled_toggle = key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key);
-					if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key)
-					    && !entry_has_description(entry.get()))
-					{
-						continue;
-					}
+					continue;
+				}
 
+				// The `group` override is a static field, so the cheap (no-Lua) stored metadata resolves the entry's
+				// menu placement. Everything else (order, name, widget) still uses the entry's real config section.
+				const auto static_meta          = get_setting_metadata(stem, key.m_section, key.m_key);
+				const std::vector<std::string> grp = static_meta ? static_meta->group : std::vector<std::string>{};
+				std::string child_path;
+				const int place = placement(key.m_section, grp, child_path);
+				if (place == 1)
+				{
 					panel_item it;
-					it.key        = key.m_key;
-					it.entry      = entry.get();
-					it.appearance = get_setting_appearance_order(stem, key.m_section, key.m_key);
+					it.key            = key.m_key;
+					it.entry          = entry.get();
+					it.config_section = key.m_section;
+					it.appearance     = get_setting_appearance_order(stem, key.m_section, key.m_key);
 					if (const auto meta = resolved_metadata(stem, key.m_section, key.m_key); meta && meta->has_order)
 					{
 						it.has_order = true;
@@ -2653,43 +2827,9 @@ namespace big::mod_settings
 					}
 					items.push_back(std::move(it));
 				}
-				else if (key.m_section.rfind(section_prefix, 0) == 0)
+				else if (place == 2)
 				{
-					// An undescribed descendant contributes nothing: it neither shows as a row inside the group nor
-					// ranks the group, so a subtree of only undescribed keys produces no group row at all. A Chalk
-					// plain-string description counts as described too (entry_has_description).
-					if (!setting_is_described(stem, key.m_section, key.m_key) && !entry_has_description(entry.get()))
-					{
-						continue;
-					}
-
-					// A descendant section: the direct child under `section` is the first path segment after the
-					// prefix. Collapse its whole subtree into one group row, ranked by its earliest-defined descendant.
-					const std::string rest       = key.m_section.substr(section_prefix.size());
-					const std::string child      = rest.substr(0, rest.find('.'));
-					const std::string child_path = section_prefix + child;
-					const int app                = get_setting_appearance_order(stem, key.m_section, key.m_key);
-					const auto git               = groups.find(child_path);
-					if (git == groups.end())
-					{
-						panel_item g;
-						g.is_group      = true;
-						g.key           = child;
-						g.child_section = child_path;
-						g.appearance    = app;
-						// Defer the group's order to a real config child named "order" (see config_child_exists): with
-						// such a child, configDesc.<group>.order is that child's description, not the group's sort key.
-						if (const auto meta = resolved_metadata(stem, section, child); meta && meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
-						{
-							g.has_order = true;
-							g.order     = meta->order;
-						}
-						groups.emplace(child_path, std::move(g));
-					}
-					else if (app < git->second.appearance)
-					{
-						git->second.appearance = app;
-					}
+					ensure_group(child_path, get_setting_appearance_order(stem, key.m_section, key.m_key));
 				}
 			}
 		}
@@ -2699,24 +2839,47 @@ namespace big::mod_settings
 			items.push_back(std::move(kv.second));
 		}
 
-		// Action buttons declared directly in this section (config.lua `action` entries). They carry no config value,
-		// so they are collected separately and sorted in with the settings by `order`.
-		for (auto& a : get_actions(stem, section))
+		// Action buttons (config.lua `action` entries). Collected across ALL config sections (empty section = all) and
+		// bucketed by menu path, so an action moved with `group` lands on its target page like any setting.
+		for (auto& a : get_actions(stem, ""))
 		{
+			std::string child_path;
+			const int place = placement(a.section, a.group, child_path);
+			if (place == 2)
+			{
+				ensure_group(child_path, get_setting_appearance_order(stem, a.section, a.key));
+				continue;
+			}
+			if (place != 1)
+			{
+				continue;
+			}
 			panel_item it;
-			it.is_action = true;
-			it.key       = a.key;
-			it.has_order = a.has_order;
-			it.order     = a.order;
-			it.action    = std::move(a);
+			it.is_action      = true;
+			it.key            = a.key;
+			it.config_section = a.section;
+			it.has_order      = a.has_order;
+			it.order          = a.order;
+			it.action         = std::move(a);
 			items.push_back(std::move(it));
 		}
 
 		// Virtual rows (config.lua `virtual = true` entries) - non-config rows whose value comes from Lua callbacks.
-		// They carry no config value either, so they are collected here and interleaved with the settings by `order`
-		// and config.lua source rank. A dynamic field on any of them makes an edit re-run this build (live refresh).
-		for (const auto& vr : get_virtual_rows(stem, section))
+		// Collected across all sections and bucketed by menu path, interleaved with the settings by `order`/source
+		// rank. A dynamic field on a row that lands on THIS page makes an edit re-run this build (live refresh).
+		for (const auto& vr : get_virtual_rows(stem, ""))
 		{
+			std::string child_path;
+			const int place = placement(vr.section, vr.group, child_path);
+			if (place == 2)
+			{
+				ensure_group(child_path, get_setting_appearance_order(stem, vr.section, vr.key));
+				continue;
+			}
+			if (place != 1)
+			{
+				continue;
+			}
 			if (vr.has_dynamic)
 			{
 				g_view_has_dynamic = true;
@@ -2725,9 +2888,10 @@ namespace big::mod_settings
 			it.is_virtual          = true;
 			it.virtual_interactive = vr.interactive;
 			it.key                 = vr.key;
+			it.config_section      = vr.section;
 			it.has_order           = vr.has_order;
 			it.order               = vr.order;
-			it.appearance          = get_setting_appearance_order(stem, section, vr.key);
+			it.appearance          = get_setting_appearance_order(stem, vr.section, vr.key);
 			items.push_back(std::move(it));
 		}
 
@@ -2851,7 +3015,10 @@ namespace big::mod_settings
 			// declare it.
 			if (it.is_virtual)
 			{
-				const auto vmeta         = resolved_metadata(stem, section, it.key);
+				// A `group` override can move a virtual row onto a page whose path differs from its config section, so
+				// all its Lua I/O (metadata/display/get) uses the row's real config section, not the view path.
+				const std::string& vsection = it.config_section;
+				const auto vmeta         = resolved_metadata(stem, vsection, it.key);
 				const std::string vname  = vmeta ? resolve_localized(vmeta->name) : std::string{};
 				const std::string vlabel = escape_markup(!vname.empty() ? vname : key_to_display(it.key));
 				const std::string vdesc  = vmeta ? resolve_localized(vmeta->description) : std::string{};
@@ -2868,6 +3035,7 @@ namespace big::mod_settings
 					{
 						PanelRow pr{row, RowKind::info, stem, it.key};
 						pr.disabled = true;
+						pr.config_section = vsection;
 						pr.value_component = make_value_display(screen, escape_markup(value_text).c_str(), /*disabled*/ false);
 						pr.description = vdesc;
 						g_rows.push_back(std::move(pr));
@@ -2876,7 +3044,7 @@ namespace big::mod_settings
 
 				if (!it.virtual_interactive)
 				{
-					build_readonly(get_virtual_display(stem, section, it.key));
+					build_readonly(get_virtual_display(stem, vsection, it.key));
 					continue;
 				}
 
@@ -2884,7 +3052,7 @@ namespace big::mod_settings
 				// setting is inferred from its config value type. When get() returns nil at build time (the mod's state
 				// is not ready yet), the author can force the widget with `type` - synthesize a starting value from
 				// `default` (or a sensible fallback) so the widget still builds instead of falling back to read-only.
-				virtual_value vv = get_virtual_value(stem, section, it.key);
+				virtual_value vv = get_virtual_value(stem, vsection, it.key);
 				if (vv.type == virtual_value::kind::none && vmeta && vmeta->type != widget_type::inferred)
 				{
 					const std::string& dflt = vmeta->default_value; // empty when no default declared
@@ -2990,6 +3158,7 @@ namespace big::mod_settings
 					{
 						PanelRow pr{ro_row, RowKind::setting, stem, it.key};
 						pr.disabled = true;
+						pr.config_section = vsection;
 						pr.value_component = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
 						pr.description =
 						    context_blocked ?
@@ -3044,6 +3213,7 @@ namespace big::mod_settings
 					PanelRow pr{row, RowKind::setting, stem, it.key};
 					pr.disabled         = disabled;
 					pr.is_virtual_input = true;
+					pr.config_section   = vsection; // real config section for runtime get/set (may differ from view path)
 					pr.value_component  = value;
 					pr.description      = vdesc;
 					if (is_enum)
@@ -3072,46 +3242,58 @@ namespace big::mod_settings
 				continue;
 			}
 
-			// A nested group drills into its child section when clicked/activated.
+			// A nested group drills into its child menu path when clicked/activated. A config-derived group takes its
+			// display name/description from its configDesc entry (its menu path equals its config section); an author
+			// group (configDesc `groups`) carries its own name/description captured during collection.
 			if (it.is_group)
 			{
-				auto gmeta = resolved_metadata(stem, section, it.key);
-
-				// A group's desc table doubles as its children's descriptions, so a group-consumed field (displayName/
-				// description/hidden) that is actually one of the group's own config children belongs to that child,
-				// not the group. Defer to the child so the two never collide (the child renders it normally; the group
-				// falls back to its default for that field). `order` is deferred the same way during collection above.
-				if (gmeta && view_cfg)
+				std::string glabel;
+				std::string gdescription;
+				if (it.is_author_group)
 				{
-					if (config_child_exists(view_cfg, it.child_section, "displayName"))
+					const std::string gname = resolve_localized(it.author_name);
+					glabel                  = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
+					gdescription            = resolve_localized(it.author_description);
+				}
+				else
+				{
+					auto gmeta = resolved_metadata(stem, section, it.key);
+
+					// A group's desc table doubles as its children's descriptions, so a group-consumed field
+					// (displayName/description/hidden) that is actually one of the group's own config children belongs
+					// to that child, not the group. Defer to the child so the two never collide. `order` is deferred
+					// the same way during collection above.
+					if (gmeta && view_cfg)
 					{
-						gmeta->name.clear();
+						if (config_child_exists(view_cfg, it.child_section, "displayName"))
+						{
+							gmeta->name.clear();
+						}
+						if (config_child_exists(view_cfg, it.child_section, "description"))
+						{
+							gmeta->description.clear();
+						}
+						if (config_child_exists(view_cfg, it.child_section, "hidden"))
+						{
+							gmeta->hidden = false;
+						}
 					}
-					if (config_child_exists(view_cfg, it.child_section, "description"))
+
+					if (gmeta && gmeta->hidden)
 					{
-						gmeta->description.clear();
+						continue;
 					}
-					if (config_child_exists(view_cfg, it.child_section, "hidden"))
-					{
-						gmeta->hidden = false;
-					}
+					const std::string gname = gmeta ? resolve_localized(gmeta->name) : std::string{};
+					glabel                  = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
+					gdescription            = gmeta ? resolve_localized(gmeta->description) : std::string{};
 				}
 
-				if (gmeta && gmeta->hidden)
-				{
-					continue;
-				}
-				const std::string gname  = gmeta ? resolve_localized(gmeta->name) : std::string{};
-				const std::string glabel = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
 				if (auto* row = make_text_row(screen, glabel.c_str(), disabled))
 				{
 					PanelRow pr{row, RowKind::group, stem, {}};
 					pr.disabled       = disabled;
 					pr.target_section = it.child_section;
-					if (gmeta)
-					{
-						pr.description = resolve_localized(gmeta->description);
-					}
+					pr.description    = gdescription;
 					g_rows.push_back(std::move(pr));
 				}
 				continue;

@@ -12,6 +12,27 @@
 ---@alias mod_settings.dynamic_boolean boolean | fun(): boolean
 ---@alias mod_settings.dynamic_string mod_settings.localized_string | fun(): mod_settings.localized_string
 
+--- A menu placement path. The in-game menu layout is decoupled from the config file structure: by default a
+--- setting appears under its config section (so a nested config nests in the menu), but a `group` moves it into
+--- a different or brand-new menu category instead. A single string is a one-level group; an array is a nested
+--- path (e.g. { "Debugging", "Logging" }). configDesc must still mirror the config structure (debugging.logLevel
+--- in config is debugging.logLevel in configDesc). Supplying `group` only changes where a row is shown, not wherer
+--- its value lives in the .cfg file.
+---@alias mod_settings.group string | string[]
+
+--- A menu category declared in the top-level configDesc `groups`, letting a flat (or differently nested) config
+--- be presented under an arbitrary menu tree. Only needed for categories that are not config sections already.
+---@class (exact) mod_settings.menu_group
+--- Category label shown on its drill-down row. Defaults to a prettified version of the group's key.
+---@field displayName? mod_settings.localized_string
+--- Help text shown while the category's row is highlighted.
+---@field description? mod_settings.localized_string
+--- Sort key among sibling categories/rows, lower first.
+---@field order? number
+--- Nested sub-categories, keyed by their id (referenced as later path segments in a `group`).
+---@field groups? table<string, mod_settings.menu_group>
+
+
 --- Describes how a config option appears in the in-game mod settings menu. Every field is optional. The
 --- widget type is inferred from the setting's config value (a boolean becomes a toggle; a number with `min`
 --- and `max` becomes a slider; a value with `values` becomes a cycler; anything else is a free-text field).
@@ -63,6 +84,8 @@
 --- and the new value. Use it to apply the change to the loaded run. It is not called in the main menu.
 --- Re-writing the same value is a no-op and does not fire. Errors are logged, not propagated.
 ---@field onChange? fun(key: string, new_value: boolean|number|string)
+--- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
 
 --- An action button in the menu that runs a callback instead of editing a config value. Declare it as a
 --- `configDesc` entry (with a matching key that has NO config value) carrying an `action` function.
@@ -84,6 +107,8 @@
 --- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
 --- while the whole mod is disabled. Defaults to the normal `description` when omitted.
 ---@field disabledDescription? mod_settings.dynamic_string
+--- Move this button to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
 
 --- A virtual row: a menu row that is NOT backed by a `config` value, whose value comes from Lua callbacks.
 --- Declare it as a `configDesc` entry whose key has NO matching `config` value, with `virtual = true` (required,
@@ -147,10 +172,13 @@
 --- Sort key for custom ordering config entries in the menu, lower first.
 --- When omitted, rows keep the order they are defined in the default config you provide.
 ---@field order? number
+--- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
 
 --- Each entry in `configDesc` can be a simple key:description string, a setting description table, an action
 --- button, or a nested table of descriptions mirroring a config group. The underlying .cfg file contents are
---- not changed by this format.
+--- not changed by this format. A top-level `groups` table (see mod_settings.menu_group) may declare menu
+--- categories that do not exist as config sections, which entries move into via their `group`.
 ---
 --- Only keys with a `configDesc` entry are shown in the menu: a `config` key with no entry here is treated as
 --- internal state and hidden (a group whose keys are all undescribed produces no row). The mod's master
