@@ -49,8 +49,8 @@ namespace big::mod_settings
 	// An author-declared menu group (configDesc `groups`): a category in the in-game menu that does NOT correspond to a
 	// config section. It lets a mod present a flat (or differently nested) config under an arbitrary menu tree, by
 	// moving entries into these groups with a per-entry `group`. `id` is the identity used in a `group` path (the table
-	// key in configDesc.groups); name/description are shown in the menu (resolved to the current language); order sorts
-	// it among its siblings (else first-declared order); children are nested sub-groups.
+	// key in configDesc.groups). name/description are shown in the menu (resolved to the current language). order sorts
+	// it among its siblings (else first-declared order). children are nested sub-groups.
 	struct menu_group
 	{
 		std::string id;
@@ -143,7 +143,7 @@ namespace big::mod_settings
 	std::optional<setting_metadata> get_setting_metadata(const std::string& guid, const std::string& section, const std::string& key);
 
 	// True if (section, key) carries a configDesc entry (a description string or a table). The menu shows only
-	// described keys; an undescribed config key is hidden, so a mod's internal/bookkeeping config values do not clutter
+	// described keys. An undescribed config key is hidden, so a mod's internal/bookkeeping config values do not clutter
 	// the settings page. The mod's master "enabled" toggle is always shown regardless (handled in build_mod_settings).
 	bool setting_is_described(const std::string& guid, const std::string& section, const std::string& key);
 
@@ -188,7 +188,7 @@ namespace big::mod_settings
 
 	// A configDesc entry with NO backing config value that explicitly marks itself `virtual = true`. It renders as a
 	// menu row whose value comes from Lua callbacks instead of a .cfg config entry: a read-only row uses `text`, and an
-	// interactive row uses `get` (read) + `set` (write). Collected at load; the callables stay in the Lua descs
+	// interactive row uses `get` (read) + `set` (write). Collected at load. The callables stay in the Lua descs
 	// registry and are resolved at render. The rest of its metadata (displayName/description/order/min/max/values/...)
 	// is read the same way as a config setting's, via resolve_setting_metadata against (section, key).
 	struct virtual_row_info
