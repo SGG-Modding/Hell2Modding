@@ -72,8 +72,9 @@
 --- Mark that changing this setting requires a game restart. The menu forces the player
 --- to restart when they leave the mod menu after changing it.
 ---@field restartRequired? boolean
---- If this setting can be changed only in the main menu, only in a save (run or Crossroads), only in the Crossroads, or anywhere.
---- When the current context does not match, the row is shown read-only with a note.
+--- Restrict where this row can be edited: only the main menu, only in a save, only in the Crossroads
+--- or anywhere (default). Outside of the allowed context the row shows as disabled.
+--- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
 --- The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`.
 ---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Append "%" to the displayed value.
@@ -98,7 +99,8 @@
 ---@field description? mod_settings.dynamic_string
 --- Sort key among the section's rows, lower first.
 ---@field order? mod_settings.dynamic_number
---- When the button is activated: only in the main menu, only in a save (run or Crossroads), only in the Crossroads, or anywhere.
+--- Restrict where the button is enabled: main menu, in a save, in the Crossroads, or anywhere (default "any").
+--- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
 ---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
 --- grey an "Apply" button until a value has actually changed).
@@ -162,7 +164,8 @@
 --- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
 --- while the whole mod is disabled. Defaults to the normal `description` when omitted.
 ---@field disabledDescription? mod_settings.dynamic_string
---- When the button is activated: only in the main menu, only in a save (run or Crossroads), only in the Crossroads, or anywhere.
+--- Restrict where this row can be edited: main menu, in a save, in the Crossroads, or anywhere (default "any").
+--- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
 ---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
 ---@field displayName? mod_settings.dynamic_string

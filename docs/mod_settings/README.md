@@ -45,7 +45,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `disabledDescription` | string \| localization table \| callback | Description shown in place of `description` while the setting is greyed by its own `disabled` field, to explain why. Falls back to `description` when omitted. Not used for context-restricted or mod-disabled rows. |
 | `freetext` | boolean | Force a bounded number to be a free-text entry instead of a slider. |
 | `restartRequired` | boolean | Force the user to restart the game when this setting is changed. |
-| `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict when this setting can be changed: `"any"` (default), `"mainMenu"` (only from the main menu), `"inSave"` (only while a save is loaded - both in the Crossroads and mid-run), or `"inHub"` (only while in the Crossroads). When the current context does not match, the row is shown read-only with a note. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
+| `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict where the row can be edited: `"any"` (default), `"mainMenu"` ( only from the main menu), `"inSave"` (only while a save is loaded), or `"inHub"` (only in the Crossroads). Outside of the allowed context the row shows as disabled. In most cases, `any` will work, only restrict when actively changing a live value during gameplay, or save-specific data. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
 | `showAsPercentage` | boolean | Append "%" to the value. |
 | `isPercentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". |
 | `onChange` | `fun(key, new_value)` | Called after the setting is changed in the in-game menu. Use it to apply the change to the loaded run. See below. |
@@ -170,7 +170,6 @@ local configDesc = {
   hermes_shrine_chance = {
     displayName = "Hermes Shrine Chance",
     min = 0, max = 100,
-    editableContext = "inSave",
     onChange = function(key, new_value)
       mod.ApplyHermesShrineChance(new_value) -- re-apply the value to the live run
     end,
