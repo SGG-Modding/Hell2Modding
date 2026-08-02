@@ -230,6 +230,11 @@ namespace big::mod_settings
 	// the mod's main.lua).
 	bool mod_opted_out(const std::string& guid);
 
+	// The optional custom description a mod passed to rom.mod_settings.opt_out(description) (empty when none was
+	// given). The settings menu shows it (resolved to the current language) in place of the generic opt-out note when
+	// the mod's greyed row is highlighted.
+	localized_text mod_opt_out_description(const std::string& guid);
+
 	// True while a setting change should notify its mod through an on_change callback: a native options screen is
 	// currently open and it was opened in-game (a save is loaded). Consulted by the config API so an on_change fires
 	// only for an edit made through the in-game options menu, which can be applied to the live run - never in the main

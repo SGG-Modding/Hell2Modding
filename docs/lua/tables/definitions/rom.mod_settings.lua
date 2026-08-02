@@ -8,7 +8,8 @@
 ---@return table # A live read/write proxy over the mod's config; index it to read a setting and assign to write one.
 function mod_settings.load(config_lua) end
 
--- Excludes the calling mod from the in-game mod settings menu: it stays listed but will begreyed out and
+-- Excludes the calling mod from the in-game mod settings menu: it stays listed but will be greyed out and
 -- cannot be opened, with a note pointing the player to the mod's own description. Use it when the mod
 -- should not be edited in-game. Works with Chalk or rom.mod_settings.load.
-function mod_settings.opt_out() end
+---@param description? string A plain string or a localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note when the mod's greyed row is highlighted.
+function mod_settings.opt_out(description) end

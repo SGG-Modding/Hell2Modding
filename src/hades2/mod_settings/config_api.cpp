@@ -52,10 +52,11 @@ namespace big::mod_settings
 	// stays toggleable). Keyed the same way as g_setting_metadata (guid + '\0' + section + '\0' + key).
 	static std::set<std::string> g_described_keys;
 
-	// Guids of mods that called rom.mod_settings.opt_out(), i.e. asked not to be configured through the in-game menu.
-	// Guarded by g_metadata_mutex. Cleared and rebuilt on each Lua-state init (see bind_config_api) because opt_out
-	// re-runs with each mod's main.lua.
-	static std::set<std::string> g_opted_out_mods;
+	// Guids of mods that called rom.mod_settings.opt_out(), i.e. asked not to be configured through the in-game menu,
+	// mapped to the optional custom description the mod passed (empty when none was given). Guarded by
+	// g_metadata_mutex. Cleared and rebuilt on each Lua-state init (see bind_config_api) because opt_out re-runs with
+	// each mod's main.lua.
+	static std::map<std::string, localized_text> g_opted_out_mods;
 
 	// Action buttons declared in config.lua (configDesc entries with an `action` function, no config value). Keyed by
 	// guid, in config.lua source order. Plain data (the callable stays in the Lua-side description registry and is
@@ -154,6 +155,13 @@ namespace big::mod_settings
 	{
 		std::scoped_lock lock(g_metadata_mutex);
 		return g_opted_out_mods.count(guid) != 0;
+	}
+
+	localized_text mod_opt_out_description(const std::string& guid)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const auto it = g_opted_out_mods.find(guid);
+		return it != g_opted_out_mods.end() ? it->second : localized_text{};
 	}
 
 	// Finds the byte offset of a key's definition ("<key> =") in config.lua source, whole-word and not "==", or npos.
@@ -1806,10 +1814,12 @@ namespace big::mod_settings
 		return any_changed;
 	}
 
-	// Lua API: Function. Table: mod_settings. Name: opt_out. Excludes the calling mod from the in-game mod settings
-	// menu: it stays listed but greyed out and cannot be opened, with a note pointing the player to the mod's own
-	// description. Use it when the mod should not be edited in-game. Works with Chalk or rom.mod_settings.load.
-	static void opt_out(sol::this_environment this_env)
+	// Lua API: Function. Table: mod_settings. Name: opt_out. Param: description: string: Optional. A plain string or a
+	// localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note when the mod's greyed
+	// row is highlighted. Excludes the calling mod from the in-game mod settings menu: it stays listed but greyed out
+	// and cannot be opened, with a note pointing the player to the mod's own description. Use it when the mod should
+	// not be edited in-game. Works with Chalk or rom.mod_settings.load.
+	static void opt_out(sol::this_environment this_env, sol::object description)
 	{
 		// Keyed by the calling mod's guid (which matches its config-file stem), so the menu can grey the matching row
 		// however the mod manages its config.
@@ -1822,8 +1832,13 @@ namespace big::mod_settings
 		{
 			return;
 		}
+		localized_text note;
+		if (description.valid() && description != sol::lua_nil)
+		{
+			note = parse_localized(description);
+		}
 		std::scoped_lock lock(g_metadata_mutex);
-		g_opted_out_mods.insert(module->guid());
+		g_opted_out_mods[module->guid()] = std::move(note);
 	}
 
 	void bind_config_api(sol::state_view& state, sol::table& lua_ext)

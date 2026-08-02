@@ -18,13 +18,16 @@ live read/write proxy over the config. When using this, you do not need to depen
 table = rom.mod_settings.load(config_lua)
 ```
 
-### `opt_out()`
+### `opt_out(description)`
 
 Excludes the calling mod from the in-game mod settings menu: it stays listed but will be greyed out and
 cannot be opened, with a note pointing the player to the mod's own description. Use it when the mod
 should not be edited in-game. Works with Chalk or rom.mod_settings.load.
 
+- **Parameters:**
+  - `description` (string): Optional. A plain string or a localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note when the mod's greyed row is highlighted.
+
 **Example Usage:**
 ```lua
-rom.mod_settings.opt_out()
+rom.mod_settings.opt_out("Please use the imgui menu to configure this mod (opens with \"Insert\" by default).")
 ```

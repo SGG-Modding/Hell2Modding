@@ -629,6 +629,16 @@ namespace big::mod_settings
 		       "to configure it, if applicable.";
 	}
 
+	static std::string resolve_localized(const localized_text& t); // defined below
+
+	// The description shown for an opted-out mod's greyed row: the author's own opt_out(description) if they supplied
+	// one (resolved to the current game language), otherwise the generic opt_out_note().
+	static std::string opt_out_description(const std::string& stem)
+	{
+		const std::string custom = resolve_localized(mod_opt_out_description(stem));
+		return !custom.empty() ? custom : opt_out_note();
+	}
+
 	// Escapes the characters the game's text parser (GUIComponentTextBox::Parse) treats as markup, so arbitrary user
 	// text - config values (e.g. Windows paths with '\'), display names and descriptions - renders verbatim instead of
 	// being mangled. The parser reads '\' as an escape lead that consumes the following word ("D:\Program..." -> "D:
@@ -1806,7 +1816,7 @@ namespace big::mod_settings
 			{
 				PanelRow pr{row, RowKind::mod_entry, stem, {}};
 				pr.disabled    = opted_out;
-				pr.description = opted_out ? opt_out_note() : mod_description_from_stem(stem);
+				pr.description = opted_out ? opt_out_description(stem) : mod_description_from_stem(stem);
 				g_rows.push_back(std::move(pr));
 			}
 		}
