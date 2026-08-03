@@ -39,7 +39,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `step` | number \| callback | Slider/number step size (default 1). Will clamp user input automatically. |
 | `values` | array \| callback | Enum: the values stored in the `.cfg` file. If present, the input will turn into a cycler (such as for the selected display). |
 | `labels` | array of (string \| localization table) \| callback | Display labels parallel to `values`, only used in the in-game mod menu. |
-| `order` | number \| callback | Sort key for custom ordering config entries in the menu, lower first. |
+| `order` | number \| callback | Sort key for custom ordering config entries in the menu, lower first. When omitted, rows follow their definition order in `configDesc`. |
 | `hidden` | boolean | Hide the setting from the menu entirely. Static only - use `disabled` for a condition that changes while the menu is open. |
 | `disabled` | boolean \| callback | Grey the setting out (read-only) while true. Updates live while the menu is open. See below. |
 | `disabledDescription` | string \| localization table \| callback | Description shown in place of `description` while the setting is greyed by its own `disabled` field, to explain why. Falls back to `description` when omitted. Not used for context-restricted or mod-disabled rows. |
@@ -48,7 +48,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict where the row can be edited: `"any"` (default), `"mainMenu"` ( only from the main menu), `"inSave"` (only while a save is loaded), or `"inHub"` (only in the Crossroads). Outside of the allowed context the row shows as disabled. In most cases, `any` will work, only restrict when actively changing a live value during gameplay, or save-specific data. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
 | `showAsPercentage` | boolean | Append "%" to the value. |
 | `isPercentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". |
-| `onChange` | `fun(key, new_value)` | Called after the setting is changed in the in-game menu. Use it to apply the change to the loaded run. See below. |
+| `onChanged` | `fun(key, new_value)` | Called after the setting is changed through the menu, in any context. See below. |
 
 ## Config keys named like reserved fields
 
@@ -160,31 +160,32 @@ local configDesc = {
 }
 ```
 
-## Reacting to changes (`onChange`)
+## Reacting to changes (`onChanged`)
 
-Give a setting an `onChange` function to e.g. apply its new value to the live game when the player
-changes it in the in-game options menu. It receives the setting's key and the new value:
+Give a setting an `onChanged` function to react when the player changes it through the options menu. Use it to
+apply the new value to the live game, and/or to update **other rows'** dynamic `min`/`max`/`values`/`disabled`.
+It receives the setting's key and the new value:
 
 ```lua
 local configDesc = {
   hermes_shrine_chance = {
     displayName = "Hermes Shrine Chance",
     min = 0, max = 100,
-    onChange = function(key, new_value)
-      mod.ApplyHermesShrineChance(new_value) -- re-apply the value to the live run
+    onChanged = function(key, new_value)
+      if game.CurrentRun then mod.ApplyHermesShrineChance(new_value) end
     end,
   },
 }
 ```
 
 The callback fires AFTER the new value is stored and the `.cfg` is saved, so reading the setting back
-(directly or via your `config` proxy) returns the new value. It runs only for an edit made through the
-in-game options menu, so:
+(directly or via your `config` proxy) returns the new value. Note:
 
-- It is **never called in the main menu** - there is no loaded run to apply to, and Lua game-data edits
-  are discarded when a save loads.
-- It is **not called for other config writes** (e.g. from imgui or the config file).
-- Re-writing the same value is a no-op and does not fire, so an `onChange` that writes another setting
+- It **fires in any context** (main menu or in a save), so guard anything that needs a live run - `CurrentRun`
+  and `GameState` are absent in the main menu.
+- It is **not called for other config writes** (e.g. from imgui or the config file) - only for edits made through
+  this menu.
+- Re-writing the same value is a no-op and does not fire, so an `onChanged` that writes another setting
   cannot loop.
 - Errors thrown in the callback are logged and do not propagate into the game.
 

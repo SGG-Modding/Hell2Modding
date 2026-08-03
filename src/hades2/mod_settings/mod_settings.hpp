@@ -264,8 +264,7 @@ namespace big::mod_settings
 	localized_text mod_opt_out_description(const std::string& guid);
 
 	// True while a setting change should notify its mod through an on_change callback: a native options screen is
-	// currently open and it was opened in-game (a save is loaded). Consulted by the config API so an on_change fires
-	// only for an edit made through the in-game options menu, which can be applied to the live run - never in the main
-	// menu, and never from a mod's own config write outside the menu.
+	// currently open. Consulted by the config API so an on_change fires for any edit made through the options menu (main
+	// menu or in a save), but not from a mod's own config write outside the menu.
 	bool on_change_callbacks_enabled();
 } // namespace big::mod_settings

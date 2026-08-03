@@ -170,16 +170,16 @@ namespace big::mod_settings
 		return it != g_menu_groups.end() ? it->second : std::vector<menu_group>{};
 	}
 
-	// Byte offset of a key's definition ("<key> =") in config.lua source (whole-word, not "=="), or npos. The first
-	// match is the key's place in the `config` defaults table (before configDesc), the author's intended display order.
-	static std::size_t find_key_definition(const std::string& src, const std::string& key)
+	// Byte offset of a key's definition ("<key> =") in config.lua source at or after `start` (whole-word, not "=="),
+	// or npos. Occurrences inside strings/prose do not match because they are not followed by a bare '='.
+	static std::size_t find_key_definition(const std::string& src, const std::string& key, std::size_t start = 0)
 	{
 		auto is_ident = [](char c)
 		{
 			return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
 		};
 
-		for (std::size_t pos = src.find(key); pos != std::string::npos; pos = src.find(key, pos + 1))
+		for (std::size_t pos = src.find(key, start); pos != std::string::npos; pos = src.find(key, pos + 1))
 		{
 			if (pos > 0 && is_ident(src[pos - 1]))
 			{
@@ -200,6 +200,22 @@ namespace big::mod_settings
 			}
 		}
 		return std::string::npos;
+	}
+
+	// Rank position for a described entry: where it appears in configDesc (the menu-layout table), so the menu's
+	// fallback order follows how the author laid out configDesc rather than the `config` defaults table. A config-backed
+	// key appears first in `config` (the defaults, defined before configDesc) and again in its configDesc entry, so we
+	// take the SECOND occurrence. A virtual row or action has no config default, so its only occurrence is already in
+	// configDesc. Returns npos (sorts last) when the key cannot be located, e.g. a numeric/bracketed key.
+	static std::size_t desc_definition_offset(const std::string& src, const std::string& key, bool config_backed)
+	{
+		const std::size_t first = find_key_definition(src, key);
+		if (!config_backed || first == std::string::npos)
+		{
+			return first;
+		}
+		const std::size_t second = find_key_definition(src, key, first + 1);
+		return second != std::string::npos ? second : first;
 	}
 
 	static std::string serialize_option(const sol::object& v); // defined below.
@@ -643,7 +659,7 @@ namespace big::mod_settings
 	}
 
 	// Shallow-copies a description table with every dynamic (function) field replaced by its evaluated value, so
-	// extract_metadata can read it as static. Event callables are left as-is: `onChange`, `action`, and a virtual row's
+	// extract_metadata can read it as static. Event callables are left as-is: `onChanged`, `action`, and a virtual row's
 	// `get`/`set`/`text`.
 	static sol::table resolve_description(sol::state_view state, const sol::table& desc, const std::string& guid)
 	{
@@ -656,7 +672,7 @@ namespace big::mod_settings
 				continue;
 			}
 			const std::string field = k.as<std::string>();
-			if (field == "onChange" || field == "action" || field == "get" || field == "set" || field == "text")
+			if (field == "onChanged" || field == "action" || field == "get" || field == "set" || field == "text")
 			{
 				out[k] = v;
 				continue;
@@ -753,7 +769,7 @@ namespace big::mod_settings
 		    "editableContext",
 		    "showAsPercentage",
 		    "isPercentage",
-		    "onChange",
+		    "onChanged",
 		    "action",
 		    "virtual",
 		    "get",
@@ -951,10 +967,10 @@ namespace big::mod_settings
 	}
 
 	// Routes toml_v2's config_entry::m_setting_changed (fired after a value changes and the file is saved) to a Lua
-	// onChange callback, passing the new value and the key. Fires only for edits made through the in-game options menu
-	// (gated by on_change_callbacks_enabled), never in the main menu or from a mod's own writes. A same-value write is a
-	// no-op, so a callback that writes back cannot loop. Stored on the entry (owned by the mod's config_file, destroyed
-	// with the Lua state on App::Reset), so the captured sol reference never dangles. Called protected.
+	// onChanged callback, passing the new value and the key. Fires for any edit made through our options menu (main menu
+	// or in a save, gated by on_change_callbacks_enabled), but not from a mod's own config write outside the menu. A
+	// same-value write is a no-op, so a callback that writes back cannot loop. Stored on the entry (owned by the mod's
+	// config_file, destroyed with the Lua state on App::Reset), so the captured sol reference never dangles. Called protected.
 	static void attach_on_change(toml_v2::config_file::config_entry_base* entry, sol::protected_function callback)
 	{
 		if (!entry || !callback.valid())
@@ -972,7 +988,7 @@ namespace big::mod_settings
 			if (!result.valid())
 			{
 				const sol::error err = result;
-				LOG(WARNING) << "[mod_settings] onChange callback failed for " << changed->m_definition.m_section << "."
+				LOG(WARNING) << "[mod_settings] onChanged callback failed for " << changed->m_definition.m_section << "."
 				             << changed->m_definition.m_key << ": " << err.what();
 			}
 		};
@@ -1324,14 +1340,14 @@ namespace big::mod_settings
 			{
 				meta_out.push_back({section, key, extract_metadata(desc.as<sol::table>())});
 
-				// A leaf may also declare an onChange callback. Attach it to the bound entry so a menu edit (or the
+				// A leaf may also declare an onChanged callback. Attach it to the bound entry so a menu edit (or the
 				// mod's own write) of this setting notifies the mod in Lua.
 				if (bound_entry)
 				{
-					sol::object on_change = desc.as<sol::table>()["onChange"];
-					if (on_change.is<sol::protected_function>())
+					sol::object on_changed = desc.as<sol::table>()["onChanged"];
+					if (on_changed.is<sol::protected_function>())
 					{
-						attach_on_change(bound_entry, on_change.as<sol::protected_function>());
+						attach_on_change(bound_entry, on_changed.as<sol::protected_function>());
 					}
 				}
 			}
@@ -1452,22 +1468,23 @@ namespace big::mod_settings
 				source_text = ss.str();
 			}
 		}
+		// Rank every described entry by where it appears in configDesc (the menu-layout table), so an author who sets no
+		// explicit `order` gets the rows in the order they laid out in configDesc. Config-backed keys are located via
+		// their configDesc entry (their second source occurrence), virtual rows and actions via their only one.
 		std::vector<std::tuple<std::size_t, std::string, std::string>> by_offset; // (offset, section, key).
 		for (const auto& [def, entry] : cf->m_entries)
 		{
-			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, def.m_key);
+			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, def.m_key, true);
 			by_offset.emplace_back(off, def.m_section, def.m_key);
 		}
-		// Rank virtual rows in the same source-order space as the config entries so they interleave with config rows.
 		for (const auto& vr : virtual_rows)
 		{
-			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, vr.key);
+			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, vr.key, false);
 			by_offset.emplace_back(off, vr.section, vr.key);
 		}
-		// Same for actions, so an un-ordered action button interleaves with the rows around its configDesc definition.
 		for (const auto& a : actions)
 		{
-			const std::size_t off = source_text.empty() ? std::string::npos : find_key_definition(source_text, a.key);
+			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, a.key, false);
 			by_offset.emplace_back(off, a.section, a.key);
 		}
 		std::stable_sort(by_offset.begin(),

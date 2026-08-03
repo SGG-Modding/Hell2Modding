@@ -55,7 +55,7 @@
 --- localization table. When omitted, the raw values are shown in the cycler.
 ---@field labels? mod_settings.localized_string[] | fun(): mod_settings.localized_string[]
 --- Sort key for custom ordering config entries in the menu, lower first.
---- When omitted, rows keep the order they are defined in the default config you provide.
+--- When omitted, rows keep the order they are defined in in configDesc.
 ---@field order? mod_settings.dynamic_number
 --- Hide this setting from the menu entirely. Static only (evaluated when the menu builds) - for a
 --- condition that changes while the menu is open, use `disabled`, which greys the setting out.
@@ -81,10 +81,10 @@
 ---@field showAsPercentage? boolean
 --- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
 ---@field isPercentage? boolean
---- Called after this setting's value is changed through the in-game options menu, with the setting's key
---- and the new value. Use it to apply the change to the loaded run. It is not called in the main menu.
+--- Called after this setting's value is changed through the options menu, with the setting's key and the new value.
+--- Fires in any context - guard live-run access (game.CurrentRun and GameState are absent in the main menu).
 --- Re-writing the same value is a no-op and does not fire. Errors are logged, not propagated.
----@field onChange? fun(key: string, new_value: boolean|number|string)
+---@field onChanged? fun(key: string, new_value: boolean|number|string)
 --- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
 ---@field group? mod_settings.group
 
@@ -173,7 +173,7 @@
 --- to about 35 characters so it leaves enough space for free-text input strings.
 ---@field description? mod_settings.dynamic_string
 --- Sort key for custom ordering config entries in the menu, lower first.
---- When omitted, rows keep the order they are defined in the default config you provide.
+--- When omitted, rows keep the order they are defined in in configDesc.
 ---@field order? number
 --- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
 ---@field group? mod_settings.group

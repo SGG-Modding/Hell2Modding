@@ -2386,13 +2386,13 @@ namespace big::mod_settings
 	// True while a native options screen is open. Set in the ctor, cleared when it closes in ExitScreen.
 	static bool g_options_screen_open = false;
 
-	// True while a setting change should notify its mod through an on_change callback: an options screen is currently open
-	// AND it was opened in-game (a save is loaded). This gates on_change so a callback fires only for an edit made through
-	// the in-game options menu that can be applied to the live run - never from the main menu, and never from a mod's own
-	// config write outside the menu.
+	// True while a setting change should notify its mod through an on_change callback: an options screen is currently
+	// open. Fires for any edit made through our options menu, in the main menu or in a save (so a callback can also
+	// drive other rows' dynamic min/max/values/disabled), but not from a mod's own config write outside the menu.
+	// Callbacks must guard live-run access (game.CurrentRun and GameState may be absent in the main menu).
 	bool on_change_callbacks_enabled()
 	{
-		return g_options_screen_open && g_opened_in_game;
+		return g_options_screen_open;
 	}
 
 	// The MiscSettingsScreen ctor's "opened from" argument is the opening screen (sgg::MenuScreen*): a MainMenuScreen when
@@ -2800,8 +2800,8 @@ namespace big::mod_settings
 		}
 
 		// Row order: the master "enabled" toggle is pinned to the top then rows with an author `order` (ascending) then
-		// The rest. Ties and absent order fall back to config.lua source order (a group's rank is its earliest-defined
-		// descendant's).
+		// the rest by configDesc source order (a group's rank is its earliest-defined descendant's, so a drill-in sits
+		// where its content is declared rather than being pinned above the settings).
 		std::stable_sort(items.begin(),
 		                 items.end(),
 		                 [](const panel_item& a, const panel_item& b)
@@ -2822,11 +2822,7 @@ namespace big::mod_settings
 			                 {
 				                 return a.order < b.order;
 			                 }
-			                 if (!a.has_order && a.is_group != b.is_group)
-			                 {
-				                 return a.is_group; // with no explicit order, groups are pinned above settings
-			                 }
-			                 return a.appearance < b.appearance; // equal/absent order -> config.lua source order
+			                 return a.appearance < b.appearance; // equal/absent order -> configDesc source order
 		                 });
 
 		for (const auto& it : items)
