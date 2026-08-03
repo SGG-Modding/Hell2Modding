@@ -236,11 +236,11 @@ namespace big::mod_settings
 	// row has no `set`. Call on the game thread while the Lua state is alive.
 	void set_virtual_value(const std::string& guid, const std::string& section, const std::string& key, const virtual_value& value);
 
-	// Restores every interactive virtual row of mod `guid` that declares a `default` to that default, via its set()
-	// callback. Read-only rows and rows without a `default` are left untouched. Returns true if any row's value
-	// actually changed. Used by the menu Reset (config-backed settings recover their own defaults separately). Call on
-	// the game thread while the Lua state is alive.
-	bool reset_virtual_rows_to_defaults(const std::string& guid);
+	// Restores one interactive virtual row of mod `guid` (identified by its config `section` and `key`) to its declared
+	// `default`, via its set() callback. No-op returning false if the row is not interactive, declares no `default`, or
+	// already holds it. The menu Reset scopes which rows to restore by their menu path and calls this per row (config-
+	// backed settings recover their own defaults separately). Call on the game thread while the Lua state is alive.
+	bool reset_virtual_row_to_default(const std::string& guid, const std::string& section, const std::string& key);
 
 	// Rank of a setting's definition in its config.lua source (0 = first). Used to order rows that have no
 	// author-declared `order` in config-file order. Returns INT_MAX for keys not bound via rom.mod_settings.load (e.g.

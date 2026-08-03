@@ -2539,6 +2539,48 @@ namespace big::mod_settings
 		return found;
 	}
 
+	// Resolves an entry's menu path: its `group` override (validated against author groups and the mod's config
+	// sections) else its config section. A `group` naming neither is logged once (per stem+path) and falls back to the
+	// config-section placement, so a typo leaves the row where its value lives rather than stranding it in a bogus
+	// group. Shared by the panel builder and Reset so both agree on where an entry lives. `view_cfg` is the mod's
+	// config file (may be null, in which case only author groups are accepted).
+	static std::string resolve_entry_menu_path(const std::string& stem, const std::vector<menu_group>& author_groups, toml_v2::config_file* view_cfg, const std::string& csection, const std::vector<std::string>& group)
+	{
+		if (group.empty())
+		{
+			return csection;
+		}
+		const std::string m = menu_path_of(csection, group);
+		if (find_author_group(author_groups, m))
+		{
+			return m; // a declared author group (the common case)
+		}
+		if (view_cfg) // or an existing config section the row is being merged into
+		{
+			const std::string desc_prefix = m + ".";
+			for (const auto& [k, e] : view_cfg->m_entries)
+			{
+				if (k.m_section == m || k.m_section.rfind(desc_prefix, 0) == 0)
+				{
+					return m;
+				}
+			}
+		}
+		const std::string warn_key = stem + '\0' + m;
+		if (g_warned_group_overrides.insert(warn_key).second)
+		{
+			LOG(WARNING) << "[mod_settings] " << stem << ": `group` target '" << m << "' is neither a config section nor a category declared in configDesc `groups`; the row falls back to its config-section placement. Declare it in `groups` if it is a new menu category.";
+		}
+		return csection;
+	}
+
+	// True if menu path `p` lies within the current view scope `scope`: the scope page itself or any of its descendant
+	// subgroups. Used to limit Reset to the drilled-in group (and its subgroups) rather than the whole mod.
+	static bool menu_path_in_scope(const std::string& p, const std::string& scope)
+	{
+		return p == scope || p.rfind(scope + ".", 0) == 0;
+	}
+
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render as
 	// setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value).
 	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem, const std::string& section)
@@ -2575,37 +2617,11 @@ namespace big::mod_settings
 		// not exist as config sections. Looked up when a child group is created to pick its display name/order/source.
 		const std::vector<menu_group> author_groups = mod_menu_groups(stem);
 
-		// Resolves an entry's menu path: its `group` override (validated) else its config section. A `group` that names
-		// neither a declared author group nor a config section is logged once and falls back to the config-section
-		// placement, so a typo leaves the row visible where its value lives rather than stranding it in a bogus group.
+		// Resolves an entry's menu path: its `group` override (validated) else its config section. Delegates to the
+		// shared resolver so the panel and Reset agree on placement.
 		auto resolve_menu_path = [&](const std::string& csection, const std::vector<std::string>& group) -> std::string
 		{
-			if (group.empty())
-			{
-				return csection;
-			}
-			const std::string m = menu_path_of(csection, group);
-			if (find_author_group(author_groups, m))
-			{
-				return m; // a declared author group (the common case)
-			}
-			if (view_cfg) // or an existing config section the row is being merged into
-			{
-				const std::string desc_prefix = m + ".";
-				for (const auto& [k, e] : view_cfg->m_entries)
-				{
-					if (k.m_section == m || k.m_section.rfind(desc_prefix, 0) == 0)
-					{
-						return m;
-					}
-				}
-			}
-			const std::string warn_key = stem + '\0' + m;
-			if (g_warned_group_overrides.insert(warn_key).second)
-			{
-				LOG(WARNING) << "[mod_settings] " << stem << ": `group` target '" << m << "' is neither a config section nor a category declared in configDesc `groups`; the row falls back to its config-section placement. Declare it in `groups` if it is a new menu category.";
-			}
-			return csection;
+			return resolve_entry_menu_path(stem, author_groups, view_cfg, csection, group);
 		};
 
 		// Where an entry (living in config section `csection`, with an optional `group` override) sits relative to the
@@ -4225,17 +4241,26 @@ namespace big::mod_settings
 		return text.substr(pos + marker.size());
 	}
 
-	// Restores the current mod's config entries (g_view_stem) to their defaults, saving each change and flagging any
-	// restart-required ones. The default comes from the config.lua value captured by rom.mod_settings.load when available,
-	// and otherwise from the config entry's own stored default (so.
+	// Restores the current mod's config entries to their defaults, but only those whose MENU path lies within the
+	// current view (the drilled-in group and its subgroups), so a Reset inside a group leaves sibling and parent groups
+	// untouched. At the mod root (g_view_section == root_section) every described entry is in scope, so the whole mod
+	// resets. The menu path follows the configDesc grouping (a `group` override else the config section), matching what
+	// the page shows. The default comes from the config.lua value captured by rom.mod_settings.load when available, and
+	// otherwise from the config entry's own stored default.
 	static bool reset_settings_to_defaults()
 	{
 		bool any_changed = false;
+		const std::vector<menu_group> author_groups = mod_menu_groups(g_view_stem);
+		toml_v2::config_file* mod_cfg                = nullptr; // any config file of this mod, for virtual-row path resolution.
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
 			if (!cfg || cfg->m_config_file_stem_as_str.empty() || cfg->m_config_file_stem_as_str != g_view_stem)
 			{
 				continue;
+			}
+			if (!mod_cfg)
+			{
+				mod_cfg = cfg;
 			}
 			const std::string& guid = cfg->m_config_file_stem_as_str;
 			for (auto& [def, entry] : cfg->m_entries)
@@ -4251,6 +4276,16 @@ namespace big::mod_settings
 				// are the mod's internal state, so a menu Reset leaves them untouched.
 				const bool is_enabled_toggle = def.m_section == root_section && e->type() == typeid(bool) && is_enabled_key(def.m_key);
 				if (!is_enabled_toggle && !setting_is_described(guid, def.m_section, def.m_key) && !entry_has_description(e))
+				{
+					continue;
+				}
+
+				// Skip entries outside the current menu group. The `group` override is a static field, so the cheap
+				// stored metadata gives the placement.
+				const auto static_meta             = get_setting_metadata(guid, def.m_section, def.m_key);
+				const std::vector<std::string> grp  = static_meta ? static_meta->group : std::vector<std::string>{};
+				const std::string mpath             = resolve_entry_menu_path(guid, author_groups, cfg, def.m_section, grp);
+				if (!menu_path_in_scope(mpath, g_view_section))
 				{
 					continue;
 				}
@@ -4273,11 +4308,23 @@ namespace big::mod_settings
 			}
 		}
 
-		// Interactive virtual rows are not config entries, so restore any that declare a `default` through their set()
-		// callback here (read-only rows and rows without a default are left untouched).
-		if (reset_virtual_rows_to_defaults(g_view_stem))
+		// Interactive virtual rows are not config entries, so restore any in scope that declare a `default` through
+		// their set() callback here (read-only rows and rows without a default are left untouched).
+		for (const auto& vr : get_virtual_rows(g_view_stem, ""))
 		{
-			any_changed = true;
+			if (!vr.interactive)
+			{
+				continue;
+			}
+			const std::string mpath = resolve_entry_menu_path(g_view_stem, author_groups, mod_cfg, vr.section, vr.group);
+			if (!menu_path_in_scope(mpath, g_view_section))
+			{
+				continue;
+			}
+			if (reset_virtual_row_to_default(g_view_stem, vr.section, vr.key))
+			{
+				any_changed = true;
+			}
 		}
 		return any_changed;
 	}

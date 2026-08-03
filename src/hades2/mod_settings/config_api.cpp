@@ -1848,58 +1848,59 @@ namespace big::mod_settings
 		return virtual_value::kind::string;
 	}
 
-	bool reset_virtual_rows_to_defaults(const std::string& guid)
+	bool reset_virtual_row_to_default(const std::string& guid, const std::string& section, const std::string& key)
 	{
-		std::vector<virtual_row_info> rows;
+		bool interactive = false;
 		{
 			std::scoped_lock lock(g_metadata_mutex);
 			const auto it = g_virtual_rows.find(guid);
-			if (it == g_virtual_rows.end())
+			if (it != g_virtual_rows.end())
 			{
-				return false;
+				for (const auto& vr : it->second)
+				{
+					if (vr.section == section && vr.key == key)
+					{
+						interactive = vr.interactive; // read-only rows have no set() to restore through.
+						break;
+					}
+				}
 			}
-			rows = it->second; // copy so the lock is not held across the Lua get/set callbacks below.
 		}
-
-		bool any_changed = false;
-		for (const auto& vr : rows)
+		if (!interactive)
 		{
-			if (!vr.interactive)
-			{
-				continue; // read-only rows have no set() to restore through.
-			}
-			const auto meta = resolve_setting_metadata(guid, vr.section, vr.key);
-			if (!meta || !meta->has_default)
-			{
-				continue; // only rows that declare a `default` are reset.
-			}
-
-			// Prefer the live get() kind, then an explicit `type`, then `values` (enum -> string), then a guess from
-			// the default's serialized form.
-			const virtual_value cur  = get_virtual_value(guid, vr.section, vr.key);
-			virtual_value::kind kind = cur.type;
-			if (kind == virtual_value::kind::none)
-			{
-				kind = kind_of_widget(meta->type);
-			}
-			if (kind == virtual_value::kind::none)
-			{
-				kind = !meta->values.empty() ? virtual_value::kind::string : guess_kind_from_serialized(meta->default_value);
-			}
-
-			const virtual_value target = virtual_value_from_serialized(kind, meta->default_value);
-			const bool unchanged       = cur.type == target.type
-			                       && ((kind == virtual_value::kind::boolean && cur.as_bool == target.as_bool)
-			                           || (kind == virtual_value::kind::number && cur.as_number == target.as_number)
-			                           || (kind == virtual_value::kind::string && cur.as_string == target.as_string));
-			if (unchanged)
-			{
-				continue;
-			}
-			set_virtual_value(guid, vr.section, vr.key, target);
-			any_changed = true;
+			return false;
 		}
-		return any_changed;
+
+		const auto meta = resolve_setting_metadata(guid, section, key);
+		if (!meta || !meta->has_default)
+		{
+			return false; // only rows that declare a `default` are reset.
+		}
+
+		// Prefer the live get() kind, then an explicit `type`, then `values` (enum -> string), then a guess from the
+		// default's serialized form.
+		const virtual_value cur  = get_virtual_value(guid, section, key);
+		virtual_value::kind kind = cur.type;
+		if (kind == virtual_value::kind::none)
+		{
+			kind = kind_of_widget(meta->type);
+		}
+		if (kind == virtual_value::kind::none)
+		{
+			kind = !meta->values.empty() ? virtual_value::kind::string : guess_kind_from_serialized(meta->default_value);
+		}
+
+		const virtual_value target = virtual_value_from_serialized(kind, meta->default_value);
+		const bool unchanged       = cur.type == target.type
+		                       && ((kind == virtual_value::kind::boolean && cur.as_bool == target.as_bool)
+		                           || (kind == virtual_value::kind::number && cur.as_number == target.as_number)
+		                           || (kind == virtual_value::kind::string && cur.as_string == target.as_string));
+		if (unchanged)
+		{
+			return false;
+		}
+		set_virtual_value(guid, section, key, target);
+		return true;
 	}
 
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Param: description: string: Optional. A plain string or a
