@@ -639,6 +639,26 @@ namespace big::mod_settings
 		return node[key];
 	}
 
+	// A minimal Lua message handler that returns the error object unchanged. Unlike ReturnOfModding's global default
+	// handler it neither appends a stack traceback nor logs the failure at ERROR (and does not count it against the
+	// mod's error tally), leaving the raw one-line error for our own concise WARNING to report.
+	static int silent_error_handler(lua_State* /*L*/)
+	{
+		return 1; // keep the single error value already on the stack.
+	}
+
+	// Invokes a mod-supplied Lua callback protected, but with the silent handler above instead of ReturnOfModding's
+	// default. Our callers report failures themselves with one concise WARNING and recover, so a callback that
+	// legitimately fails in some contexts (e.g. reading run state from the main menu) does not also spam the console
+	// with an alarming ERROR plus full traceback. `fn` is taken by value so the caller's stored callback is untouched.
+	template <typename... Args>
+	static sol::protected_function_result call_mod_callback(sol::protected_function fn, Args&&... args)
+	{
+		const lua_CFunction handler = &silent_error_handler;
+		fn.set_error_handler(sol::object(fn.lua_state(), sol::in_place, handler));
+		return fn(std::forward<Args>(args)...);
+	}
+
 	// Calls a dynamic description field (a Lua function) protected, returning its result, or nil on error (logged).
 	// Non-function values are returned unchanged.
 	static sol::object evaluate_field(const sol::object& value, const std::string& guid, const char* field)
@@ -648,7 +668,7 @@ namespace big::mod_settings
 			return value;
 		}
 		sol::protected_function fn        = value;
-		sol::protected_function_result rv = fn();
+		sol::protected_function_result rv = call_mod_callback(fn);
 		if (!rv.valid())
 		{
 			const sol::error err = rv;
@@ -984,7 +1004,7 @@ namespace big::mod_settings
 				return;
 			}
 			const sol::object value               = entry_get(callback.lua_state(), changed);
-			sol::protected_function_result result = callback(changed->m_definition.m_key, value);
+			sol::protected_function_result result = call_mod_callback(callback, changed->m_definition.m_key, value);
 			if (!result.valid())
 			{
 				const sol::error err = result;
@@ -1637,7 +1657,7 @@ namespace big::mod_settings
 			return;
 		}
 		sol::protected_function fn        = act;
-		sol::protected_function_result rv = fn();
+		sol::protected_function_result rv = call_mod_callback(fn);
 		if (!rv.valid())
 		{
 			const sol::error err = rv;
@@ -1690,7 +1710,7 @@ namespace big::mod_settings
 		if (text.get_type() == sol::type::function)
 		{
 			sol::protected_function fn        = text;
-			sol::protected_function_result rv = fn();
+			sol::protected_function_result rv = call_mod_callback(fn);
 			if (!rv.valid())
 			{
 				const sol::error err = rv;
@@ -1722,7 +1742,7 @@ namespace big::mod_settings
 			return out;
 		}
 		sol::protected_function fn        = get;
-		sol::protected_function_result rv = fn();
+		sol::protected_function_result rv = call_mod_callback(fn);
 		if (!rv.valid())
 		{
 			const sol::error err = rv;
@@ -1771,9 +1791,9 @@ namespace big::mod_settings
 		sol::protected_function_result rv;
 		switch (value.type)
 		{
-		case virtual_value::kind::boolean: rv = fn(value.as_bool); break;
-		case virtual_value::kind::number:  rv = fn(value.as_number); break;
-		case virtual_value::kind::string:  rv = fn(value.as_string); break;
+		case virtual_value::kind::boolean: rv = call_mod_callback(fn, value.as_bool); break;
+		case virtual_value::kind::number:  rv = call_mod_callback(fn, value.as_number); break;
+		case virtual_value::kind::string:  rv = call_mod_callback(fn, value.as_string); break;
 		default:                           return; // nothing to write.
 		}
 		if (!rv.valid())
