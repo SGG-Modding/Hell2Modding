@@ -28,6 +28,8 @@ using namespace al;
 
 namespace big::mod_settings
 {
+	#pragma region Native screen offsets, RVAs, and constants
+
 	using sgg::GUIComponent;
 	using sgg::MenuScreen;
 	using sgg::MiscSettingsScreen;
@@ -275,6 +277,10 @@ namespace big::mod_settings
 	using input_get_state_fn     = std::uint32_t (*)(void* input_handler, const void* remappable_control);
 	using mouse_button_down_fn   = bool (*)(void* input_handler);
 	using input_dir_pressed_fn   = bool (*)(void* input_handler);
+
+	#pragma endregion
+
+	#pragma region Native bindings, panel model, and menu state
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -571,6 +577,10 @@ namespace big::mod_settings
 	// Journey" "zerp-DreamDiveTweaks" -> "Dream Dive Tweaks".
 	static std::string key_to_display(const std::string& key); // shared friendly-name logic, defined below
 
+	#pragma endregion
+
+	#pragma region Mod identity, text, and Mods-tab helpers
+
 	static std::string display_name_from_stem(const std::string& stem)
 	{
 		const auto dash        = stem.find('-');
@@ -823,6 +833,10 @@ namespace big::mod_settings
 			g_set_label(button, "Mods");
 		}
 	}
+
+	#pragma endregion
+
+	#pragma region Native row construction and styling
 
 	// Writes an in-place EASTL short-string (SSO, up to 22 chars) into a component field.
 	static void set_sso_string(void* field, const char* text)
@@ -1615,6 +1629,10 @@ namespace big::mod_settings
 		return reinterpret_cast<GUIComponent*>(s);
 	}
 
+	#pragma endregion
+
+	#pragma region Row teardown and mod list
+
 	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail down in place - the same
 	// unlink the engine's DoShowCategory performs. No-op if not present. The backing storage is left owned by the
 	// vector.
@@ -1747,6 +1765,10 @@ namespace big::mod_settings
 			}
 		}
 	}
+
+	#pragma endregion
+
+	#pragma region Value formatting, freetext editing, and commit
 
 	// Turns an identifier into a friendly display string: underscores become spaces, and camelCase/PascalCase word
 	// boundaries are split ("z_ThisConfigKey" -> "z. The first letter is capitalized ("enabled" -> "Enabled").
@@ -2358,6 +2380,10 @@ namespace big::mod_settings
 		}
 	}
 
+	#pragma endregion
+
+	#pragma region Editability context and menu-path helpers
+
 	// True if `key` is the mod's master enable switch ("enabled", any case).
 	static bool is_enabled_key(const std::string& key)
 	{
@@ -2580,6 +2606,10 @@ namespace big::mod_settings
 	{
 		return p == scope || p.rfind(scope + ".", 0) == 0;
 	}
+
+	#pragma endregion
+
+	#pragma region Panel builder
 
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render as
 	// setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value).
@@ -3418,6 +3448,10 @@ namespace big::mod_settings
 		}
 	}
 
+	#pragma endregion
+
+	#pragma region Panel sync, focus, and navigation
+
 	// Matches the native category-switch transition: the incoming page fades in and there is no fade-out crossover. Native
 	// UpdateScrollState sets each on-page row's mFadeTarget to 1 and each off-page row's to 0, and GUIComponent::Update
 	// (driven by MenuScreen::Update, which the original runs before this) eases mFadeOpacity toward the target at dt *
@@ -4220,6 +4254,10 @@ namespace big::mod_settings
 		build_panel(screen, instant);
 	}
 
+	#pragma endregion
+
+	#pragma region Reset to defaults
+
 	// The serialized default of a config entry, read from the entry itself via the public write_description (whose last
 	// output line is "#. The serialized form uses the same converter as get_serialized_value, so it round-trips through
 	// set_serialized_value.
@@ -4343,6 +4381,10 @@ namespace big::mod_settings
 			g_nav_pending     = true;
 		}
 	}
+
+	#pragma endregion
+
+	#pragma region Native dialogs and dependency checks
 
 	// True when the game's current display language uses a CJK font (zh-CN, zh-TW, ja, ko). Those fonts have no glyph for
 	// the non-breaking space U+00A0 and draw a visible '*' instead, so the restart message uses regular spaces and a
@@ -4576,6 +4618,10 @@ namespace big::mod_settings
 	{
 		return build_list_message("These enabled mods depend on this one:", dependents, "Disable them first to disable this mod.");
 	}
+
+	#pragma endregion
+
+	#pragma region Engine hooks
 
 	static void* hook_MiscSettingsScreen_ctor(void* self, void* screen_manager, void* opened_from, void* profile_name)
 	{
@@ -5310,6 +5356,10 @@ namespace big::mod_settings
 		big::g_hooking->get_original<hook_MiscSettingsScreen_RestoreDefaults>()(self);
 	}
 
+	#pragma endregion
+
+	#pragma region Hook registration
+
 	void register_hooks()
 	{
 		// Resolve every engine symbol, RVA and offset the Mods tab depends on up front. The symbol map is built from the
@@ -5544,4 +5594,6 @@ namespace big::mod_settings
 			                "not reset mod settings";
 		}
 	}
+	#pragma endregion
+
 } // namespace big::mod_settings

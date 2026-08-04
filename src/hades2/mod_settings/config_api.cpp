@@ -28,6 +28,7 @@ using namespace al;
 
 namespace big::mod_settings
 {
+	#pragma region Metadata registries and accessors
 
 	// Author-declared per-setting metadata (display name, bounds, enum options, ordering, restart flag), populated from
 	// each mod's config.lua by rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Only settings with a
@@ -170,6 +171,10 @@ namespace big::mod_settings
 		return it != g_menu_groups.end() ? it->second : std::vector<menu_group>{};
 	}
 
+	#pragma endregion
+
+	#pragma region Source-order ranking helpers
+
 	// Byte offset of a key's definition ("<key> =") in config.lua source at or after `start` (whole-word, not "=="),
 	// or npos. Occurrences inside strings/prose do not match because they are not followed by a bare '='.
 	static std::size_t find_key_definition(const std::string& src, const std::string& key, std::size_t start = 0)
@@ -217,6 +222,10 @@ namespace big::mod_settings
 		const std::size_t second = find_key_definition(src, key, first + 1);
 		return second != std::string::npos ? second : first;
 	}
+
+	#pragma endregion
+
+	#pragma region Config.lua parsing helpers
 
 	static std::string serialize_option(const sol::object& v); // defined below.
 
@@ -431,6 +440,10 @@ namespace big::mod_settings
 		}
 	}
 
+	#pragma endregion
+
+	#pragma region Metadata extraction
+
 	// Builds a setting_metadata from a config.lua description table for a flat (non-table) value. Captures the
 	// author-only inputs that can't be inferred (name, bounds, enum options/labels, order, hidden, restart). The widget
 	// kind is not stored - the menu derives it from the value's type plus the presence of `values` (enum).
@@ -578,6 +591,10 @@ namespace big::mod_settings
 		return m;
 	}
 
+	#pragma endregion
+
+	#pragma region Description navigation and dynamic-field resolution
+
 	// The Lua-side registry (rom.mod_settings._descs) mapping guid -> the mod's raw configDesc table, kept alive so
 	// dynamic description fields and action callbacks can be evaluated at render. Recreated each Lua state, so it never
 	// dangles. Returns a nil object if the guid has no stored description.
@@ -701,6 +718,10 @@ namespace big::mod_settings
 		}
 		return out;
 	}
+
+	#pragma endregion
+
+	#pragma region Action and virtual-row collection
 
 	// Reads the static (non-function) action metadata common to collection and dynamic re-resolution.
 	static void read_action_fields(const sol::table& entry, action_info& a)
@@ -931,6 +952,10 @@ namespace big::mod_settings
 		}
 	}
 
+	#pragma endregion
+
+	#pragma region Config entry access and change hooks
+
 	// Finds the config entry for (section, key), or nullptr. m_entries is keyed by config_definition, so this is a
 	// direct map lookup.
 	static toml_v2::config_file::config_entry_base* find_entry(toml_v2::config_file* cf, const std::string& section, const std::string& key)
@@ -1034,6 +1059,10 @@ namespace big::mod_settings
 		out = value;
 		return value > 0;
 	}
+
+	#pragma endregion
+
+	#pragma region Config proxy
 
 	// Registry keys for the config proxy: one shared metatable, plus two weak-keyed maps from each wrapper table to the
 	// config_file and section it points at, so the metamethods can recover them per call.
@@ -1278,6 +1307,10 @@ namespace big::mod_settings
 	{
 		return recover(ts, self).inext(ts, index);
 	}
+
+	#pragma endregion
+
+	#pragma region Default binding and config.lua load
 
 	// A setting's extracted metadata together with the section/key it belongs to, collected while walking config.lua
 	// and then folded into the registry.
@@ -1564,6 +1597,10 @@ namespace big::mod_settings
 		return make_proxy(ts, cf.get(), "config");
 	}
 
+	#pragma endregion
+
+	#pragma region Dynamic metadata and game-state accessors
+
 	std::optional<setting_metadata> resolve_setting_metadata(const std::string& guid, const std::string& section, const std::string& key)
 	{
 		if (!big::g_lua_manager)
@@ -1803,6 +1840,10 @@ namespace big::mod_settings
 		}
 	}
 
+	#pragma endregion
+
+	#pragma region Virtual-row value helpers and reset
+
 	// Parses a serialized scalar (as produced by serialize_option) back to a double, or 0.0 if it is not numeric.
 	static double parse_serialized_number(const std::string& s)
 	{
@@ -1923,6 +1964,10 @@ namespace big::mod_settings
 		return true;
 	}
 
+	#pragma endregion
+
+	#pragma region Opt-out and API registration
+
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Param: description: string: Optional. A plain string or a
 	// localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note. Excludes the calling
 	// mod from the in-game menu: it stays listed but greyed out and cannot be opened. Works with Chalk or
@@ -2000,4 +2045,6 @@ namespace big::mod_settings
 		// C++ statics (which would dangle across a Lua-state reset).
 		ns["_descs"] = state.create_table();
 	}
+	#pragma endregion
+
 } // namespace big::mod_settings
