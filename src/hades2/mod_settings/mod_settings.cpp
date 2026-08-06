@@ -852,6 +852,30 @@ namespace big::mod_settings
 		bytes[0x17] = static_cast<char>(0x17 - n); // SSO: remaining = capacity(23) - length
 	}
 
+	// GUI objects are allocated and freed through the GAME's CRT, never H2M's: H2M is /MT while the game is /MD against
+	// ucrtbase, and the engine frees anything it owns (removed screens, a slider's sub-components, tf_new_internal
+	// blocks) with ucrtbase's _aligned_free. Crossing the boundary either way hands a heap a block it never owned.
+	// The deleting destructor is always called with flags = 0 for the same reason: flags = 1 routes to operator delete
+	// -> free() on an _aligned_malloc block, which the engine never does either.
+	using aligned_malloc_fn = void*(__cdecl*)(std::size_t, std::size_t);
+	using aligned_free_fn   = void(__cdecl*)(void*);
+
+	static aligned_malloc_fn g_game_aligned_malloc = nullptr;
+	static aligned_free_fn g_game_aligned_free     = nullptr;
+
+	static void* game_alloc(std::size_t size)
+	{
+		return g_game_aligned_malloc ? g_game_aligned_malloc(size, 8) : nullptr; // alignment 8 matches the engine
+	}
+
+	static void game_free(void* block)
+	{
+		if (block && g_game_aligned_free)
+		{
+			g_game_aligned_free(block);
+		}
+	}
+
 	static GUIComponent* create_button(MiscSettingsScreen* screen)
 	{
 		if (!g_button_ctor || !g_push_back || !g_apply_data)
@@ -859,7 +883,7 @@ namespace big::mod_settings
 			return nullptr;
 		}
 
-		auto* row = static_cast<GUIComponent*>(_aligned_malloc(sgg::gui_component_button_size, 8));
+		auto* row = static_cast<GUIComponent*>(game_alloc(sgg::gui_component_button_size));
 		if (!row)
 		{
 			return nullptr;
@@ -1531,7 +1555,7 @@ namespace big::mod_settings
 			return nullptr;
 		}
 
-		char* s = static_cast<char*>(_aligned_malloc(slider_sizeof, 8));
+		char* s = static_cast<char*>(game_alloc(slider_sizeof));
 		if (!s)
 		{
 			return nullptr;
@@ -1555,17 +1579,17 @@ namespace big::mod_settings
 
 		// Four owned sub-components, each allocated then constructed at the origin (as the game does): two images (bar
 		// background + fill) and two text boxes (left label + right value).
-		char* backing = static_cast<char*>(_aligned_malloc(image_sizeof, 8));
-		char* fill    = static_cast<char*>(_aligned_malloc(image_sizeof, 8));
-		char* lbl     = static_cast<char*>(_aligned_malloc(textbox_sizeof, 8));
-		char* val     = static_cast<char*>(_aligned_malloc(textbox_sizeof, 8));
+		char* backing = static_cast<char*>(game_alloc(image_sizeof));
+		char* fill    = static_cast<char*>(game_alloc(image_sizeof));
+		char* lbl     = static_cast<char*>(game_alloc(textbox_sizeof));
+		char* val     = static_cast<char*>(game_alloc(textbox_sizeof));
 		if (!backing || !fill || !lbl || !val)
 		{
-			_aligned_free(backing);
-			_aligned_free(fill);
-			_aligned_free(lbl);
-			_aligned_free(val);
-			_aligned_free(s);
+			game_free(backing);
+			game_free(fill);
+			game_free(lbl);
+			game_free(val);
+			game_free(s);
 			return nullptr;
 		}
 		g_image_ctor(backing, 0);
@@ -1694,7 +1718,7 @@ namespace big::mod_settings
 			{
 				// The num-box and slider are not GUIComponentButtons destruct through the component's own vtable so its owned
 				// sub-components (num-box: box/label/value/arrows slider: background/fill/label/value) are freed too flags=0
-				// destructs without the final operator delete, so we still _aligned_free the block ourselves.
+				// destructs without the final operator delete, so we still free the block ourselves (see game_free).
 				void** vtbl = *reinterpret_cast<void***>(comp);
 				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset / sizeof(void*)]);
 				dtor(comp, 0);
@@ -1703,7 +1727,7 @@ namespace big::mod_settings
 			{
 				g_button_dtor(comp);
 			}
-			_aligned_free(comp);
+			game_free(comp);
 		};
 
 		for (const auto& row : g_rows)
@@ -4485,9 +4509,9 @@ namespace big::mod_settings
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
 		{
-			// The game's ScreenManager owns and frees this screen (with _aligned_free) once. It is dismissed H2M's static /MT
-			// UCRT and the game's ucrtbase share the process heap, so this.
-			void* dialog = _aligned_malloc(message_dialog_size, 8);
+			// The ScreenManager takes ownership and frees this with ucrtbase's _aligned_free, so it must come from the
+			// game's heap (see game_alloc).
+			void* dialog = game_alloc(message_dialog_size);
 			if (dialog)
 			{
 				std::memset(dialog, 0, message_dialog_size);
@@ -5453,6 +5477,17 @@ namespace big::mod_settings
 		g_config_language = big::hades2_symbol_to_address["sgg::ConfigOptions::Language"].as<const char*>();
 		g_controls_cancel = big::hades2_symbol_to_address["sgg::Controls::Cancel"].as<const void*>();
 		g_controls_select = big::hades2_symbol_to_address["sgg::Controls::Select"].as<const void*>();
+
+		// The game's CRT heap (see game_alloc). Missing means disable, never fall back to H2M's own CRT.
+		if (HMODULE ucrt = ::GetModuleHandleW(L"ucrtbase.dll"))
+		{
+			g_game_aligned_malloc = reinterpret_cast<aligned_malloc_fn>(::GetProcAddress(ucrt, "_aligned_malloc"));
+			g_game_aligned_free   = reinterpret_cast<aligned_free_fn>(::GetProcAddress(ucrt, "_aligned_free"));
+		}
+		if (!g_game_aligned_malloc || !g_game_aligned_free)
+		{
+			missing.push_back("ucrtbase.dll _aligned_malloc/_aligned_free (the game's CRT heap)");
+		}
 
 		// The num-box factory (a template instantiation) and the restart-dialog ctor and AddScreen overloads cannot be picked
 		// by name from the PDB, so they are addressed by hardcoded RVA off the button-ctor anchor. Those RVAs and every
