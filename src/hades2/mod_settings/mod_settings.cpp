@@ -5454,7 +5454,7 @@ namespace big::mod_settings
 		// name-resolved symbols above they do NOT auto-adapt, so a game update can move them and hang/crash the options
 		// screen. Gate the whole menu on the exact build via its PDB GUID: after an update the GUID no longer matches and the
 		// menu is cleanly skipped (the rom.mod_settings Lua API is unaffected) until Hell2Modding is updated.
-		static constexpr const char* validated_pdb_guid = "48ca71f9-5fbb-4209-a14a9738171ce4eb";
+		static constexpr const char* validated_pdb_guid = "744ea71c-2c21-4b40-a6c486d1fa6647da";
 		const bool build_validated                      = big::hades2_pdb_guid == validated_pdb_guid;
 
 		// Secondary sanity check on top of the GUID allow-list: the anchor (button ctor) must sit at its known module
