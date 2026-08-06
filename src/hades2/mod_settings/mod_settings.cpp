@@ -3283,6 +3283,9 @@ namespace big::mod_settings
 			GUIComponent* row   = nullptr;
 			GUIComponent* value = nullptr;
 			bool built_slider   = false;
+			bool built_stepper  = false; // num-box fallback used when the slider could not be built
+			bool built_enum     = false;
+			bool built_toggle   = false;
 
 			// A setting that is unavailable in the current context (editable_context mismatch) or that the author marked
 			// `disabled` is shown read-only: its current value in a greyed key+value row that still takes focus, so the
@@ -3379,11 +3382,13 @@ namespace big::mod_settings
 
 			if (entry->type() == typeid(bool))
 			{
-				row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
+				row          = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), disabled);
+				built_toggle = row != nullptr;
 			}
 			else if (is_enum)
 			{
 				row = make_numbox_row(screen, label.c_str(), 0.0, static_cast<double>(enum_values.size() - 1), 1.0, static_cast<double>(enum_index), disabled, &enum_labels);
+				built_enum = row != nullptr;
 			}
 			else if (is_stepper)
 			{
@@ -3396,7 +3401,8 @@ namespace big::mod_settings
 				}
 				else
 				{
-					row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
+					row           = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
+					built_stepper = row != nullptr;
 				}
 			}
 			else
@@ -3422,23 +3428,23 @@ namespace big::mod_settings
 				const std::string mdesc = meta ? resolve_localized(meta->description) : std::string{};
 				pr.description          = !mdesc.empty() ? mdesc : entry->m_description.m_description;
 
-				if (is_enum)
+				if (built_enum)
 				{
 					pr.is_enum     = true;
 					pr.enum_values = std::move(enum_values);
 					pr.enum_labels = std::move(enum_labels);
 				}
-				else if (is_stepper)
+				else if (built_slider || built_stepper)
 				{
 					pr.is_slider          = built_slider;
-					pr.is_stepper         = !built_slider;
+					pr.is_stepper         = built_stepper;
 					pr.stepper_min        = meta->min;
 					pr.stepper_max        = meta->max;
 					pr.stepper_step       = step;
 					pr.show_as_percentage = meta->show_as_percentage;
 					pr.is_percentage      = meta->is_percentage;
 				}
-				else if (entry->type() == typeid(bool))
+				else if (built_toggle)
 				{
 					pr.is_toggle = true;
 				}
