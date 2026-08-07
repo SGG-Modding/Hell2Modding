@@ -28,7 +28,7 @@ using namespace al;
 
 namespace big::mod_settings
 {
-	#pragma region Metadata registries and accessors
+#pragma region Metadata registries and accessors
 
 	// Author-declared per-setting metadata (display name, bounds, enum options, ordering, restart flag), populated from
 	// each mod's config.lua by rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Only settings with a
@@ -171,9 +171,9 @@ namespace big::mod_settings
 		return it != g_menu_groups.end() ? it->second : std::vector<menu_group>{};
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Source-order ranking helpers
+#pragma region Source-order ranking helpers
 
 	// Byte offset of a key's definition ("<key> =") in config.lua source at or after `start` (whole-word, not "=="),
 	// or npos. Occurrences inside strings/prose do not match because they are not followed by a bare '='.
@@ -222,9 +222,9 @@ namespace big::mod_settings
 		return second != std::string::npos ? second : first;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Config.lua parsing helpers
+#pragma region Config.lua parsing helpers
 
 	static std::string serialize_option(const sol::object& v); // defined below.
 
@@ -353,7 +353,7 @@ namespace big::mod_settings
 			    }
 			    sol::table gt = v.as<sol::table>();
 			    menu_group g;
-			    g.id          = k.as<std::string>();
+			    g.id = k.as<std::string>();
 			    if (g.id.find('.') != std::string::npos)
 			    {
 				    LOG(WARNING) << "[mod_settings] ignoring menu group id '" << g.id << "' containing '.', which is reserved as the menu-path separator (nest via a `groups` sub-table instead).";
@@ -439,9 +439,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Metadata extraction
+#pragma region Metadata extraction
 
 	// Builds a setting_metadata from a config.lua description table for a flat (non-table) value. Captures the
 	// author-only inputs that can't be inferred (name, bounds, enum options/labels, order, hidden, restart). The widget
@@ -589,9 +589,9 @@ namespace big::mod_settings
 		return m;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Description navigation and dynamic-field resolution
+#pragma region Description navigation and dynamic-field resolution
 
 	// The Lua-side registry (rom.mod_settings._descs) mapping guid -> the mod's raw configDesc table, kept alive so
 	// dynamic description fields and action callbacks can be evaluated at render. Recreated each Lua state, so it never
@@ -665,7 +665,7 @@ namespace big::mod_settings
 	// Invokes a mod-supplied Lua callback protected, with the silent handler above rather than ReturnOfModding's
 	// default: callers report failures themselves with one concise WARNING, so a callback that legitimately fails in
 	// some contexts (e.g. reading run state from the main menu) does not also spam an ERROR plus full traceback.
-	template <typename... Args>
+	template<typename... Args>
 	static sol::protected_function_result call_mod_callback(sol::protected_function fn, Args&&... args)
 	{
 		const lua_CFunction handler = &silent_error_handler;
@@ -716,9 +716,9 @@ namespace big::mod_settings
 		return out;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Action and virtual-row collection
+#pragma region Action and virtual-row collection
 
 	// Reads the static (non-function) action metadata common to collection and dynamic re-resolution.
 	static void read_action_fields(const sol::table& entry, action_info& a)
@@ -948,9 +948,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Config entry access and change hooks
+#pragma region Config entry access and change hooks
 
 	// Finds the config entry for (section, key), or nullptr. m_entries is keyed by config_definition, so this is a
 	// direct map lookup.
@@ -1055,9 +1055,9 @@ namespace big::mod_settings
 		return value > 0;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Config proxy
+#pragma region Config proxy
 
 	// Registry keys for the config proxy: one shared metatable, plus two weak-keyed maps from each wrapper table to the
 	// config_file and section it points at, so the metamethods can recover them per call.
@@ -1303,9 +1303,9 @@ namespace big::mod_settings
 		return recover(ts, self).inext(ts, index);
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Default binding and config.lua load
+#pragma region Default binding and config.lua load
 
 	// A setting's extracted metadata together with the section/key it belongs to, collected while walking config.lua
 	// and then folded into the registry.
@@ -1591,9 +1591,9 @@ namespace big::mod_settings
 		return make_proxy(ts, cf.get(), "config");
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Dynamic metadata and game-state accessors
+#pragma region Dynamic metadata and game-state accessors
 
 	std::optional<setting_metadata> resolve_setting_metadata(const std::string& guid, const std::string& section, const std::string& key)
 	{
@@ -1834,9 +1834,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Virtual-row value helpers and reset
+#pragma region Virtual-row value helpers and reset
 
 	// Parses a serialized scalar (as produced by serialize_option) back to a double, or 0.0 if it is not numeric.
 	static double parse_serialized_number(const std::string& s)
@@ -1958,9 +1958,9 @@ namespace big::mod_settings
 		return true;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Opt-out and API registration
+#pragma region Opt-out and API registration
 
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Param: description: string: Optional. A plain string or a
 	// localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note. Excludes the calling
@@ -2038,6 +2038,7 @@ namespace big::mod_settings
 		// C++ statics (which would dangle across a Lua-state reset).
 		ns["_descs"] = state.create_table();
 	}
-	#pragma endregion
+
+#pragma endregion
 
 } // namespace big::mod_settings

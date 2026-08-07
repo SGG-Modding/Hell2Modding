@@ -28,7 +28,7 @@ using namespace al;
 
 namespace big::mod_settings
 {
-	#pragma region Native screen offsets, RVAs, and constants
+#pragma region Native screen offsets, RVAs, and constants
 
 	using sgg::GUIComponent;
 	using sgg::MenuScreen;
@@ -191,31 +191,31 @@ namespace big::mod_settings
 	static constexpr std::size_t vtable_on_mouse_off_offset     = 0x00'60; // GUIComponent::OnMouseOff slot
 	static constexpr std::size_t vtable_on_unselected_offset    = 0x00'88; // GUIComponent::OnUnselected slot
 	static constexpr std::size_t vtable_on_focus_off_offset     = 0x1'18;  // GUIComponent::OnFocusOff slot
-	static constexpr std::size_t vtable_set_location_offset     = 0x1'80;  // GUIComponent::SetLocation slot (moves the component and its children)
+	static constexpr std::size_t vtable_set_location_offset = 0x1'80; // GUIComponent::SetLocation slot (moves the component and its children)
 
 	// Greying a slider/num-box: the button-style def greying does not reach their separate label/value text boxes or
 	// bar/arrow graphics, so each is greyed directly. A text box renders mDisabledText only when its def carries a
 	// non-negative disabled colour, so that is written explicitly; the value box is flagged too, since Draw never
 	// touches it. An image tints from mColor every frame, so mColorTarget is written as well or a lerp undoes it.
-	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53;  // GUIComponentTextBox::mUseDisabledTextColor
+	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53; // GUIComponentTextBox::mUseDisabledTextColor
 	// Greying the normal and selected colours too keeps the label grey in every state, matching set_def_text_grey.
-	static constexpr std::size_t textbox_text_red               = 0x1'B4;  // mData.mDef.mTextRed (float)
-	static constexpr std::size_t textbox_selected_text_red      = 0x1'D0;  // mData.mDef.mSelectedTextRed (float)
-	static constexpr std::size_t textbox_disabled_text_red      = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
-	static constexpr std::size_t textbox_disabled_text_green    = 0x1'EC;  // mDisabledTextGreen (float)
-	static constexpr std::size_t textbox_disabled_text_blue     = 0x1'F0;  // mDisabledTextBlue (float)
-	static constexpr std::size_t textbox_disabled_text_alpha    = 0x1'F4;  // mDisabledTextAlpha (float)
-	static constexpr std::size_t image_color_offset             = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
-	static constexpr std::size_t image_color_target_offset      = 0x00'78; // mColorTarget (packed RGBA)
-	static constexpr std::size_t button_graphic_color_offset    = 0x5'5C;  // GUIComponentButton::mButtonColor - the colour Draw paints the toggle graphic with
-	static constexpr std::size_t component_color_target_offset  = 0x00'78; // GUIComponent::mColorTarget (Update eases mButtonColor toward this)
-	static constexpr std::size_t def_sel_red                    = 0xFC;    // ComponentDataDef::mSelectedRed - set <0 to disable the selected-colour override in Draw/On(Un)Selected
-	static constexpr float disabled_text_grey                   = 0.22f; // matches set_def_text_grey (toggle/text rows)
-	static constexpr std::uint32_t disabled_graphic_grey        = 0xFF'66'66'66; // opaque 0.4 grey (packed A,B,G,R)
+	static constexpr std::size_t textbox_text_red            = 0x1'B4;  // mData.mDef.mTextRed (float)
+	static constexpr std::size_t textbox_selected_text_red   = 0x1'D0;  // mData.mDef.mSelectedTextRed (float)
+	static constexpr std::size_t textbox_disabled_text_red   = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
+	static constexpr std::size_t textbox_disabled_text_green = 0x1'EC;  // mDisabledTextGreen (float)
+	static constexpr std::size_t textbox_disabled_text_blue  = 0x1'F0;  // mDisabledTextBlue (float)
+	static constexpr std::size_t textbox_disabled_text_alpha = 0x1'F4;  // mDisabledTextAlpha (float)
+	static constexpr std::size_t image_color_offset          = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
+	static constexpr std::size_t image_color_target_offset   = 0x00'78; // mColorTarget (packed RGBA)
+	static constexpr std::size_t button_graphic_color_offset = 0x5'5C; // GUIComponentButton::mButtonColor - the colour Draw paints the toggle graphic with
+	static constexpr std::size_t component_color_target_offset = 0x00'78; // GUIComponent::mColorTarget (Update eases mButtonColor toward this)
+	static constexpr std::size_t def_sel_red = 0xFC; // ComponentDataDef::mSelectedRed - set <0 to disable the selected-colour override in Draw/On(Un)Selected
+	static constexpr float disabled_text_grey            = 0.22f; // matches set_def_text_grey (toggle/text rows)
+	static constexpr std::uint32_t disabled_graphic_grey = 0xFF'66'66'66; // opaque 0.4 grey (packed A,B,G,R)
 	// The template caches a bright colour at build time and greying the def alone does not update it, so a still-
 	// selectable greyed label stays bright - SetTextColor re-applies the grey, as UpdateButtonStates does.
-	static constexpr std::size_t vtable_set_text_color_offset   = 0x1'60;
-	static constexpr std::uint32_t disabled_label_grey_packed   = 0xFF'38'38'38;
+	static constexpr std::size_t vtable_set_text_color_offset = 0x1'60;
+	static constexpr std::uint32_t disabled_label_grey_packed = 0xFF'38'38'38;
 
 	// NumBox::OnSelected turns the box black by writing the selected colour into the animation's own mColor.
 	static constexpr std::size_t animation_color_offset  = 0x5'58;        // GUIComponentAnimation::mColor (packed ARGB)
@@ -257,9 +257,9 @@ namespace big::mod_settings
 	using mouse_button_down_fn   = bool (*)(void* input_handler);
 	using input_dir_pressed_fn   = bool (*)(void* input_handler);
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Native bindings, panel model, and menu state
+#pragma region Native bindings, panel model, and menu state
 
 	// sgg::HashGuid is a 32-bit interned-string id in its first field.
 	struct HashGuid
@@ -303,22 +303,22 @@ namespace big::mod_settings
 	// A patched copy of the slider vtable (built in set_up_hooks) whose GetArea/GetScreenArea slots return a one-row
 	// hit rect (see row_bounded_area), replacing the native ones that union the slider's sub-components into a
 	// screen-spanning rect. 128 slots comfortably covers the class's virtual table.
-	static constexpr std::size_t slider_vtable_slot_count                      = 128;
+	static constexpr std::size_t slider_vtable_slot_count = 128;
 	// The highest slot we override or copy through is SetLocation at +0x180, so keep the buffer big enough for it.
-	static_assert(0x180 / sizeof(std::uintptr_t) < slider_vtable_slot_count, "vtable copy buffer too small for the highest patched slot");
-	static std::uintptr_t        g_slider_vtable_copy[slider_vtable_slot_count] = {};
-	static std::uintptr_t        g_slider_vtable_patched                        = 0; // runtime
+	static_assert(0x1'80 / sizeof(std::uintptr_t) < slider_vtable_slot_count, "vtable copy buffer too small for the highest patched slot");
+	static std::uintptr_t g_slider_vtable_copy[slider_vtable_slot_count] = {};
+	static std::uintptr_t g_slider_vtable_patched                        = 0; // runtime
 
 	// A patched copy of the GUIComponentButton vtable (built lazily in install_wide_button_nav_rect from the first action
 	// button's vtable) whose GetArea/GetScreenArea slots return the same wide one-row rect (row_bounded_area), so a
 	// centre-column action button is reachable by the vertical spatial nav. Every other button row keeps the native
 	// vtable.
 	static std::uintptr_t g_button_vtable_copy[slider_vtable_slot_count] = {};
-	static std::uintptr_t g_button_vtable_patched                       = 0; // runtime
-	static teleport_cursor_fn g_teleport_cursor = nullptr;   // drops the controller cursor on a row (initial focus)
-	static set_mouse_over_fn g_set_mouse_over   = nullptr;   // MenuScreen::SetMouseOver (highlight + select a row)
-	static const bool* g_use_mouse              = nullptr;   // sgg::ConfigOptions::UseMouse (false in controller mode)
-	static const char* g_config_language        = nullptr;   // sgg::ConfigOptions::Language
+	static std::uintptr_t g_button_vtable_patched                        = 0; // runtime
+	static teleport_cursor_fn g_teleport_cursor = nullptr; // drops the controller cursor on a row (initial focus)
+	static set_mouse_over_fn g_set_mouse_over   = nullptr; // MenuScreen::SetMouseOver (highlight + select a row)
+	static const bool* g_use_mouse              = nullptr; // sgg::ConfigOptions::UseMouse (false in controller mode)
+	static const char* g_config_language        = nullptr; // sgg::ConfigOptions::Language
 
 	static component_focused_fn g_component_focused = nullptr; // focuses a row so it receives stick input + green
 	static input_get_state_fn g_input_get_state     = nullptr; // reads a remappable control's per-frame state
@@ -554,9 +554,9 @@ namespace big::mod_settings
 	// Journey" "zerp-DreamDiveTweaks" -> "Dream Dive Tweaks".
 	static std::string key_to_display(const std::string& key); // shared friendly-name logic, defined below
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Mod identity, text, and Mods-tab helpers
+#pragma region Mod identity, text, and Mods-tab helpers
 
 	static std::string display_name_from_stem(const std::string& stem)
 	{
@@ -808,9 +808,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Native row construction and styling
+#pragma region Native row construction and styling
 
 	// Writes an in-place EASTL short-string (SSO, up to 22 chars) into a component field.
 	static void set_sso_string(void* field, const char* text)
@@ -973,7 +973,7 @@ namespace big::mod_settings
 	// mSelectedRed < 0 to skip the selected-colour override keeps it greyed at rest and through hover.
 	static void grey_toggle_graphic(GUIComponent* row)
 	{
-		char* b                                                            = reinterpret_cast<char*>(row);
+		char* b                                                              = reinterpret_cast<char*>(row);
 		*reinterpret_cast<std::uint32_t*>(b + button_graphic_color_offset)   = disabled_graphic_grey;
 		*reinterpret_cast<std::uint32_t*>(b + component_color_target_offset) = disabled_graphic_grey;
 		*reinterpret_cast<float*>(b + component_def_offset + def_sel_red)    = -1.0f;
@@ -1133,6 +1133,7 @@ namespace big::mod_settings
 	// it keeps its Button_Secondary box graphic and centered label - visually distinct from the plain-text setting rows.
 	// Disabled rows are greyed by default they are also hard-disabled (non-selectable).
 	static void install_wide_button_nav_rect(GUIComponent* row); // defined below (near row_bounded_area)
+
 	static GUIComponent* make_button_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true)
 	{
 		auto* row = create_button(screen);
@@ -1500,7 +1501,7 @@ namespace big::mod_settings
 		if (!g_button_vtable_patched)
 		{
 			const std::uintptr_t native_vtable = *reinterpret_cast<std::uintptr_t*>(row);
-			g_button_vtable_patched            = build_row_area_vtable(g_button_vtable_copy, sizeof(g_button_vtable_copy), native_vtable);
+			g_button_vtable_patched = build_row_area_vtable(g_button_vtable_copy, sizeof(g_button_vtable_copy), native_vtable);
 		}
 		*reinterpret_cast<std::uintptr_t*>(row) = g_button_vtable_patched;
 	}
@@ -1613,9 +1614,9 @@ namespace big::mod_settings
 		return reinterpret_cast<GUIComponent*>(s);
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Row teardown and mod list
+#pragma region Row teardown and mod list
 
 	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail down in place - the same
 	// unlink the engine's DoShowCategory performs. No-op if not present. The backing storage is left owned by the
@@ -1750,9 +1751,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Value formatting, freetext editing, and commit
+#pragma region Value formatting, freetext editing, and commit
 
 	// Turns an identifier into a friendly display string: underscores become spaces, and camelCase/PascalCase word
 	// boundaries are split ("z_ThisConfigKey" -> "z. The first letter is capitalized ("enabled" -> "Enabled").
@@ -2364,9 +2365,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Editability context and menu-path helpers
+#pragma region Editability context and menu-path helpers
 
 	// True if `key` is the mod's master enable switch ("enabled", any case).
 	static bool is_enabled_key(const std::string& key)
@@ -2523,9 +2524,9 @@ namespace big::mod_settings
 		{
 			return nullptr;
 		}
-		std::string rest             = menu_path.substr(prefix.size());
+		std::string rest                     = menu_path.substr(prefix.size());
 		const std::vector<menu_group>* level = &tree;
-		const menu_group* found      = nullptr;
+		const menu_group* found              = nullptr;
 		while (!rest.empty())
 		{
 			const auto dot        = rest.find('.');
@@ -2589,9 +2590,9 @@ namespace big::mod_settings
 		return p == scope || p.rfind(scope + ".", 0) == 0;
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Panel builder
+#pragma region Panel builder
 
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render as
 	// setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value).
@@ -2603,10 +2604,10 @@ namespace big::mod_settings
 		std::string key;                                          // leaf key, or the group's last path segment
 		toml_v2::config_file::config_entry_base* entry = nullptr; // leaf only
 		std::string child_section;                                // group only (full menu path, e.g. "config.x.y")
-		std::string config_section;                               // the entry's REAL config section (for virtual I/O - group: its parent config section)
-		bool is_author_group = false;                             // group only: declared in configDesc `groups` (not a config section)
-		localized_text author_name;                               // author-group display name (is_author_group only)
-		localized_text author_description;                        // author-group description (is_author_group only)
+		std::string config_section; // the entry's REAL config section (for virtual I/O - group: its parent config section)
+		bool is_author_group = false;      // group only: declared in configDesc `groups` (not a config section)
+		localized_text author_name;        // author-group display name (is_author_group only)
+		localized_text author_description; // author-group description (is_author_group only)
 		bool has_order  = false;
 		double order    = 0.0;
 		int appearance  = INT_MAX;        // config.lua source rank (fallback order)
@@ -2726,14 +2727,15 @@ namespace big::mod_settings
 				// Undescribed keys are a mod's internal bookkeeping, so they stay off the page. The master "enabled"
 				// toggle is the exception, always shown so the mod stays toggleable even if undescribed.
 				const bool is_enabled_toggle = key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key);
-				if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key) && !entry_has_description(entry.get()))
+				if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key)
+				    && !entry_has_description(entry.get()))
 				{
 					continue;
 				}
 
 				// `group` is a static field, so the cheap (no-Lua) stored metadata is enough to place the entry.
 				// Everything else still uses its real config section.
-				const auto static_meta          = get_setting_metadata(stem, key.m_section, key.m_key);
+				const auto static_meta             = get_setting_metadata(stem, key.m_section, key.m_key);
 				const std::vector<std::string> grp = static_meta ? static_meta->group : std::vector<std::string>{};
 				std::string child_path;
 				const int place = placement(key.m_section, grp, child_path);
@@ -2943,10 +2945,10 @@ namespace big::mod_settings
 				// A `group` override can move a virtual row onto a page whose path differs from its config section, so
 				// all its Lua I/O (metadata/display/get) uses the row's real config section, not the view path.
 				const std::string& vsection = it.config_section;
-				const auto vmeta         = resolved_metadata(stem, vsection, it.key);
-				const std::string vname  = vmeta ? resolve_localized(vmeta->name) : std::string{};
-				const std::string vlabel = escape_markup(!vname.empty() ? vname : key_to_display(it.key));
-				const std::string vdesc  = vmeta ? resolve_localized(vmeta->description) : std::string{};
+				const auto vmeta            = resolved_metadata(stem, vsection, it.key);
+				const std::string vname     = vmeta ? resolve_localized(vmeta->name) : std::string{};
+				const std::string vlabel    = escape_markup(!vname.empty() ? vname : key_to_display(it.key));
+				const std::string vdesc     = vmeta ? resolve_localized(vmeta->description) : std::string{};
 
 				// A read-only virtual row, or an interactive row with no widget, becomes key + value text. mIsUseable
 				// stays on so the mouse can still resolve it for the description.
@@ -2955,7 +2957,7 @@ namespace big::mod_settings
 					if (auto* row = make_text_row(screen, vlabel.c_str(), /*disabled*/ false, /*block_input*/ false, /*no_hover_highlight*/ true))
 					{
 						PanelRow pr{row, RowKind::info, stem, it.key};
-						pr.disabled = true;
+						pr.disabled       = true;
 						pr.config_section = vsection;
 						pr.value_component = make_value_display(screen, escape_markup(value_text).c_str(), /*disabled*/ false);
 						pr.description = vdesc;
@@ -3076,7 +3078,7 @@ namespace big::mod_settings
 					if (auto* ro_row = make_text_row(screen, vlabel.c_str(), /*disabled*/ true, /*block_input*/ false))
 					{
 						PanelRow pr{ro_row, RowKind::setting, stem, it.key};
-						pr.disabled = true;
+						pr.disabled       = true;
 						pr.config_section = vsection;
 						pr.value_component = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
 						pr.description =
@@ -3132,9 +3134,9 @@ namespace big::mod_settings
 					PanelRow pr{row, RowKind::setting, stem, it.key};
 					pr.disabled         = disabled;
 					pr.is_virtual_input = true;
-					pr.config_section   = vsection; // real config section for runtime get/set (may differ from view path)
-					pr.value_component  = value;
-					pr.description      = vdesc;
+					pr.config_section = vsection; // real config section for runtime get/set (may differ from view path)
+					pr.value_component = value;
+					pr.description     = vdesc;
 					if (is_enum)
 					{
 						pr.is_enum     = true;
@@ -3289,12 +3291,12 @@ namespace big::mod_settings
 				GUIComponent* ro_row   = nullptr;
 				GUIComponent* ro_value = nullptr;
 				bool ro_is_toggle      = false;
-				bool ro_is_enum        = false;  // real enum cycler (carries values/labels)
-				bool ro_is_numbox      = false;  // numeric num-box (stepper fallback when the slider cannot be built)
+				bool ro_is_enum        = false; // real enum cycler (carries values/labels)
+				bool ro_is_numbox      = false; // numeric num-box (stepper fallback when the slider cannot be built)
 				bool ro_is_slider      = false;
 				if (entry->type() == typeid(bool))
 				{
-					ro_row       = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), /*disabled*/ true, /*block_input*/ false);
+					ro_row = make_toggle_row(screen, label.c_str(), entry->get_value_base<bool>(), /*disabled*/ true, /*block_input*/ false);
 					ro_is_toggle = ro_row != nullptr;
 				}
 				else if (is_enum)
@@ -3316,7 +3318,7 @@ namespace big::mod_settings
 				{
 					// Plain string (or a widget that could not be built): greyed key + value text row.
 					const std::string vtext = truncate_value(entry->get_serialized_value());
-					ro_row                  = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false);
+					ro_row = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false);
 					if (ro_row)
 					{
 						ro_value = make_value_display(screen, escape_markup(vtext).c_str(), /*disabled*/ true);
@@ -3330,8 +3332,8 @@ namespace big::mod_settings
 					pr.is_enabled_toggle = is_enabled_row;
 					if (ro_is_slider || ro_is_numbox)
 					{
-						pr.is_slider          = ro_is_slider;  // slider drag bar, or ...
-						pr.is_stepper         = ro_is_numbox;  // ... num-box stepper fallback (shares the revert path)
+						pr.is_slider          = ro_is_slider; // slider drag bar, or ...
+						pr.is_stepper         = ro_is_numbox; // ... num-box stepper fallback (shares the revert path)
 						pr.stepper_min        = meta->min;
 						pr.stepper_max        = meta->max;
 						pr.stepper_step       = step;
@@ -3391,7 +3393,7 @@ namespace big::mod_settings
 				}
 				else
 				{
-					row           = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
+					row = make_numbox_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), disabled);
 					built_stepper = row != nullptr;
 				}
 			}
@@ -3450,9 +3452,9 @@ namespace big::mod_settings
 		build_panel_rows(screen, stem, section, collect_panel_items(stem, section));
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Panel sync, focus, and navigation
+#pragma region Panel sync, focus, and navigation
 
 	// Matches the native category-switch transition: the incoming page fades in, with no fade-out crossover. Native
 	// UpdateScrollState sets each on-page row's mFadeTarget to 1 and off-page rows to 0, and GUIComponent::Update eases
@@ -4244,9 +4246,9 @@ namespace big::mod_settings
 		build_panel(screen, instant);
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Reset to defaults
+#pragma region Reset to defaults
 
 	// The serialized default of a config entry, read from the entry itself via the public write_description (whose last
 	// output line is "#. The serialized form uses the same converter as get_serialized_value, so it round-trips through
@@ -4274,9 +4276,9 @@ namespace big::mod_settings
 	// from the config.lua value captured by rom.mod_settings.load when available, else the entry's own stored default.
 	static bool reset_settings_to_defaults()
 	{
-		bool any_changed = false;
+		bool any_changed                            = false;
 		const std::vector<menu_group> author_groups = mod_menu_groups(g_view_stem);
-		toml_v2::config_file* mod_cfg                = nullptr; // any config file of this mod, for virtual-row path resolution.
+		toml_v2::config_file* mod_cfg = nullptr; // any config file of this mod, for virtual-row path resolution.
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
 			if (!cfg || cfg->m_config_file_stem_as_str.empty() || cfg->m_config_file_stem_as_str != g_view_stem)
@@ -4308,8 +4310,8 @@ namespace big::mod_settings
 				// Skip entries outside the current menu group. The `group` override is a static field, so the cheap
 				// stored metadata gives the placement.
 				const auto static_meta             = get_setting_metadata(guid, def.m_section, def.m_key);
-				const std::vector<std::string> grp  = static_meta ? static_meta->group : std::vector<std::string>{};
-				const std::string mpath             = resolve_entry_menu_path(guid, author_groups, cfg, def.m_section, grp);
+				const std::vector<std::string> grp = static_meta ? static_meta->group : std::vector<std::string>{};
+				const std::string mpath = resolve_entry_menu_path(guid, author_groups, cfg, def.m_section, grp);
 				if (!menu_path_in_scope(mpath, g_view_section))
 				{
 					continue;
@@ -4369,9 +4371,9 @@ namespace big::mod_settings
 		}
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Native dialogs and dependency checks
+#pragma region Native dialogs and dependency checks
 
 	// True when the game's current display language uses a CJK font (zh-CN, zh-TW, ja, ko). Those fonts have no glyph for
 	// the non-breaking space U+00A0 and draw a visible '*' instead, so the restart message uses regular spaces and a
@@ -4604,9 +4606,9 @@ namespace big::mod_settings
 		return build_list_message("These enabled mods depend on this one:", dependents, "Disable them first to disable this mod.");
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Engine hooks
+#pragma region Engine hooks
 
 	static void* hook_MiscSettingsScreen_ctor(void* self, void* screen_manager, void* opened_from, void* profile_name)
 	{
@@ -4881,7 +4883,7 @@ namespace big::mod_settings
 		{
 			// Predict the flipped state for the press cue. get() drives the flip, but may be nil (value not set yet),
 			// so fall back to the row's last-drawn state - matching the flip below.
-			const auto cur    = get_virtual_value(matched_row.stem, row_io_section(&matched_row), matched_row.setting_key);
+			const auto cur = get_virtual_value(matched_row.stem, row_io_section(&matched_row), matched_row.setting_key);
 			const bool cur_on = cur.type == virtual_value::kind::boolean ? cur.as_bool : matched_row.toggle_value;
 			stage_toggle_press_sound(self, !cur_on);
 		}
@@ -5013,7 +5015,7 @@ namespace big::mod_settings
 			float shift;
 			if (g_rows[i].kind == RowKind::action)
 			{
-				shift = extra + button_extra_lead;
+				shift  = extra + button_extra_lead;
 				extra += button_extra_lead + button_extra_trail;
 			}
 			else
@@ -5328,9 +5330,9 @@ namespace big::mod_settings
 		big::g_hooking->get_original<hook_MiscSettingsScreen_RestoreDefaults>()(self);
 	}
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region Hook registration
+#pragma region Hook registration
 
 	void register_hooks()
 	{
@@ -5575,6 +5577,7 @@ namespace big::mod_settings
 			                "not reset mod settings";
 		}
 	}
-	#pragma endregion
+
+#pragma endregion
 
 } // namespace big::mod_settings
