@@ -207,11 +207,10 @@ namespace big::mod_settings
 		return std::string::npos;
 	}
 
-	// Rank position for a described entry: where it appears in configDesc (the menu-layout table), so the menu's
-	// fallback order follows how the author laid out configDesc rather than the `config` defaults table. A config-backed
-	// key appears first in `config` (the defaults, defined before configDesc) and again in its configDesc entry, so we
-	// take the SECOND occurrence. A virtual row or action has no config default, so its only occurrence is already in
-	// configDesc. Returns npos (sorts last) when the key cannot be located, e.g. a numeric/bracketed key.
+	// Rank position for a described entry: where it appears in configDesc, so the menu's fallback order follows the
+	// author's layout rather than the `config` defaults table. A config-backed key appears in `config` first and again
+	// in configDesc, so the SECOND occurrence is taken; a virtual row or action only ever appears once. Returns npos
+	// (sorts last) when the key cannot be located, e.g. a numeric or bracketed key.
 	static std::size_t desc_definition_offset(const std::string& src, const std::string& key, bool config_backed)
 	{
 		const std::size_t first = find_key_definition(src, key);
@@ -573,9 +572,8 @@ namespace big::mod_settings
 		m.context = parse_editable_context(desc["editableContext"], editable_context::any);
 
 		// A field written as a Lua function is dynamic: skipped by the type-guarded reads above and re-evaluated at
-		// render by resolve_setting_metadata. Record that any is present so the menu knows to resolve. `hidden` is
-		// intentionally NOT dynamic (toggling it shifts layout, only re-done on a full rebuild - use `disabled` for a
-		// live condition), and `editableContext` is a fixed design property, so both stay static.
+		// render. `hidden` is deliberately not dynamic (toggling it shifts layout, so it is only re-done on a full
+		// rebuild - use `disabled` for a live condition), and `editableContext` is a fixed design property.
 		for (const char* field : {"displayName", "description", "disabledDescription", "min", "max", "step", "values", "labels", "order", "disabled"})
 		{
 			if (desc[field].get_type() == sol::type::function)
@@ -664,10 +662,9 @@ namespace big::mod_settings
 		return 1; // keep the single error value already on the stack.
 	}
 
-	// Invokes a mod-supplied Lua callback protected, but with the silent handler above instead of ReturnOfModding's
-	// default. Our callers report failures themselves with one concise WARNING and recover, so a callback that
-	// legitimately fails in some contexts (e.g. reading run state from the main menu) does not also spam the console
-	// with an alarming ERROR plus full traceback. `fn` is taken by value so the caller's stored callback is untouched.
+	// Invokes a mod-supplied Lua callback protected, with the silent handler above rather than ReturnOfModding's
+	// default: callers report failures themselves with one concise WARNING, so a callback that legitimately fails in
+	// some contexts (e.g. reading run state from the main menu) does not also spam an ERROR plus full traceback.
 	template <typename... Args>
 	static sol::protected_function_result call_mod_callback(sol::protected_function fn, Args&&... args)
 	{
@@ -824,10 +821,9 @@ namespace big::mod_settings
 		return reserved.contains(key);
 	}
 
-	// Walks a mod's configDesc (like collect_actions) collecting virtual rows and validating every entry. An entry must
-	// resolve to a config value (setting or group), an `action`, or an explicit `virtual = true` - anything else is
-	// logged as a likely author mistake (a described key missing from `config`). A `virtual` row with no `get`/`text`
-	// is logged too.
+	// Walks a mod's configDesc collecting virtual rows and validating every entry: it must resolve to a config value, an
+	// `action`, or an explicit `virtual = true`. Anything else is logged as a likely author mistake (usually a described
+	// key missing from `config`), as is a `virtual` row with no `get`/`text`.
 	static void collect_virtual_rows(const std::string& guid, const sol::table& config_tbl, const sol::object& desc_obj, const std::string& section, std::vector<virtual_row_info>& out)
 	{
 		if (desc_obj.is<sol::table>())
@@ -1011,11 +1007,10 @@ namespace big::mod_settings
 		}
 	}
 
-	// Routes toml_v2's config_entry::m_setting_changed (fired after a value changes and the file is saved) to a Lua
-	// onChanged callback, passing the new value and the key. Fires for any edit made through our options menu (main menu
-	// or in a save, gated by on_change_callbacks_enabled), but not from a mod's own config write outside the menu. A
-	// same-value write is a no-op, so a callback that writes back cannot loop. Stored on the entry (owned by the mod's
-	// config_file, destroyed with the Lua state on App::Reset), so the captured sol reference never dangles. Called protected.
+	// Routes toml_v2's m_setting_changed (fired after a value changes and the file is saved) to a Lua onChanged
+	// callback. Fires for edits made through the options menu, but not a mod's own config write outside it. A same-value
+	// write is a no-op, so a callback that writes back cannot loop. Stored on the entry, which the mod's config_file
+	// owns and which dies with the Lua state, so the captured sol reference never dangles.
 	static void attach_on_change(toml_v2::config_file::config_entry_base* entry, sol::protected_function callback)
 	{
 		if (!entry || !callback.valid())
@@ -1321,10 +1316,9 @@ namespace big::mod_settings
 		setting_metadata meta;
 	};
 
-	// Recursively binds a config.lua `defaults` table into `cf` under `section` (nested tables become sub-sections).
-	// A leaf with a rich-table description has its metadata extracted into `meta_out`, and any leaf with a configDesc
-	// entry is recorded in `described_out` so the menu can hide undescribed keys. bind adopts a value already in the
-	// .cfg (preserving user edits) under section "config", keeping it byte-compatible with SGG_Modding-Chalk.
+	// Recursively binds a config.lua `defaults` table into `cf` under `section`, nested tables becoming sub-sections.
+	// bind adopts a value already in the .cfg (preserving user edits) under section "config", keeping the file
+	// byte-compatible with SGG_Modding-Chalk.
 	static void bind_defaults(toml_v2::config_file* cf, const sol::table& defaults, const sol::object& desc_obj, const std::string& section, std::vector<collected_metadata>& meta_out, std::vector<std::tuple<std::string, std::string, std::string>>& defaults_out, std::vector<std::pair<std::string, std::string>>& described_out)
 	{
 		sol::table desc_tbl;
@@ -2011,10 +2005,9 @@ namespace big::mod_settings
 			g_described_keys.clear();
 		}
 
-		// The config object handed to mods is a plain Lua table (so `type(config) == "table"`, matching Chalk), driven
-		// by one shared metatable that reproduces Chalk's metamethod surface: index/new_index read/write entries, and
-		// len/pairs/ipairs (plus ModUtil's next/inext via rawget(getmetatable(t), '__next'/'__inext')) make it iterable.
-		// Each wrapper's (cf, section) live in weak-keyed registry maps, so the wrapper stays empty and is collected with it.
+		// The config object handed to mods is a plain Lua table (so `type(config) == "table"`, matching Chalk) driven by
+		// one shared metatable reproducing Chalk's metamethod surface, plus ModUtil's next/inext. Each wrapper's
+		// (cf, section) live in weak-keyed registry maps, so the wrapper stays empty and is collected with it.
 		sol::table proxy_metatable    = state.create_table();
 		proxy_metatable["__index"]    = &proxy_index;
 		proxy_metatable["__newindex"] = &proxy_new_index;

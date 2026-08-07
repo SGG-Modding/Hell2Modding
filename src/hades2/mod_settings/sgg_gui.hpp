@@ -3,16 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 
-// Minimal views over the native Hades II option-screen GUI objects, limited to the fields this feature reads or writes.
-// Offsets are validated with static_assert against the current game build. The matching engine functions are resolved
-// by PDB symbol name at runtime (see big::hades2_symbol_to_address). Only sgg::GUIComponent base fields and
-// MiscSettingsScreen members are used, which stay stable across the button-layout changes that occur between game
-// versions.
+// Minimal views over the native option-screen GUI objects, limited to the fields this feature reads or writes. Only
+// sgg::GUIComponent base fields and MiscSettingsScreen members are used, which stay stable across the button-layout
+// changes that occur between game versions.
 namespace big::mod_settings::sgg
 {
-	// sgg::Vectormath Vector2: two floats, 8 bytes. As a function argument this is an integer-class aggregate, so it is
-	// passed in a general-purpose register (RDX/R8/...), not an XMM register - the by-value POD typing below reproduces
-	// that ABI.
+	// Two floats, 8 bytes. As a function argument this is an integer-class aggregate, so it is passed in a
+	// general-purpose register rather than an XMM one - the by-value POD typing reproduces that ABI.
 	struct Vec2
 	{
 		float x;
@@ -88,27 +85,22 @@ namespace big::mod_settings::sgg
 	inline constexpr std::size_t gui_component_button_owner_offset = 0x5'A0;
 	inline constexpr std::size_t gui_component_button_size         = 0x5'B0;
 
-	// Byte offset of GUIComponentButton::mSelectable (bool). GUIComponentButton::IsSelectable returns it.
-	// MenuScreen::SetMouseOver skips a component whose IsSelectable is false, so clearing it makes a button
-	// non-hoverable and non-selectable (used to fully disable a greyed action button).
+	// IsSelectable returns this, and MenuScreen::SetMouseOver skips a component whose IsSelectable is false - so
+	// clearing it makes a button non-hoverable and non-selectable.
 	inline constexpr std::size_t gui_component_button_selectable_offset = 0x5'51;
 
-	// Byte offset of GUIComponentButton::mUnderMouseTexture (sgg::TextureHandle, a 32-bit id). GUIComponentButton::Draw
-	// draws this hover-highlight overlay only when it is valid and mIsUseable@0x27 is set (gate at Draw+0xBF). A
-	// greyed-but-hoverable action (kept useable so it can show its description) clears this so it does not flash a
-	// clickable-looking hover glow. mSelectedTexture (selection overlay) is at 0x564 (SetSelectedTexture clears it).
+	// mUnderMouseTexture: Draw paints this hover-highlight overlay only when it is valid and mIsUseable is set. A greyed
+	// but still hoverable action clears it so it does not flash a clickable-looking glow. The selection overlay
+	// mSelectedTexture is at 0x564, cleared via SetSelectedTexture.
 	inline constexpr std::size_t gui_component_button_under_mouse_texture_offset = 0x5'68;
 
-	// Byte offset of GUIComponentButton::mDisplayNameId (sgg::HashGuid: a 32-bit interned-string id). The engine
-	// derives a button's visible label from this id:. GUIComponentButton::UseDefaultText resolves the id back to its
-	// interned string, looks that up in the localized text data, and sets the label from the result (falling back to
-	// the raw string on a miss). UseDefaultText re-runs on every localization pass, including a live language change,
-	// so this id - not any string handed to SetDisplayName - is what determines the persistent label.
+	// mDisplayNameId, a 32-bit interned-string id. UseDefaultText resolves it back to its interned string, looks that up
+	// in the localized text data and sets the label from the result. It re-runs on every localization pass, including a
+	// live language change, so this id - not any string handed to SetDisplayName - determines the persistent label.
 	inline constexpr std::size_t gui_component_button_display_name_id_offset = 0x1'68;
 
-	// sgg::MenuScreen, the base of MiscSettingsScreen mComponents owns every live widget that is drawn and hit-tested
-	// freed components are dropped from it mAnchor is the base location the engine gives freshly created option
-	// components.
+	// mComponents owns every live widget that is drawn and hit-tested; freed components are dropped from it. mAnchor is
+	// the base location the engine gives freshly created option components.
 	struct MenuScreen
 	{
 		char m_pad_anchor[0x50];
@@ -129,9 +121,8 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(MenuScreen, m_cancel_button) == 0x1'A8);
 	static_assert(offsetof(MenuScreen, m_selected_component) == 0x1'B0);
 
-	// sgg::MiscSettingsScreen, the native tabbed options screen. The category buttons are laid out contiguously from
-	// +0x388 (Gameplay) to +0x3F8 (Debug). The non-user categories such as Editor follow the eight user-facing ones
-	// mOptions holds the current category's option components.
+	// The native tabbed options screen. Category buttons are laid out contiguously from +0x388 (Gameplay) to +0x3F8
+	// (Debug), the non-user categories such as Editor following the eight user-facing ones.
 	struct MiscSettingsScreen
 	{
 		char m_pad_psi[0x3'44];

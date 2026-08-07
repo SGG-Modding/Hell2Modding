@@ -17,14 +17,10 @@ namespace big::mod_settings
 	using localized_text = std::map<std::string, std::string>;
 
 	// When a setting may be changed, relative to whether a save is loaded. The Lua state is recreated when a save is
-	// loaded from the main menu, so init-time changes (GameData edits, function patches) only take effect if made
-	// before that point, while some settings only apply to a live run. The settings menu greys a row (read-only, with a
-	// note) when the current context does not match: any: editable anywhere (default live-read settings). main_menu:
-	// only from the main menu (greyed while a save is loaded). Forced for a mod's master "enabled" toggle and for any
-	// restartRequired setting. in_save: only while a save is loaded, both in the hub and mid-run (greyed at the main
-	// menu). in_hub: only while in the hub/Crossroads (greyed at the main menu AND mid-run), for settings unsafe to
-	// change during a run. Authors declare this per setting via
-	// `editableContext = "mainMenu" | "inSave" | "inHub" | "any"`.
+	// loaded, so init-time changes (GameData edits, function patches) only take effect if made before that point, while
+	// some settings only apply to a live run. A row whose context does not match is greyed with a note.
+	// any: anywhere. main_menu: forced for the master "enabled" toggle and any restartRequired setting.
+	// in_save: hub and mid-run. in_hub: the Crossroads only, for settings unsafe to change during a run.
 	enum class editable_context
 	{
 		any,
@@ -46,11 +42,9 @@ namespace big::mod_settings
 		enumeration,
 	};
 
-	// An author-declared menu group (configDesc `groups`): a category in the in-game menu that does NOT correspond to a
-	// config section. It lets a mod present a flat (or differently nested) config under an arbitrary menu tree, by
-	// moving entries into these groups with a per-entry `group`. `id` is the identity used in a `group` path (the table
-	// key in configDesc.groups). name/description are shown in the menu (resolved to the current language). order sorts
-	// it among its siblings (else first-declared order). children are nested sub-groups.
+	// An author-declared menu category (configDesc `groups`) that does NOT correspond to a config section, letting a mod
+	// present a flat or differently-nested config under an arbitrary menu tree via a per-entry `group`. `id` is the
+	// identity a `group` path references (the table key in configDesc.groups).
 	struct menu_group
 	{
 		std::string id;
@@ -66,11 +60,9 @@ namespace big::mod_settings
 	// do not exist as config sections. Populated fresh each Lua-state init by rom.mod_settings.load.
 	std::vector<menu_group> mod_menu_groups(const std::string& guid);
 
-	// Author-declared metadata for a single setting, extracted from its config.lua description table by
-	// rom.mod_settings.load. Consulted by the settings menu. Only settings whose description is a rich table have an
-	// entry. The rest fall back to type-based rendering. Every field is an author-only input that cannot be inferred
-	// from the config value. The widget kind itself is inferred from the value and `values`. All fields are optional
-	// (see the has_* flags).
+	// Author-declared metadata for one setting, extracted from its config.lua description table. Only settings whose
+	// description is a rich table have an entry; the rest fall back to type-based rendering. Every field is an
+	// author-only input that cannot be inferred from the config value, and all are optional (see the has_* flags).
 	struct setting_metadata
 	{
 		localized_text name;        // display-name override (empty -> prettified key)
@@ -153,11 +145,9 @@ namespace big::mod_settings
 	// Returns false when the Lua state is unavailable.
 	bool game_is_in_hub();
 
-	// Like get_setting_metadata, but re-evaluates the setting's dynamic (Lua-function) description fields against the
-	// current game state, returning up-to-date values (slider bounds, enum options, hidden, display name, ...). Call
-	// this (on the game thread, while the Lua state is alive) when get_setting_metadata reports has_dynamic. The
-	// returned metadata never has has_dynamic set. Returns std::nullopt for settings with no stored description (e.g.
-	// Chalk-bound).
+	// Like get_setting_metadata, but re-evaluates the setting's dynamic (Lua-function) fields against the current game
+	// state. Call on the game thread, while the Lua state is alive, when get_setting_metadata reports has_dynamic. The
+	// returned metadata never has has_dynamic set. nullopt for settings with no stored description (e.g. Chalk-bound).
 	std::optional<setting_metadata> resolve_setting_metadata(const std::string& guid, const std::string& section, const std::string& key);
 
 	// A menu button declared in config.lua that runs a Lua callback instead of editing a config value: an `action =
@@ -186,11 +176,9 @@ namespace big::mod_settings
 	// does not resolve to an action. Call on the game thread while the Lua state is alive.
 	void invoke_action(const std::string& guid, const std::string& section, const std::string& key);
 
-	// A configDesc entry with NO backing config value that explicitly marks itself `virtual = true`. It renders as a
-	// menu row whose value comes from Lua callbacks instead of a .cfg config entry: a read-only row uses `text`, and an
-	// interactive row uses `get` (read) + `set` (write). Collected at load. The callables stay in the Lua descs
-	// registry and are resolved at render. The rest of its metadata (displayName/description/order/min/max/values/...)
-	// is read the same way as a config setting's, via resolve_setting_metadata against (section, key).
+	// A configDesc entry with NO backing config value, marked `virtual = true`. Its value comes from Lua callbacks: a
+	// read-only row uses `text`, an interactive row `get`/`set`. The callables stay in the Lua descs registry and are
+	// resolved at render; the rest of its metadata is read like a config setting's, via resolve_setting_metadata.
 	struct virtual_row_info
 	{
 		std::string section;
