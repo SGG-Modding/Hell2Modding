@@ -2637,35 +2637,48 @@ namespace big::mod_settings
 
 	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render as
 	// setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value).
-	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem, const std::string& section)
+	// A menu item is either a leaf setting directly in `section`, or a direct child group (a nested sub-section
+	// such as "config.biome_pool" while viewing "config").
+	struct panel_item
 	{
-		// A menu item is either a leaf setting directly in `section`, or a direct child group (a nested sub-section
-		// such as "config.biome_pool" while viewing "config").
-		struct panel_item
-		{
-			bool is_group = false;
-			std::string key;                                          // leaf key, or the group's last path segment
-			toml_v2::config_file::config_entry_base* entry = nullptr; // leaf only
-			std::string child_section;                                // group only (full menu path, e.g. "config.x.y")
-			std::string config_section;                               // the entry's REAL config section (for virtual I/O - group: its parent config section)
-			bool is_author_group = false;                             // group only: declared in configDesc `groups` (not a config section)
-			localized_text author_name;                               // author-group display name (is_author_group only)
-			localized_text author_description;                        // author-group description (is_author_group only)
-			bool has_order  = false;
-			double order    = 0.0;
-			int appearance  = INT_MAX;        // config.lua source rank (fallback order)
-			bool is_enabled = false;          // the mod's master "enabled" toggle (root section only)
-			bool is_action  = false;          // a config.lua action button (runs a Lua callback, no config value)
-			action_info action;               // valid when is_action
-			bool is_virtual          = false; // a config.lua virtual row (Lua get/text/set, no config value)
-			bool virtual_interactive = false; // the virtual row has a `set` (an editable get/set widget)
-		};
+		bool is_group = false;
+		std::string key;                                          // leaf key, or the group's last path segment
+		toml_v2::config_file::config_entry_base* entry = nullptr; // leaf only
+		std::string child_section;                                // group only (full menu path, e.g. "config.x.y")
+		std::string config_section;                               // the entry's REAL config section (for virtual I/O - group: its parent config section)
+		bool is_author_group = false;                             // group only: declared in configDesc `groups` (not a config section)
+		localized_text author_name;                               // author-group display name (is_author_group only)
+		localized_text author_description;                        // author-group description (is_author_group only)
+		bool has_order  = false;
+		double order    = 0.0;
+		int appearance  = INT_MAX;        // config.lua source rank (fallback order)
+		bool is_enabled = false;          // the mod's master "enabled" toggle (root section only)
+		bool is_action  = false;          // a config.lua action button (runs a Lua callback, no config value)
+		action_info action;               // valid when is_action
+		bool is_virtual          = false; // a config.lua virtual row (Lua get/text/set, no config value)
+		bool virtual_interactive = false; // the virtual row has a `set` (an editable get/set widget)
+	};
 
+	// One page of the Mods tab before any native widget exists: the rows in display order, plus what the row builder
+	// needs to know about the mod as a whole.
+	struct panel_contents
+	{
 		std::vector<panel_item> items;
-		std::map<std::string, panel_item> groups; // child menu path -> group item (keeps its min appearance).
-		toml_v2::config_file::config_entry_base* enabled_entry = nullptr;
+		toml_v2::config_file::config_entry_base* enabled_entry = nullptr; // the mod's master "enabled" toggle
 		toml_v2::config_file* view_cfg                         = nullptr; // this mod's config file (for child lookups)
-		const std::string section_prefix                       = section + ".";
+		bool mod_enabled                                       = true;
+	};
+
+	// Collects every row belonging on page `section` of mod `stem` - settings, child groups, action buttons and virtual
+	// rows - and sorts them into display order.
+	static panel_contents collect_panel_items(const std::string& stem, const std::string& section)
+	{
+		panel_contents out;
+		std::vector<panel_item>& items = out.items;
+
+		std::map<std::string, panel_item> groups;        // child menu path -> group item (keeps its min appearance).
+		toml_v2::config_file*& view_cfg  = out.view_cfg; // this mod's config file (for child lookups)
+		const std::string section_prefix = section + ".";
 
 		// The author-declared menu groups (configDesc `groups`) - the categories a per-entry `group` can target that do
 		// not exist as config sections. Looked up when a child group is created to pick its display name/order/source.
@@ -2754,9 +2767,9 @@ namespace big::mod_settings
 
 				// The mod's master switch lives in the root section track it whatever section is being shown, so nested
 				// rows are greyed when the mod is disabled.
-				if (!enabled_entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+				if (!out.enabled_entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
 				{
-					enabled_entry = entry.get();
+					out.enabled_entry = entry.get();
 				}
 
 				// Hide config keys that carry no configDesc entry, so a mod's internal or bookkeeping values do not clutter its
@@ -2857,12 +2870,12 @@ namespace big::mod_settings
 			items.push_back(std::move(it));
 		}
 
-		const bool mod_enabled = !enabled_entry || enabled_entry->get_value_base<bool>();
-		if (section == root_section && enabled_entry)
+		out.mod_enabled = !out.enabled_entry || out.enabled_entry->get_value_base<bool>();
+		if (section == root_section && out.enabled_entry)
 		{
 			for (auto& it : items)
 			{
-				if (it.entry == enabled_entry)
+				if (it.entry == out.enabled_entry)
 				{
 					it.is_enabled = true;
 				}
@@ -2895,7 +2908,16 @@ namespace big::mod_settings
 			                 return a.appearance < b.appearance; // equal/absent order -> configDesc source order
 		                 });
 
-		for (const auto& it : items)
+		return out;
+	}
+
+	// Builds the native widget for each collected row, in order, appending to g_rows.
+	static void build_panel_rows(MiscSettingsScreen* screen, const std::string& stem, const std::string& section, const panel_contents& contents)
+	{
+		const bool mod_enabled               = contents.mod_enabled;
+		toml_v2::config_file* const view_cfg = contents.view_cfg;
+
+		for (const auto& it : contents.items)
 		{
 			const bool is_enabled_row = it.is_enabled;
 			const bool disabled       = !is_enabled_row && !mod_enabled;
@@ -3476,6 +3498,12 @@ namespace big::mod_settings
 				g_rows.push_back(pr);
 			}
 		}
+	}
+
+	// One page of a mod's settings: collect what belongs on it, then build a native row for each.
+	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem, const std::string& section)
+	{
+		build_panel_rows(screen, stem, section, collect_panel_items(stem, section));
 	}
 
 	#pragma endregion
