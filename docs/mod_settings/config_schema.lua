@@ -36,7 +36,7 @@
 
 --- Describes how a config option appears in the in-game mod settings menu. Every field is optional. The
 --- widget type is inferred from the setting's config value (a boolean becomes a toggle; a number with `min`
---- and `max` becomes a slider; a value with `values` becomes a cycler; anything else is a free-text field).
+--- and `max` becomes a slider; a value with `values` becomes a selector; anything else is a free-text field).
 ---@class (exact) mod_settings.setting_description
 --- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
 --- Recommended to keep to about 35 characters so it leaves enough space for the value shown to its right.
@@ -81,7 +81,7 @@
 --- `showAsPercentage` when using this.
 ---@field isPercentage? boolean
 --- Enum options: the values actually stored in the .cfg file.
---- Providing this makes the setting a cycler over these options.
+--- Providing this makes the setting a selector over these options.
 ---@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]
 --- Display labels to show instead of the underlying `values` in the mod menu (same order, same number of
 --- entries). Each label may be a localization table. Recommended to keep each to about 20 characters.
@@ -116,7 +116,7 @@
 ---  - READ-ONLY: give it `text` (a string, or a function returning one).
 ---  - INTERACTIVE: give it `get` (read) and `set` (write). The widget is inferred from get()'s value and the
 ---    metadata, exactly like a config setting is inferred from its config value: a boolean is a toggle, a number
----    with `min`+`max` is a slider (otherwise a freetext field), and any type with `values` is an enum picker. If
+---    with `min`+`max` is a slider (otherwise a freetext field), and any type with `values` is an enum selector. If
 ---    get() can return nil at build time, force the widget with `type`. Give it a `default` to have the menu Reset
 ---    restore it.
 --- `get`/`set`/`text` and the metadata fields (displayName/description/values/min/max/step/labels) may all be
@@ -169,7 +169,7 @@
 --- `showAsPercentage` when using this.
 ---@field isPercentage? boolean
 --- Enum options: the values actually stored in the .cfg file.
---- Providing this makes the setting a cycler over these options.
+--- Providing this makes the setting a selector over these options.
 ---@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]
 --- Display labels to show instead of the underlying `values` in the mod menu (same order, same number of
 --- entries). Each label may be a localization table. Recommended to keep each to about 20 characters.

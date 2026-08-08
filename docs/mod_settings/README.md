@@ -33,7 +33,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `description` | string \| localization table \| callback | Help text shown in the description box at the bottom of the screen while the row is highlighted. Keep it to ~450 characters. |
 | `min`/`max` | number \| callback | Numeric bounds. If both are present the input will turn into a slider. |
 | `step` | number \| callback | Slider/number step size (default 1). Will clamp user input automatically. |
-| `values` | array \| callback | Enum: the values stored in the `.cfg` file. If present, the input will turn into a cycler. |
+| `values` | array \| callback | Enum: the values stored in the `.cfg` file. If present, the input will turn into a selector. |
 | `labels` | array of (string \| localization table) \| callback | Display labels to show instead of the underlying `values` in the mod menu. Keep each to ~20 characters. |
 | `order` | number \| callback | Sort key for custom ordering config entries in the menu, lowest first. Rows carrying an `order` are listed above those without one. When omitted, rows are sorted alphabetically by their `displayName`. |
 | `hidden` | boolean | Hide the setting from the menu entirely. Static only - use `disabled` for rows that change state while the menu is open. |
@@ -120,7 +120,7 @@ A virtual row is either **read-only** or **interactive**:
 - **Interactive:** give it `get` (reads the current value) and `set` (writes the edited value). The widget is
   inferred from `get()`'s value and the metadata, exactly like a config setting is inferred from its config
   value: a **boolean** is a toggle, a **number** with `min`+`max` is a slider (otherwise a freetext field),
-  and any type with a `values` list is an **enum picker**.
+  and any type with a `values` list is an **enum selector**.
 
 Interactive rows also support `disabled`, `disabledDescription`, `editableContext`, `showAsPercentage`/
 `isPercentage`, and (for enums) `labels` - the same as config settings. `get`/`set`/`text` and the metadata

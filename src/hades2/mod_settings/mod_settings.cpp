@@ -287,7 +287,7 @@ namespace big::mod_settings
 	static gui_component_ctor_fn g_textbox_ctor         = nullptr;
 	static slider_defaults_fn g_slider_defaults         = nullptr;
 	static slider_set_fraction_fn g_slider_set_fraction = nullptr;
-	static std::uintptr_t g_slider_vtable               = 0; // runtime
+	static std::uintptr_t g_slider_vtable               = 0; // resolved slider vftable address
 	// A patched copy of the slider vtable (built in set_up_hooks) whose GetArea/GetScreenArea slots return a one-row
 	// hit rect (see row_bounded_area), replacing the native ones that union the slider's sub-components into a
 	// screen-spanning rect. 128 slots comfortably covers the class's virtual table.
@@ -295,14 +295,14 @@ namespace big::mod_settings
 	// The highest slot we override or copy through is SetLocation at +0x180, so keep the buffer big enough for it.
 	static_assert(0x1'80 / sizeof(std::uintptr_t) < slider_vtable_slot_count, "vtable copy buffer too small for the highest patched slot");
 	static std::uintptr_t g_slider_vtable_copy[slider_vtable_slot_count] = {};
-	static std::uintptr_t g_slider_vtable_patched                        = 0; // runtime
+	static std::uintptr_t g_slider_vtable_patched                        = 0; // address of the patched copy above
 
 	// A patched copy of the GUIComponentButton vtable (built lazily in install_wide_button_nav_rect from the first action
 	// button's vtable) whose GetArea/GetScreenArea slots return the same wide one-row rect (row_bounded_area), so a
 	// centre-column action button is reachable by the vertical spatial nav. Every other button row keeps the native
 	// vtable.
 	static std::uintptr_t g_button_vtable_copy[slider_vtable_slot_count] = {};
-	static std::uintptr_t g_button_vtable_patched                        = 0; // runtime
+	static std::uintptr_t g_button_vtable_patched                        = 0; // address of the patched copy above
 	static teleport_cursor_fn g_teleport_cursor = nullptr; // drops the controller cursor on a row (initial focus)
 	static set_mouse_over_fn g_set_mouse_over   = nullptr; // MenuScreen::SetMouseOver (highlight + select a row)
 	static const bool* g_use_mouse              = nullptr; // sgg::ConfigOptions::UseMouse (false in controller mode)
@@ -335,7 +335,7 @@ namespace big::mod_settings
 	static constexpr float row_text_offset_x   = -900.0f; // left-justify the label to the option-name column
 	static constexpr float value_text_offset_x = 15.0f; // right-justify the value, right edge aligns with the toggle's
 	static constexpr float numbox_location_x   = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
-	static constexpr float slider_location_x   = 1330.0f; // native OptionSlider X (bar + value clear the scrollbar
+	static constexpr float slider_location_x   = 1330.0f; // native OptionSlider X (bar + value clear the scrollbar)
 	// template's label offset puts the name in the option-name column).
 	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
 	static constexpr float row_base_y            = 300.0f;  // first row's Y - matches the vanilla option templates
@@ -406,7 +406,7 @@ namespace big::mod_settings
 		bool show_as_percentage = false;
 		bool is_percentage      = false;
 
-		// Enum cycler, rendered as a native number box whose value text is overridden to the label.
+		// Enum row, rendered as a native num-box whose value text is overridden to the label.
 		bool is_enum = false;
 		std::vector<std::string> enum_values;
 		std::vector<std::string> enum_labels;
@@ -522,7 +522,7 @@ namespace big::mod_settings
 	}
 
 	// The mod's Thunderstore manifest description, shown in the description box while its row in the mod list is
-	// highlighted. Empty when no loaded module matches the stem.
+	// highlighted.
 	static std::string mod_description_from_stem(const std::string& stem)
 	{
 		if (!big::g_lua_manager)
@@ -543,8 +543,8 @@ namespace big::mod_settings
 	// Description-box note for a mod that opted out of the in-game settings menu.
 	static std::string opt_out_note()
 	{
-		return "This mod opted out of the in-game settings menu. See the mod's own description for how "
-		       "to configure it, if applicable.";
+		return "This mod opted out of the in-game settings menu. Check the mod page for how to "
+		       "configure it, if applicable.";
 	}
 
 	static std::string resolve_localized(const localized_text& t); // defined below
@@ -557,7 +557,7 @@ namespace big::mod_settings
 	}
 
 	// Escapes the characters GUIComponentTextBox::Parse treats as markup, so arbitrary user text renders verbatim.
-	// The parser reads '\' as an escape lead that consumes the following word ("D:\Program..." -> "D: ...") and '[' ']'
+	// The parser reads '\' as an escape lead that consumes the following word ("C:\Program..." -> "C: ...") and '[' ']'
 	// as inline-tag delimiters whose contents are dropped ("[deprecated] x" -> " x"). Backslash must be escaped first.
 	// '{' and '@' are also markup leads but have no literal escape and do not eat surrounding characters, so are left.
 	static std::string escape_markup(const std::string& text)
@@ -643,7 +643,7 @@ namespace big::mod_settings
 		case 'W':
 		case '@':
 		case '%':  return 1.5f; // wide glyphs
-		default:   return 1.0f;   // medium (digits, most letters)
+		default:   return 1.0f;
 		}
 	}
 
@@ -763,7 +763,6 @@ namespace big::mod_settings
 		button->m_hidden     = false;
 		button->m_is_useable = true;
 
-		// Point the button's localization id at "Mods" so language changes keep rendering the raw key instead of "Editor".
 		if (g_hash_lookup)
 		{
 			HashGuid id{};
@@ -771,7 +770,6 @@ namespace big::mod_settings
 			*reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(button) + sgg::gui_component_button_display_name_id_offset) = id.m_id;
 		}
 
-		// Apply the label now because UseDefaultText only re-derives on the next localization pass.
 		if (g_set_label)
 		{
 			g_set_label(button, "Mods");
@@ -797,9 +795,7 @@ namespace big::mod_settings
 
 	// GUI objects are allocated and freed through the GAME's CRT, never H2M's: H2M is /MT while the game is /MD against
 	// ucrtbase, and the engine frees anything it owns (removed screens, a slider's sub-components, tf_new_internal
-	// blocks) with ucrtbase's _aligned_free. Crossing the boundary either way hands a heap a block it never owned.
-	// The deleting destructor is always called with flags = 0 for the same reason: flags = 1 routes to operator delete
-	// -> free() on an _aligned_malloc block, which the engine never does either.
+	// blocks) with ucrtbase's _aligned_free.
 	using aligned_malloc_fn = void*(__cdecl*)(std::size_t, std::size_t);
 	using aligned_free_fn   = void(__cdecl*)(void*);
 
@@ -808,7 +804,7 @@ namespace big::mod_settings
 
 	static void* game_alloc(std::size_t size)
 	{
-		return g_game_aligned_malloc ? g_game_aligned_malloc(size, 8) : nullptr; // alignment 8 matches the engine
+		return g_game_aligned_malloc ? g_game_aligned_malloc(size, 8) : nullptr;
 	}
 
 	static void game_free(void* block)
@@ -875,7 +871,7 @@ namespace big::mod_settings
 		std::memcpy(def + def_press_sound, def + src, sound_cue_size);
 	}
 
-	// Dims a row's def text colours (both normal and selected) so a disabled row reads as greyed out and does not
+	// Dims a row's def text colours so a disabled row reads as greyed out and does not
 	// recolour on hover. Must be applied before SetupComponent so the change reaches the text box.
 	static void set_def_text_grey(GUIComponent* row)
 	{
@@ -949,7 +945,6 @@ namespace big::mod_settings
 		}
 	}
 
-	// A plain left-justified text row. Disabled rows are greyed and hard-disabled by default.
 	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true, bool no_hover_highlight = false)
 	{
 		auto* row = create_button(screen);
@@ -966,7 +961,7 @@ namespace big::mod_settings
 		*reinterpret_cast<std::uint8_t*>(def + def_add_text_area)      = 1; // hit area follows the text
 		*reinterpret_cast<std::uint8_t*>(def + def_use_text_area)      = 0; // (union with the empty graphic area)
 		*reinterpret_cast<std::uint32_t*>(def + def_graphic)           = 0; // no button background
-		*reinterpret_cast<std::uint32_t*>(def + def_selected_graphic)  = 0; // no
+		*reinterpret_cast<std::uint32_t*>(def + def_selected_graphic)  = 0; // no highlight box (text recolours instead)
 		*reinterpret_cast<std::uint32_t*>(def + def_alternate_graphic) = 0;
 		*reinterpret_cast<float*>(def + def_width)                     = 0.0f; // let the text drive the area
 		*reinterpret_cast<float*>(def + def_height)                    = 0.0f;
@@ -1071,7 +1066,7 @@ namespace big::mod_settings
 		return row;
 	}
 
-	// A centered native button row for actions like Apply/Reset, visually distinct from plain-text setting rows.
+	// A centered native button row for actions.
 	static void install_wide_button_nav_rect(GUIComponent* row); // defined below (near row_bounded_area)
 
 	static GUIComponent* make_button_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true)
@@ -2839,10 +2834,10 @@ namespace big::mod_settings
 					default: break;
 					}
 				}
-				const bool is_enum   = vmeta && !vmeta->values.empty();
-				const bool is_bool   = vv.type == virtual_value::kind::boolean;
-				const bool is_number = vv.type == virtual_value::kind::number;
-				const double step    = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
+				const bool is_enum    = vmeta && !vmeta->values.empty();
+				const bool is_bool    = vv.type == virtual_value::kind::boolean;
+				const bool is_number  = vv.type == virtual_value::kind::number;
+				const double step     = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
 				const bool is_stepper = !is_enum && is_number && vmeta && vmeta->has_min && vmeta->has_max;
 
 				std::string vv_serialized;
@@ -3200,7 +3195,7 @@ namespace big::mod_settings
 			}
 			else if (is_stepper)
 			{
-				// Bounded numbers use sliders, falling back to a number-box if the slider cannot be built.
+				// Bounded numbers use sliders, falling back to a num-box if the slider cannot be built.
 				row = make_slider_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, disabled);
 				if (row)
 				{
@@ -4435,7 +4430,7 @@ namespace big::mod_settings
 		return result;
 	}
 
-	// Value-change hook for our native number-box rows, filtered because it also fires for native settings num-boxes.
+	// Value-change hook for our native num-box rows, filtered because it also fires for native settings num-boxes.
 	static void hook_GUIComponentNumBox_SetNumberValue(void* self, float value, bool notify)
 	{
 		big::g_hooking->get_original<hook_GUIComponentNumBox_SetNumberValue>()(self, value, notify);
@@ -4658,7 +4653,7 @@ namespace big::mod_settings
 			{
 				auto* entry = matched_row.entry;
 
-				// Boolean settings toggle in place. Other types open a freetext editor. Number-box rows are
+				// Boolean settings toggle in place. Other types open a freetext editor. Num-box rows are
 				// GUIComponentNumBox, so their clicks never reach this hook.
 				if (entry && entry->type() == typeid(bool))
 				{
@@ -5119,7 +5114,7 @@ namespace big::mod_settings
 		g_button_dtor = big::hades2_symbol_to_address["sgg::GUIComponentButton::~GUIComponentButton"].as_func<void(void*)>();
 		g_disable = big::hades2_symbol_to_address["sgg::GUIComponentButton::Disable"].as_func<void(void*)>();
 
-		// Slider construction + drag hook (optional: if any is missing, bounded numbers fall back to the number-box stepper).
+		// Slider construction + drag hook (optional: if any is missing, bounded numbers fall back to the num-box stepper).
 		// SetFraction is both the initial set and the drag hook (installed below). The slider vtable is resolved by name (RVA
 		// fallback) once the build is verified.
 		g_gui_component_ctor = big::hades2_symbol_to_address["sgg::GUIComponent::GUIComponent"].as_func<void(void*, std::uint64_t)>();
@@ -5263,7 +5258,7 @@ namespace big::mod_settings
 		    set_number_value);
 
 		// Optional: persists user drags on our slider rows (filtered to our rows via find_row, so it is a no-op for the
-		// native audio sliders). If absent, bounded numbers render as the number-box stepper.
+		// native audio sliders). If absent, bounded numbers render as the num-box stepper.
 		if (slider_set_fraction)
 		{
 			static auto set_fraction_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentSlider_SetFraction>("sgg::GUIComponentSlider::SetFraction", slider_set_fraction);
