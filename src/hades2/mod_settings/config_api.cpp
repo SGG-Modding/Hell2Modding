@@ -30,46 +30,30 @@ namespace big::mod_settings
 {
 #pragma region Metadata registries and accessors
 
-	// Author-declared per-setting metadata (display name, bounds, enum options, ordering, restart flag), populated from
-	// each mod's config.lua by rom.mod_settings.load. Keyed by guid + '\0' + section + '\0' + key. Only settings with a
-	// rich-table description are registered - the rest fall back to type-based rendering.
+	// Author-declared per-setting metadata, populated from each mod's config.lua by rom.mod_settings.load.
+	// Only settings with a rich-table description are registered, the rest fall back to type-based rendering.
 	static std::mutex g_metadata_mutex;
 	static std::map<std::string, setting_metadata> g_setting_metadata;
 
-	// Per-setting appearance rank (a key's definition order in config.lua), for EVERY bound key. Keyed like
-	// g_setting_metadata. Orders rows that have no author `order`, since Lua pairs() and the config map both lose the
-	// source order.
-	static std::map<std::string, int> g_appearance_order;
-
 	// Serialized config.lua default for every bound key, captured at load. The menu's Reset action restores this value.
-	// Keyed like g_setting_metadata.
 	static std::map<std::string, std::string> g_setting_default;
 
-	// (section, key) pairs that carry a configDesc entry. A key with none is hidden from the menu, except the mod's
-	// master "enabled" toggle (always shown). Keyed like g_setting_metadata.
+	// (section, key) pairs that carry a configDesc entry. A key with none is hidden from the menu.
 	static std::set<std::string> g_described_keys;
 
-	// Guids of mods that called rom.mod_settings.opt_out(), mapped to the optional custom description they passed
-	// (empty when none). Cleared and rebuilt on each Lua-state init because opt_out re-runs with each mod's main.lua.
+	// Guids of mods that called rom.mod_settings.opt_out(), mapped to the optional custom description they passed.
 	static std::map<std::string, localized_text> g_opted_out_mods;
 
-	// Action buttons declared in config.lua (configDesc entries with an `action` function, no config value). Keyed by
-	// guid, in config.lua source order. Plain data (the callable stays in the Lua-side description registry and is
-	// invoked by navigation). Cleared each Lua-state init in bind_config_api.
+	// Action buttons declared in config.lua (configDesc entries with an `action` function).
 	static std::map<std::string, std::vector<action_info>> g_actions;
 
-	// Virtual rows declared in config.lua (configDesc entries marked `virtual = true` with no backing config value).
-	// Keyed by guid, in config.lua source order. Like g_actions, the get/set/text callables stay in the Lua-side
-	// description registry and are resolved at render. Cleared per-mod in clear_metadata_for.
+	// Virtual rows declared in config.lua.
 	static std::map<std::string, std::vector<virtual_row_info>> g_virtual_rows;
 
-	// Author-declared menu group trees (top-level configDesc `groups`), keyed by guid. These are the menu categories a
-	// per-entry `group` can reference that do not correspond to a config section. Cleared each Lua-state init in
-	// bind_config_api. mod_menu_groups returns an empty tree for mods that declared none.
+	// Author-declared menu group trees (top-level configDesc `groups`). These are the menu categories a per-entry
+	// `group` can reference that do not correspond to a config section.
 	static std::map<std::string, std::vector<menu_group>> g_menu_groups;
 
-	// The config section every mod's settings are bound under (matches SGG_Modding-Chalk, keeps the .cfg
-	// byte-compatible). Description tables in config.lua mirror the config table under this root.
 	static constexpr const char* root_section = "config";
 
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
@@ -84,18 +68,12 @@ namespace big::mod_settings
 		return k;
 	}
 
-	// Drops a mod's metadata before it re-registers: config.lua may change between loads, and the Lua state is
-	// recreated on App::Reset (so load runs again for every mod).
 	static void clear_metadata_for(const std::string& guid)
 	{
 		const std::string prefix = guid + '\0';
 		for (auto it = g_setting_metadata.begin(); it != g_setting_metadata.end();)
 		{
 			it = (it->first.rfind(prefix, 0) == 0) ? g_setting_metadata.erase(it) : std::next(it);
-		}
-		for (auto it = g_appearance_order.begin(); it != g_appearance_order.end();)
-		{
-			it = (it->first.rfind(prefix, 0) == 0) ? g_appearance_order.erase(it) : std::next(it);
 		}
 		for (auto it = g_setting_default.begin(); it != g_setting_default.end();)
 		{
@@ -125,19 +103,10 @@ namespace big::mod_settings
 		return it->second;
 	}
 
-	// True if (section, key) carries a configDesc entry (any form: a description string, a setting/action table, or a
-	// group table). The menu shows only described keys. An undescribed config key is hidden (see build_mod_settings).
 	bool setting_is_described(const std::string& guid, const std::string& section, const std::string& key)
 	{
 		std::scoped_lock lock(g_metadata_mutex);
 		return g_described_keys.contains(metadata_key(guid, section, key));
-	}
-
-	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key)
-	{
-		std::scoped_lock lock(g_metadata_mutex);
-		const auto it = g_appearance_order.find(metadata_key(guid, section, key));
-		return it != g_appearance_order.end() ? it->second : INT_MAX;
 	}
 
 	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key)
@@ -169,57 +138,6 @@ namespace big::mod_settings
 		std::scoped_lock lock(g_metadata_mutex);
 		const auto it = g_menu_groups.find(guid);
 		return it != g_menu_groups.end() ? it->second : std::vector<menu_group>{};
-	}
-
-#pragma endregion
-
-#pragma region Source-order ranking helpers
-
-	// Byte offset of a key's definition ("<key> =") in config.lua source at or after `start` (whole-word, not "=="),
-	// or npos. Occurrences inside strings/prose do not match because they are not followed by a bare '='.
-	static std::size_t find_key_definition(const std::string& src, const std::string& key, std::size_t start = 0)
-	{
-		auto is_ident = [](char c)
-		{
-			return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
-		};
-
-		for (std::size_t pos = src.find(key, start); pos != std::string::npos; pos = src.find(key, pos + 1))
-		{
-			if (pos > 0 && is_ident(src[pos - 1]))
-			{
-				continue; // not a word boundary on the left (e.g. "my_key" when searching "key")
-			}
-			std::size_t after = pos + key.size();
-			if (after < src.size() && is_ident(src[after]))
-			{
-				continue; // not a word boundary on the right
-			}
-			while (after < src.size() && (src[after] == ' ' || src[after] == '\t'))
-			{
-				++after;
-			}
-			if (after < src.size() && src[after] == '=' && (after + 1 >= src.size() || src[after + 1] != '='))
-			{
-				return pos;
-			}
-		}
-		return std::string::npos;
-	}
-
-	// Rank position for a described entry: where it appears in configDesc, so the menu's fallback order follows the
-	// author's layout rather than the `config` defaults table. A config-backed key appears in `config` first and again
-	// in configDesc, so the SECOND occurrence is taken; a virtual row or action only ever appears once. Returns npos
-	// (sorts last) when the key cannot be located, e.g. a numeric or bracketed key.
-	static std::size_t desc_definition_offset(const std::string& src, const std::string& key, bool config_backed)
-	{
-		const std::size_t first = find_key_definition(src, key);
-		if (!config_backed || first == std::string::npos)
-		{
-			return first;
-		}
-		const std::size_t second = find_key_definition(src, key, first + 1);
-		return second != std::string::npos ? second : first;
 	}
 
 #pragma endregion
@@ -1503,66 +1421,7 @@ namespace big::mod_settings
 			menu_groups = parse_menu_groups(descriptions.as<sol::table>()["groups"]);
 		}
 
-		// Read config.lua source to recover the author's key order (Lua pairs() and the alphabetical config map both
-		// lose it), then rank every bound key by where it is defined.
-		std::string source_text;
-		{
-			std::ifstream file(config_lua_path, std::ios::binary);
-			if (file)
-			{
-				std::ostringstream ss;
-				ss << file.rdbuf();
-				source_text = ss.str();
-			}
-		}
-		// Rank every described entry by where it appears in configDesc (the menu-layout table), so an author who sets no
-		// explicit `order` gets the rows in the order they laid out in configDesc. Config-backed keys are located via
-		// their configDesc entry (their second source occurrence), virtual rows and actions via their only one.
-		std::vector<std::tuple<std::size_t, std::string, std::string>> by_offset; // (offset, section, key).
-		for (const auto& [def, entry] : cf->m_entries)
-		{
-			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, def.m_key, true);
-			by_offset.emplace_back(off, def.m_section, def.m_key);
-		}
-		for (const auto& vr : virtual_rows)
-		{
-			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, vr.key, false);
-			by_offset.emplace_back(off, vr.section, vr.key);
-		}
-		for (const auto& a : actions)
-		{
-			const std::size_t off = source_text.empty() ? std::string::npos : desc_definition_offset(source_text, a.key, false);
-			by_offset.emplace_back(off, a.section, a.key);
-		}
-		std::stable_sort(by_offset.begin(),
-		                 by_offset.end(),
-		                 [](const auto& a, const auto& b)
-		                 {
-			                 return std::get<0>(a) < std::get<0>(b);
-		                 });
-
-		// Order the collected actions by their position in the config.lua source so their menu order is deterministic
-		// and matches how the author wrote them (collect_actions walks in Lua pairs order, which is unspecified).
-		std::stable_sort(actions.begin(),
-		                 actions.end(),
-		                 [&](const action_info& a, const action_info& b)
-		                 {
-			                 const std::size_t oa = source_text.empty() ? std::string::npos : find_key_definition(source_text, a.key);
-			                 const std::size_t ob = source_text.empty() ? std::string::npos : find_key_definition(source_text, b.key);
-			                 return oa < ob;
-		                 });
-
-		// Same for virtual rows.
-		std::stable_sort(virtual_rows.begin(),
-		                 virtual_rows.end(),
-		                 [&](const virtual_row_info& a, const virtual_row_info& b)
-		                 {
-			                 const std::size_t oa = source_text.empty() ? std::string::npos : find_key_definition(source_text, a.key);
-			                 const std::size_t ob = source_text.empty() ? std::string::npos : find_key_definition(source_text, b.key);
-			                 return oa < ob;
-		                 });
-
-		// Register this mod's setting metadata + appearance order (replacing any from a previous load of the same mod).
+		// Register this mod's setting metadata (replacing any from a previous load of the same mod).
 		{
 			std::scoped_lock lock(g_metadata_mutex);
 			clear_metadata_for(guid);
@@ -1577,11 +1436,6 @@ namespace big::mod_settings
 			for (const auto& [section, key] : collected_described)
 			{
 				g_described_keys.insert(metadata_key(guid, section, key));
-			}
-			int rank = 0;
-			for (const auto& [off, section, key] : by_offset)
-			{
-				g_appearance_order[metadata_key(guid, section, key)] = rank++;
 			}
 			g_actions[guid]      = std::move(actions);
 			g_virtual_rows[guid] = std::move(virtual_rows);
@@ -1996,7 +1850,6 @@ namespace big::mod_settings
 		{
 			std::scoped_lock lock(g_metadata_mutex);
 			g_setting_metadata.clear();
-			g_appearance_order.clear();
 			g_setting_default.clear();
 			g_opted_out_mods.clear();
 			g_actions.clear();

@@ -191,7 +191,7 @@ namespace big::mod_settings
 	};
 
 	// The virtual (non-config) rows declared directly in config `section` of mod `guid` (not recursing into child
-	// sections), in config.lua source order.
+	// sections). The order is unspecified (the menu sorts rows itself, by `order` then display name).
 	std::vector<virtual_row_info> get_virtual_rows(const std::string& guid, const std::string& section);
 
 	// The display string for a READ-ONLY virtual row, from its `text` (a string or a function returning one) callback.
@@ -229,11 +229,6 @@ namespace big::mod_settings
 	// already holds it. The menu Reset scopes which rows to restore by their menu path and calls this per row (config-
 	// backed settings recover their own defaults separately). Call on the game thread while the Lua state is alive.
 	bool reset_virtual_row_to_default(const std::string& guid, const std::string& section, const std::string& key);
-
-	// Rank of a setting's definition in its config.lua source (0 = first). Used to order rows that have no
-	// author-declared `order` in config-file order. Returns INT_MAX for keys not bound via rom.mod_settings.load (e.g.
-	// Chalk-bound), so they fall back to the config map order.
-	int get_setting_appearance_order(const std::string& guid, const std::string& section, const std::string& key);
 
 	// Returns the config.lua default (serialized like the config entry's value) for a setting bound via
 	// rom.mod_settings.load, or std::nullopt for keys with no captured default. Used by the settings menu's. Reset

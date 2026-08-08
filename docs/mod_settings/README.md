@@ -39,7 +39,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `step` | number \| callback | Slider/number step size (default 1). Will clamp user input automatically. |
 | `values` | array \| callback | Enum: the values stored in the `.cfg` file. If present, the input will turn into a cycler (such as for the selected display). |
 | `labels` | array of (string \| localization table) \| callback | Display labels parallel to `values`, only used in the in-game mod menu. |
-| `order` | number \| callback | Sort key for custom ordering config entries in the menu, lower first. When omitted, rows follow their definition order in `configDesc`. |
+| `order` | number \| callback | Sort key for custom ordering config entries in the menu, lower first. Rows carrying an `order` are listed above those without one. When omitted, rows are sorted alphabetically by their `displayName`. |
 | `hidden` | boolean | Hide the setting from the menu entirely. Static only - use `disabled` for a condition that changes while the menu is open. |
 | `disabled` | boolean \| callback | Grey the setting out (read-only) while true. Updates live while the menu is open. See below. |
 | `disabledDescription` | string \| localization table \| callback | Description shown in place of `description` while the setting is greyed by its own `disabled` field, to explain why. Falls back to `description` when omitted. Not used for context-restricted or mod-disabled rows. |

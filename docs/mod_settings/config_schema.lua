@@ -27,7 +27,8 @@
 ---@field displayName? mod_settings.localized_string
 --- Help text shown while the category's row is highlighted.
 ---@field description? mod_settings.localized_string
---- Sort key among sibling categories/rows, lower first.
+--- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
+--- which are sorted alphabetically by their displayName.
 ---@field order? number
 --- Nested sub-categories, keyed by their id (referenced as later path segments in a `group`).
 ---@field groups? table<string, mod_settings.menu_group>
@@ -54,8 +55,8 @@
 --- Display labels shown for each entry of `values` (same order, same number of entries). Each label may be a
 --- localization table. When omitted, the raw values are shown in the cycler.
 ---@field labels? mod_settings.localized_string[] | fun(): mod_settings.localized_string[]
---- Sort key for custom ordering config entries in the menu, lower first.
---- When omitted, rows keep the order they are defined in in configDesc.
+--- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
+--- which are sorted alphabetically by their displayName.
 ---@field order? mod_settings.dynamic_number
 --- Hide this setting from the menu entirely. Static only (evaluated when the menu builds) - for a
 --- condition that changes while the menu is open, use `disabled`, which greys the setting out.
@@ -172,8 +173,8 @@
 --- Help text shown at the bottom of the options menu while the config rows is highlighted. Recommended to keep
 --- to about 35 characters so it leaves enough space for free-text input strings.
 ---@field description? mod_settings.dynamic_string
---- Sort key for custom ordering config entries in the menu, lower first.
---- When omitted, rows keep the order they are defined in in configDesc.
+--- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
+--- which are sorted alphabetically by their displayName.
 ---@field order? number
 --- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
 ---@field group? mod_settings.group

@@ -621,6 +621,33 @@ namespace big::mod_settings
 		return out;
 	}
 
+	static int compare_display_names(const std::string& a, const std::string& b)
+	{
+		const std::size_t n = std::min(a.size(), b.size());
+		for (std::size_t i = 0; i < n; ++i)
+		{
+			unsigned char ca = static_cast<unsigned char>(a[i]);
+			unsigned char cb = static_cast<unsigned char>(b[i]);
+			if (ca >= 'A' && ca <= 'Z')
+			{
+				ca = static_cast<unsigned char>(ca + ('a' - 'A'));
+			}
+			if (cb >= 'A' && cb <= 'Z')
+			{
+				cb = static_cast<unsigned char>(cb + ('a' - 'A'));
+			}
+			if (ca != cb)
+			{
+				return ca < cb ? -1 : 1;
+			}
+		}
+		if (a.size() == b.size())
+		{
+			return 0;
+		}
+		return a.size() < b.size() ? -1 : 1;
+	}
+
 	// --- Text metrics + caret helpers (byte indices into a string UTF-8 aware) --- Approximate width of a single byte in
 	// the value font, in the same units as value_display_max_width (medium glyph.
 	static float glyph_weight(unsigned char c)
@@ -1732,7 +1759,7 @@ namespace big::mod_settings
 		          mods.end(),
 		          [](const auto& a, const auto& b)
 		          {
-			          return a.first < b.first;
+			          return compare_display_names(a.first, b.first) < 0;
 		          });
 
 		for (const auto& [display, stem] : mods)
@@ -2610,7 +2637,7 @@ namespace big::mod_settings
 		localized_text author_description; // author-group description (is_author_group only)
 		bool has_order  = false;
 		double order    = 0.0;
-		int appearance  = INT_MAX;        // config.lua source rank (fallback order)
+		std::string sort_name;            // resolved display name, the alphabetical fallback sort key
 		bool is_enabled = false;          // the mod's master "enabled" toggle (root section only)
 		bool is_action  = false;          // a config.lua action button (runs a Lua callback, no config value)
 		action_info action;               // valid when is_action
@@ -2635,7 +2662,7 @@ namespace big::mod_settings
 		panel_contents out;
 		std::vector<panel_item>& items = out.items;
 
-		std::map<std::string, panel_item> groups;        // child menu path -> group item (keeps its min appearance).
+		std::map<std::string, panel_item> groups;        // child menu path -> group item
 		toml_v2::config_file*& view_cfg  = out.view_cfg; // this mod's config file (for child lookups)
 		const std::string section_prefix = section + ".";
 
@@ -2666,40 +2693,46 @@ namespace big::mod_settings
 			return 0;
 		};
 
-		// Creates (or ranks lower) the child group row at `child_path`. A group declared in configDesc `groups` takes
-		// its name/order/description from there; otherwise it is config-derived and resolved in the render.
-		auto ensure_group = [&](const std::string& child_path, int app)
+		// Creates the child group row at `child_path` (no-op if it already exists). A group declared in configDesc
+		// `groups` takes its name/order/description from there; otherwise it is config-derived and resolved in the
+		// render. Its sort name mirrors the label the render picks, so the alphabetical fallback matches what is shown.
+		auto ensure_group = [&](const std::string& child_path)
 		{
-			if (const auto git = groups.find(child_path); git != groups.end())
+			if (groups.contains(child_path))
 			{
-				if (app < git->second.appearance)
-				{
-					git->second.appearance = app;
-				}
 				return;
 			}
 			panel_item g;
 			g.is_group      = true;
 			g.child_section = child_path;
-			g.appearance    = app;
 			g.key           = child_path.substr(child_path.rfind('.') + 1); // the child's last path segment
 			if (const menu_group* ag = find_author_group(author_groups, child_path))
 			{
 				g.is_author_group    = true;
 				g.author_name        = ag->name;
 				g.author_description = ag->description;
+				g.sort_name          = resolve_localized(ag->name);
 				if (ag->has_order)
 				{
 					g.has_order = true;
 					g.order     = ag->order;
 				}
 			}
-			else if (const auto meta = resolved_metadata(stem, section, g.key); meta && meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
+			else if (const auto meta = resolved_metadata(stem, section, g.key); meta)
 			{
+				g.sort_name = resolve_localized(meta->name);
+
 				// Config-derived group: its metadata is configDesc.<section>.<child>, resolved here for order and again
 				// in the render for name/description. Defers to a real config child named "order".
-				g.has_order = true;
-				g.order     = meta->order;
+				if (meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
+				{
+					g.has_order = true;
+					g.order     = meta->order;
+				}
+			}
+			if (g.sort_name.empty())
+			{
+				g.sort_name = key_to_display(g.key);
 			}
 			groups.emplace(child_path, std::move(g));
 		};
@@ -2745,7 +2778,7 @@ namespace big::mod_settings
 					it.key            = key.m_key;
 					it.entry          = entry.get();
 					it.config_section = key.m_section;
-					it.appearance     = get_setting_appearance_order(stem, key.m_section, key.m_key);
+					it.sort_name      = setting_display_name(stem, key.m_section, key.m_key);
 					if (const auto meta = resolved_metadata(stem, key.m_section, key.m_key); meta && meta->has_order)
 					{
 						it.has_order = true;
@@ -2755,7 +2788,7 @@ namespace big::mod_settings
 				}
 				else if (place == 2)
 				{
-					ensure_group(child_path, get_setting_appearance_order(stem, key.m_section, key.m_key));
+					ensure_group(child_path);
 				}
 			}
 		}
@@ -2773,7 +2806,7 @@ namespace big::mod_settings
 			const int place = placement(a.section, a.group, child_path);
 			if (place == 2)
 			{
-				ensure_group(child_path, get_setting_appearance_order(stem, a.section, a.key));
+				ensure_group(child_path);
 				continue;
 			}
 			if (place != 1)
@@ -2786,8 +2819,12 @@ namespace big::mod_settings
 			it.config_section = a.section;
 			it.has_order      = a.has_order;
 			it.order          = a.order;
-			it.appearance     = get_setting_appearance_order(stem, a.section, a.key);
-			it.action         = std::move(a);
+			it.sort_name      = resolve_localized(a.name);
+			if (it.sort_name.empty())
+			{
+				it.sort_name = key_to_display(a.key);
+			}
+			it.action = std::move(a);
 			items.push_back(std::move(it));
 		}
 
@@ -2799,7 +2836,7 @@ namespace big::mod_settings
 			const int place = placement(vr.section, vr.group, child_path);
 			if (place == 2)
 			{
-				ensure_group(child_path, get_setting_appearance_order(stem, vr.section, vr.key));
+				ensure_group(child_path);
 				continue;
 			}
 			if (place != 1)
@@ -2817,7 +2854,7 @@ namespace big::mod_settings
 			it.config_section      = vr.section;
 			it.has_order           = vr.has_order;
 			it.order               = vr.order;
-			it.appearance          = get_setting_appearance_order(stem, vr.section, vr.key);
+			it.sort_name           = setting_display_name(stem, vr.section, vr.key);
 			items.push_back(std::move(it));
 		}
 
@@ -2833,9 +2870,9 @@ namespace big::mod_settings
 			}
 		}
 
-		// Row order: the master "enabled" toggle is pinned to the top then rows with an author `order` (ascending) then
-		// the rest by configDesc source order (a group's rank is its earliest-defined descendant's, so a drill-in sits
-		// where its content is declared rather than being pinned above the settings).
+		// Row order: the master "enabled" toggle is pinned to the top, then rows carrying an authored `order` (ascending),
+		// then everything else alphabetically by its displayed name. Sorting on the display name (not the config key)
+		// keeps the list alphabetical in whatever language is active, matching what the player actually reads.
 		std::stable_sort(items.begin(),
 		                 items.end(),
 		                 [](const panel_item& a, const panel_item& b)
@@ -2856,7 +2893,7 @@ namespace big::mod_settings
 			                 {
 				                 return a.order < b.order;
 			                 }
-			                 return a.appearance < b.appearance; // equal/absent order -> configDesc source order
+			                 return compare_display_names(a.sort_name, b.sort_name) < 0;
 		                 });
 
 		return out;
