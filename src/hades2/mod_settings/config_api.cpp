@@ -427,12 +427,6 @@ namespace big::mod_settings
 			m.disabled = disabled_field.as<bool>();
 		}
 
-		sol::object freetext_field = desc["freetext"];
-		if (freetext_field.is<bool>())
-		{
-			m.freetext = freetext_field.as<bool>();
-		}
-
 		sol::object show_pct_field = desc["showAsPercentage"];
 		if (show_pct_field.is<bool>())
 		{
@@ -708,7 +702,6 @@ namespace big::mod_settings
 		    "order",
 		    "hidden",
 		    "disabled",
-		    "freetext",
 		    "restartRequired",
 		    "editableContext",
 		    "showAsPercentage",
@@ -1297,11 +1290,12 @@ namespace big::mod_settings
 		}
 	}
 
-	// Lua API: Function. Table: mod_settings. Name: load. Param: config_lua: string: Path, relative to the mod's
-	// folder, of the config.lua that returns `config, configDesc`. Returns: table: A live read/write proxy over the
-	// mod's config - index it to read a setting, assign to write one. Registers the mod's settings under the Mods tab
-	// of the Options menu. Replaces depending on `Chalk`.
-	static sol::object load(sol::this_state ts, sol::this_environment this_env, const std::string& config_lua)
+	// Lua API: Function. Table: mod_settings. Name: load. Param: configFilePath: string: Path, relative to the mod's
+	// folder, of the `config.lua` that returns `config` and `configDesc`. Returns: table: A live read/write proxy over
+	// the mod's config. Index it to read a setting and assign to write one. Registers the mod's settings under the Mods
+	// tab of the in-game Options menu. Also manages the mod's `.cfg` file, setting default values for new options and
+	// loading values saved to it by users. When using this, your mod does not need to depend on or use `Chalk`.
+	static sol::object load(sol::this_state ts, sol::this_environment this_env, const std::string& config_file_path)
 	{
 		if (!this_env)
 		{
@@ -1329,7 +1323,7 @@ namespace big::mod_settings
 		auto& cf = module->m_data.m_config_files.emplace_back(std::make_unique<toml_v2::config_file>(cfg_path, true, guid));
 
 		const std::string mod_folder      = env["_PLUGIN"]["plugins_mod_folder_path"];
-		const std::string config_lua_path = mod_folder + "/" + config_lua;
+		const std::string config_lua_path = mod_folder + "/" + config_file_path;
 
 		sol::load_result loaded = state.load_file(config_lua_path);
 		if (!loaded.valid())
@@ -1784,9 +1778,9 @@ namespace big::mod_settings
 #pragma region Opt-out and API registration
 
 	// Lua API: Function. Table: mod_settings. Name: opt_out. Param: description: string: Optional. A plain string or a
-	// localization table `{ en = "...", de = "..." }` shown in place of the generic opt-out note. Excludes the calling
-	// mod from the in-game menu: it stays listed but greyed out and cannot be opened. Works with Chalk or
-	// rom.mod_settings.load.
+	// localization table `{ en = "...", de = "..." }` shown in place of the generic note when the mod's disabled row is
+	// hovered. Excludes the calling mod from the in-game mod settings menu: it stays listed but will be greyed out and
+	// cannot be opened. Use it when the mod should not be edited in-game. Works with Chalk or rom.mod_settings.load.
 	static void opt_out(sol::this_environment this_env, sol::object description)
 	{
 		// Keyed by the calling mod's guid (which matches its config-file stem), so the menu can grey the matching row

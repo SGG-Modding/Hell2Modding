@@ -1,8 +1,8 @@
 ---@meta
 
 --- A user-facing string. Either a plain string, or a localization table keyed by the game's language
---- folder codes (en, de, el, es, fr, it, ja, ko, pl, pt-BR, ru, tr, uk, zh-CN, zh-TW). It is resolved
---- to the current game language when the menu is shown, falling back to English.
+--- codes (en, de, el, es, fr, it, ja, ko, pl, pt-BR, ru, tr, uk, zh-CN, zh-TW). It is resolved to the
+--- currently set language when the menu is shown, falling back to English.
 --- Example: `{ en = "Difficulty", de = "Schwierigkeit" }`
 ---@alias mod_settings.localized_string string | table<string, string>
 
@@ -12,11 +12,11 @@
 ---@alias mod_settings.dynamic_boolean boolean | fun(): boolean
 ---@alias mod_settings.dynamic_string mod_settings.localized_string | fun(): mod_settings.localized_string
 
---- A menu placement path. The in-game menu layout is decoupled from the config file structure: by default a
+--- A menu placement path. The in-game menu layout can be decoupled from the config file structure: by default a
 --- setting appears under its config section (so a nested config nests in the menu), but a `group` moves it into
 --- a different or brand-new menu category instead. A single string is a one-level group; an array is a nested
 --- path (e.g. { "Debugging", "Logging" }). configDesc must still mirror the config structure (debugging.logLevel
---- in config is debugging.logLevel in configDesc). Supplying `group` only changes where a row is shown, not wherer
+--- in config is debugging.logLevel in configDesc). Supplying `group` only changes where a row is shown, not where
 --- its value lives in the .cfg file.
 ---@alias mod_settings.group string | string[]
 
@@ -27,10 +27,10 @@
 ---@field displayName? mod_settings.localized_string
 --- Help text shown while the category's row is highlighted.
 ---@field description? mod_settings.localized_string
---- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
---- which are sorted alphabetically by their displayName.
+--- Sort key among sibling categories/rows, lowest first. Entries with an `order` are listed above those without
+--- one, which are sorted alphabetically by their displayName.
 ---@field order? number
---- Nested sub-categories, keyed by their id (referenced as later path segments in a `group`).
+--- Further nested sub-categories, keyed by their id (referenced as later path segments in a `group`).
 ---@field groups? table<string, mod_settings.menu_group>
 
 
@@ -38,56 +38,54 @@
 --- widget type is inferred from the setting's config value (a boolean becomes a toggle; a number with `min`
 --- and `max` becomes a slider; a value with `values` becomes a cycler; anything else is a free-text field).
 ---@class (exact) mod_settings.setting_description
---- Help text shown at the bottom of the options menu while the config rows is highlighted. Recommended to keep
---- to about 35 characters so it leaves enough space for free-text input strings.
----@field description? mod_settings.dynamic_string
 --- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
+--- Recommended to keep to about 35 characters so it leaves enough space for the value shown to its right.
 ---@field displayName? mod_settings.dynamic_string
+--- Help text shown in the description box at the bottom of the screen while the row is highlighted. Recommended
+--- to keep to about 450 characters.
+---@field description? mod_settings.dynamic_string
+--- Sort key among sibling categories/rows, lowest first. Entries with an `order` are listed above those without
+--- one, which are sorted alphabetically by their displayName.
+---@field order? mod_settings.dynamic_number
+--- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
+--- Hide this setting from the menu entirely. Static only (evaluated when the menu builds) - use `disabled` for
+--- rows that change state while the menu is open.
+---@field hidden? boolean
+--- Grey the setting out (shown read-only, cannot be changed) while this is true. Unlike `hidden`, a `disabled`
+--- change updates live while the menu is open (e.g. grey a slider unless its parent toggle is enabled).
+---@field disabled? mod_settings.dynamic_boolean
+--- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
+--- explain why it is unavailable. Defaults to the normal `description` when omitted.
+---@field disabledDescription? mod_settings.dynamic_string
+--- Restrict where this row can be edited: only the main menu, only in a save, only in the Crossroads
+--- or anywhere (default). Outside of the allowed context the row shows as disabled. Restrict this if the mod or
+--- game would break if the setting is edited in the wrong context.
+--- The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`.
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
+--- Force the user to restart the game after exiting the mod menu if this setting was changed.
+---@field restartRequired? boolean
+--- Called after this setting's value is changed through the options menu, with the setting's key and the new value.
+--- Not called for config writes made outside the menu. Re-writing the same value is a no-op and does not fire.
+--- Errors are logged, not propagated.
+---@field onChanged? fun(key: string, new_value: boolean|number|string)
 --- Lower bound for a numeric setting. Combined with `max`, the setting renders as a slider.
 ---@field min? mod_settings.dynamic_number
 --- Upper bound for a numeric setting. Combined with `min`, the setting renders as a slider.
 ---@field max? mod_settings.dynamic_number
 --- Step between values for a slider and free-text number inputs. Defaults to 1.
 ---@field step? mod_settings.dynamic_number
+--- Append "%" to the displayed value. Usually used for min/max restricted number fields.
+---@field showAsPercentage? boolean
+--- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x). You don't need
+--- `showAsPercentage` when using this.
+---@field isPercentage? boolean
 --- Enum options: the values actually stored in the .cfg file.
 --- Providing this makes the setting a cycler over these options.
 ---@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]
---- Display labels shown for each entry of `values` (same order, same number of entries). Each label may be a
---- localization table. When omitted, the raw values are shown in the cycler.
+--- Display labels to show instead of the underlying `values` in the mod menu (same order, same number of
+--- entries). Each label may be a localization table. Recommended to keep each to about 20 characters.
 ---@field labels? mod_settings.localized_string[] | fun(): mod_settings.localized_string[]
---- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
---- which are sorted alphabetically by their displayName.
----@field order? mod_settings.dynamic_number
---- Hide this setting from the menu entirely. Static only (evaluated when the menu builds) - for a
---- condition that changes while the menu is open, use `disabled`, which greys the setting out.
----@field hidden? boolean
---- Grey the setting out (shown read-only, cannot be changed) while this is true. Unlike `hidden`, a `disabled`
---- change updates live while the menu is open (e.g. grey a slider unless its parent toggle is enabled).
----@field disabled? mod_settings.dynamic_boolean
---- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
---- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
---- while the whole mod is disabled. Defaults to the normal `description` when omitted.
----@field disabledDescription? mod_settings.dynamic_string
---- Force a bounded number (one with `min` and `max`) to a free-text text field instead of a slider.
----@field freetext? boolean
---- Mark that changing this setting requires a game restart. The menu forces the player
---- to restart when they leave the mod menu after changing it.
----@field restartRequired? boolean
---- Restrict where this row can be edited: only the main menu, only in a save, only in the Crossroads
---- or anywhere (default). Outside of the allowed context the row shows as disabled.
---- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
---- The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`.
----@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
---- Append "%" to the displayed value.
----@field showAsPercentage? boolean
---- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
----@field isPercentage? boolean
---- Called after this setting's value is changed through the options menu, with the setting's key and the new value.
---- Fires in any context - guard live-run access (game.CurrentRun and GameState are absent in the main menu).
---- Re-writing the same value is a no-op and does not fire. Errors are logged, not propagated.
----@field onChanged? fun(key: string, new_value: boolean|number|string)
---- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
----@field group? mod_settings.group
 
 --- An action button in the menu that runs a callback instead of editing a config value. Declare it as a
 --- `configDesc` entry (with a matching key that has NO config value) carrying an `action` function.
@@ -98,20 +96,19 @@
 ---@field displayName? mod_settings.dynamic_string
 --- Help text shown while the button is highlighted.
 ---@field description? mod_settings.dynamic_string
---- Sort key among the section's rows, lower first.
+--- Sort key among the section's rows, lowest first.
 ---@field order? mod_settings.dynamic_number
---- Restrict where the button is enabled: main menu, in a save, in the Crossroads, or anywhere (default "any").
---- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
----@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
+--- Move this button to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
 --- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
 --- grey an "Apply" button until a value has actually changed).
 ---@field disabled? mod_settings.dynamic_boolean
---- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
---- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
---- while the whole mod is disabled. Defaults to the normal `description` when omitted.
+--- Description shown in place of `description` while the button is greyed by its own `disabled` field, to
+--- explain why it is unavailable. Defaults to the normal `description` when omitted.
 ---@field disabledDescription? mod_settings.dynamic_string
---- Move this button to a different or new menu category, overriding its config-section placement (see mod_settings.group).
----@field group? mod_settings.group
+--- Restrict where the button is enabled: main menu, in a save, in the Crossroads, or anywhere (default "any").
+--- Restrict this if the mod or game would break if the button is pressed in the wrong context.
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 
 --- A virtual row: a menu row that is NOT backed by a `config` value, whose value comes from Lua callbacks.
 --- Declare it as a `configDesc` entry whose key has NO matching `config` value, with `virtual = true` (required,
@@ -119,8 +116,8 @@
 ---  - READ-ONLY: give it `text` (a string, or a function returning one).
 ---  - INTERACTIVE: give it `get` (read) and `set` (write). The widget is inferred from get()'s value and the
 ---    metadata, exactly like a config setting is inferred from its config value: a boolean is a toggle, a number
----    with `min`+`max` is a slider (else a number box), and any type with `values` is an enum picker. If get()
----    can return nil at build time, force the widget with `type`. Give it a `default` to have the menu Reset
+---    with `min`+`max` is a slider (otherwise a freetext field), and any type with `values` is an enum picker. If
+---    get() can return nil at build time, force the widget with `type`. Give it a `default` to have the menu Reset
 ---    restore it.
 --- `get`/`set`/`text` and the metadata fields (displayName/description/values/min/max/step/labels) may all be
 --- functions, re-evaluated live.
@@ -136,48 +133,47 @@
 --- INTERACTIVE: writes the edited value back. Required for an interactive row (its presence makes the row
 --- interactive). For an enum row, receives the selected option as a STRING (the serialized form).
 ---@field set? fun(value: boolean | number | string)
---- Force the widget kind when get() may return nil at build time (so it cannot be inferred). Only needed then;
---- normally the widget is inferred from get()'s value. `"enum"` still needs `values`.
+--- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
+--- Recommended to keep to about 35 characters so it leaves enough space for the value shown to its right.
+---@field displayName? mod_settings.dynamic_string
+--- Help text shown in the description box at the bottom of the screen while the row is highlighted. Recommended
+--- to keep to about 450 characters.
+---@field description? mod_settings.dynamic_string
+--- Sort key among sibling categories/rows, lowest first. Entries with an `order` are listed above those without
+--- one, which are sorted alphabetically by their displayName.
+---@field order? number
+--- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
+---@field group? mod_settings.group
+--- Grey the row out (non-interactive) while this is true. Updates live while the menu is open.
+---@field disabled? mod_settings.dynamic_boolean
+--- Description shown in place of `description` while the row is greyed by its own `disabled` field, to explain
+--- why it is unavailable. Defaults to the normal `description` when omitted.
+---@field disabledDescription? mod_settings.dynamic_string
+--- Restrict where this row can be edited: main menu, in a save, in the Crossroads, or anywhere (default "any").
+--- Restrict this if the mod or game would break if the row is edited in the wrong context.
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
+--- Force the widget kind when get() may return nil at build time (so it cannot be inferred).
 ---@field type? "boolean" | "number" | "string" | "enum"
---- Value the menu Reset restores this row to, via its `set()` callback (config-backed settings recover their
---- own default instead). Rows without a `default` are left untouched by Reset.
+--- Value the menu's Reset button restores this row to, via its `set()` callback. Rows without a `default` are
+--- left untouched by Reset.
 ---@field default? boolean | number | string
---- Enum options: the values actually stored in the .cfg file.
---- Providing this makes the setting a cycler over these options.
----@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]
---- Display labels shown for each entry of `values` (same order, same number of entries). Each label may be a
---- localization table. When omitted, the raw values are shown in the cycler.
----@field labels? mod_settings.localized_string[] | fun(): mod_settings.localized_string[]
 --- Lower bound for a numeric setting. Combined with `max`, the setting renders as a slider.
 ---@field min? mod_settings.dynamic_number
 --- Upper bound for a numeric setting. Combined with `min`, the setting renders as a slider.
 ---@field max? mod_settings.dynamic_number
 --- Step between values for a slider and free-text number inputs. Defaults to 1.
 ---@field step? mod_settings.dynamic_number
---- Append "%" to the displayed value.
+--- Append "%" to the displayed value. Usually used for min/max restricted number fields.
 ---@field showAsPercentage? boolean
---- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x).
+--- Display a 0..x value as 0..x00 *and* append "%" (the stored value stays 0..x). You don't need
+--- `showAsPercentage` when using this.
 ---@field isPercentage? boolean
---- Grey the button out (non-interactive) while this is true. Updates live while the menu is open (e.g.
---- grey an "Apply" button until a value has actually changed).
----@field disabled? mod_settings.dynamic_boolean
---- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
---- explain why it is unavailable. Ignored for a context-restricted row (only editable in main menu etc.) or
---- while the whole mod is disabled. Defaults to the normal `description` when omitted.
----@field disabledDescription? mod_settings.dynamic_string
---- Restrict where this row can be edited: main menu, in a save, in the Crossroads, or anywhere (default "any").
---- In most cases, "any" will work, only restrict when actively changing a live value during gameplay, or save-specific data.
----@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
---- Row label. Defaults to a prettified version of the config key (e.g. `myCool_Setting` -> "My Cool Setting").
----@field displayName? mod_settings.dynamic_string
---- Help text shown at the bottom of the options menu while the config rows is highlighted. Recommended to keep
---- to about 35 characters so it leaves enough space for free-text input strings.
----@field description? mod_settings.dynamic_string
---- Sort key among sibling categories/rows, lower first. Entries with an `order` are listed above those without one,
---- which are sorted alphabetically by their displayName.
----@field order? number
---- Move this row to a different or new menu category, overriding its config-section placement (see mod_settings.group).
----@field group? mod_settings.group
+--- Enum options: the values actually stored in the .cfg file.
+--- Providing this makes the setting a cycler over these options.
+---@field values? (string | number | boolean)[] | fun(): (string | number | boolean)[]
+--- Display labels to show instead of the underlying `values` in the mod menu (same order, same number of
+--- entries). Each label may be a localization table. Recommended to keep each to about 20 characters.
+---@field labels? mod_settings.localized_string[] | fun(): mod_settings.localized_string[]
 
 --- Each entry in `configDesc` can be a simple key:description string, a setting description table, an action
 --- button, or a nested table of descriptions mirroring a config group. The underlying .cfg file contents are
@@ -185,6 +181,6 @@
 --- categories that do not exist as config sections, which entries move into via their `group`.
 ---
 --- Only keys with a `configDesc` entry are shown in the menu: a `config` key with no entry here is treated as
---- internal state and hidden (a group whose keys are all undescribed produces no row). The mod's master
---- `enabled` toggle is always shown regardless, so the mod stays toggleable.
+--- internal state and hidden. The mod's master `enabled` toggle is always shown regardless, so the mod stays
+--- toggleable.
 ---@alias mod_settings.config_desc table<string, mod_settings.setting_description | mod_settings.action_description | mod_settings.virtual_description | string | table>

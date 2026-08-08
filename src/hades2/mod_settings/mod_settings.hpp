@@ -75,12 +75,11 @@ namespace big::mod_settings
 		std::vector<localized_text> labels;
 
 		bool has_order = false;
-		double order   = 0.0; // author-declared sort key (lower first), unset -> alphabetical by display name
+		double order   = 0.0; // author-declared sort key (lowest first), unset -> alphabetical by display name
 
 		bool hidden           = false; // author asked to omit this row entirely
 		bool disabled         = false; // render greyed and non-interactive but still visible (may be dynamic)
 		bool restart_required = false; // change only takes effect after a game restart
-		bool freetext         = false; // force a bounded number to freetext entry (not the stepper)
 
 		editable_context context = editable_context::any;
 

@@ -2157,8 +2157,8 @@ namespace big::mod_settings
 				// Bad numeric input simply keeps the previous value because set_serialized_value validates before saving.
 				g_edit_entry->set_serialized_value(g_edit_buffer);
 
-				// Clamp/snap a bounded freetext number to the stepper grid: [min, max] and min + k*step.
-				// set_serialized_value above already parsed/validated the number.
+				// Clamp/snap the typed number to any declared min/max/step. A fully bounded number renders as a slider,
+				// so this covers partially bounded or stepped ones. set_serialized_value above already parsed it.
 				if (g_edit_entry->type() == typeid(double))
 				{
 					const auto meta = resolved_metadata(g_edit_entry->m_config_file->m_config_file_stem_as_str,
@@ -2843,7 +2843,7 @@ namespace big::mod_settings
 				const bool is_bool   = vv.type == virtual_value::kind::boolean;
 				const bool is_number = vv.type == virtual_value::kind::number;
 				const double step    = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
-				const bool is_stepper = !is_enum && is_number && vmeta && vmeta->has_min && vmeta->has_max && !vmeta->freetext;
+				const bool is_stepper = !is_enum && is_number && vmeta && vmeta->has_min && vmeta->has_max;
 
 				std::string vv_serialized;
 				switch (vv.type)
@@ -3057,10 +3057,10 @@ namespace big::mod_settings
 			const std::string mname    = meta ? resolve_localized(meta->name) : std::string{};
 			const std::string label    = escape_markup(!mname.empty() ? mname : key_to_display(key));
 
-			// Enums use num-boxes, bounded numbers use sliders unless `freetext` is set, and everything else uses freetext.
+			// Enums use num-boxes, bounded numbers use sliders, and everything else uses freetext.
 			const bool is_number  = entry->type() == typeid(double);
 			const bool is_enum    = meta && !meta->values.empty();
-			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max && !meta->freetext;
+			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max;
 			const double step     = (meta && meta->has_step) ? meta->step : 1.0;
 
 			// Enum option lists are resolved once so the widget and PanelRow share them.
