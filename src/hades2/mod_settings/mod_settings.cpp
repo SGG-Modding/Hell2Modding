@@ -80,7 +80,6 @@ namespace big::mod_settings
 	static constexpr std::size_t def_fade_speed = 0x2'1C; // mFadeSpeed (float) opacity ease rate (component +0x2C4)
 
 	// GUIComponent::Update moves mFadeOpacity toward mFadeTarget by dt * mFadeSpeed, so this drives the fade timing.
-	// Applied to every row so all row types fade at one uniform speed.
 	static constexpr float row_fade_speed = 10.0f;
 
 	// sgg::MessageDialog, the single-button box the game uses in the MAIN MENU for save/file errors.
@@ -93,29 +92,24 @@ namespace big::mod_settings
 	static constexpr std::size_t dialog_confirm_button_offset = 0x1'A0; // sgg::MenuScreen::mConfirmButton
 	static constexpr std::size_t dialog_message_offset        = 0x2'B0; // sgg::MessageDialog::mMessageText
 
-	// The MessageDialog.sjson MessageText template renders at FontSize 26, too large for the multi-line body. Scaling
-	// the font handle's ratios shrinks it.
+	// The MessageDialog.sjson MessageText template renders at FontSize 26, too large for the multi-line body.
 	static constexpr std::size_t textbox_font_handle_offset        = 0x6'A4; // GUIComponentTextBox::mFontHandle
 	static constexpr std::size_t font_handle_size_ratio_offset     = 0x0C;   // sgg::FontHandle::mFontSizeRatio
 	static constexpr std::size_t font_handle_eng_size_ratio_offset = 0x10;   // sgg::FontHandle::mEnglishFontSizeRatio
 	static constexpr float restart_message_font_scale              = 0.75f;  // ~26 -> ~19.5
 
-	// Module-relative RVAs for overloaded functions the PDB map cannot disambiguate. Resolved from
-	// anchor_runtime - anchor_rva + target_rva. AddScreen's 4-arg overload appends so the dialog draws on top.
+	// Module-relative RVAs for overloaded functions the PDB map cannot disambiguate.
 	static constexpr std::uintptr_t anchor_rva              = 0x11'5C'70; // GUIComponentButton::GUIComponentButton
 	static constexpr std::uintptr_t message_dialog_ctor_rva = 0x16'EE'60; // sgg::MessageDialog::MessageDialog
 	static constexpr std::uintptr_t add_screen_rva          = 0x14'7D'D0; // sgg::ScreenManager::AddScreen
 
-	// tf_new_internal<sgg::GUIComponentNumBox, sgg::MiscSettingsScreen*>: the game's own factory, which allocates the
-	// num-box and builds its 5 sub-components. A template instantiation, so resolved by RVA off the anchor.
+	// tf_new_internal<sgg::GUIComponentNumBox, sgg::MiscSettingsScreen*>: the game's own num-box factory.
 	static constexpr std::uintptr_t numbox_factory_rva = 0x17'A5'30;
 
-	// eastl::vector<GUIComponent*>::push_back, used only as a fallback when the named PDB symbol is missing (it is
-	// sometimes emitted inline). Resolved off the same button-ctor anchor.
+	// eastl::vector<GUIComponent*>::push_back, used only as a fallback when the named PDB symbol is missing.
 	static constexpr std::uintptr_t push_back_rva = 0x14'1E'D0;
 
-	// sgg::MenuScreen::TeleportCursorTo(this, GUIComponent*) - the 2-arg overload that drops the controller/keyboard
-	// free-form cursor onto a component.
+	// sgg::MenuScreen::TeleportCursorTo(this, GUIComponent*) - the 2-arg overload.
 	static constexpr std::uintptr_t teleport_cursor_rva = 0x14'03'A0;
 
 	// The config/control globals (ConfigOptions::UseMouse/Language, Controls::Cancel/Select) live in .data/.rdata,
@@ -162,13 +156,12 @@ namespace big::mod_settings
 	// The Button_Secondary sprite's native atlas width in px. The box draws at native * mScale * mScaleX.
 	static constexpr float button_graphic_native_width = 350.0f;
 
-	// Approximate label capacity of the box at its native width, in measure_width glyph units. A longer label stretches
-	// the box just enough to fit, so short buttons keep the clean native box and only long ones distort.
+	// Approximate label capacity of the box at its native width, in measure_width glyph units.
 	static constexpr float button_label_capacity = 15.0f;
 	static constexpr float button_label_padding  = 2.0f;
 
 	// sgg::GUIComponentSlider, the audio-volume drag bar. DoShowCategory hand-builds it, so make_slider_row does too.
-	// The vtable is preferred by name; this RVA is a .rdata fallback and must be refreshed when the build changes.
+	// The vtable is preferred by name. This RVA is a .rdata fallback and must be refreshed when the build changes.
 	static constexpr std::uintptr_t slider_vtable_rva = 0x4D'8A'68;
 	static constexpr std::size_t slider_sizeof        = 0x5'B0;
 	static constexpr std::size_t image_sizeof         = 0x5'78;       // sgg::GUIComponentImage (mBacking/mFill)
@@ -194,19 +187,17 @@ namespace big::mod_settings
 	static constexpr std::size_t vtable_set_location_offset = 0x1'80; // GUIComponent::SetLocation slot (moves the component and its children)
 
 	// Greying a slider/num-box: the button-style def greying does not reach their separate label/value text boxes or
-	// bar/arrow graphics, so each is greyed directly. A text box renders mDisabledText only when its def carries a
-	// non-negative disabled colour, so that is written explicitly; the value box is flagged too, since Draw never
-	// touches it. An image tints from mColor every frame, so mColorTarget is written as well or a lerp undoes it.
-	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53; // GUIComponentTextBox::mUseDisabledTextColor
-	// Greying the normal and selected colours too keeps the label grey in every state, matching set_def_text_grey.
-	static constexpr std::size_t textbox_text_red            = 0x1'B4;  // mData.mDef.mTextRed (float)
-	static constexpr std::size_t textbox_selected_text_red   = 0x1'D0;  // mData.mDef.mSelectedTextRed (float)
-	static constexpr std::size_t textbox_disabled_text_red   = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
-	static constexpr std::size_t textbox_disabled_text_green = 0x1'EC;  // mDisabledTextGreen (float)
-	static constexpr std::size_t textbox_disabled_text_blue  = 0x1'F0;  // mDisabledTextBlue (float)
-	static constexpr std::size_t textbox_disabled_text_alpha = 0x1'F4;  // mDisabledTextAlpha (float)
-	static constexpr std::size_t image_color_offset          = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
-	static constexpr std::size_t image_color_target_offset   = 0x00'78; // mColorTarget (packed RGBA)
+	// bar/arrow graphics, so each is greyed directly. An image tints from mColor every frame, so mColorTarget is written
+	// as well or a lerp undoes it.
+	static constexpr std::size_t textbox_use_disabled_color_off = 0x5'53;  // GUIComponentTextBox::mUseDisabledTextColor
+	static constexpr std::size_t textbox_text_red               = 0x1'B4;  // mData.mDef.mTextRed (float)
+	static constexpr std::size_t textbox_selected_text_red      = 0x1'D0;  // mData.mDef.mSelectedTextRed (float)
+	static constexpr std::size_t textbox_disabled_text_red      = 0x1'E8;  // mData.mDef.mDisabledTextRed (float)
+	static constexpr std::size_t textbox_disabled_text_green    = 0x1'EC;  // mDisabledTextGreen (float)
+	static constexpr std::size_t textbox_disabled_text_blue     = 0x1'F0;  // mDisabledTextBlue (float)
+	static constexpr std::size_t textbox_disabled_text_alpha    = 0x1'F4;  // mDisabledTextAlpha (float)
+	static constexpr std::size_t image_color_offset             = 0x5'44;  // GUIComponentImage::mColor (packed RGBA)
+	static constexpr std::size_t image_color_target_offset      = 0x00'78; // mColorTarget (packed RGBA)
 	static constexpr std::size_t button_graphic_color_offset = 0x5'5C; // GUIComponentButton::mButtonColor - the colour Draw paints the toggle graphic with
 	static constexpr std::size_t component_color_target_offset = 0x00'78; // GUIComponent::mColorTarget (Update eases mButtonColor toward this)
 	static constexpr std::size_t def_sel_red = 0xFC; // ComponentDataDef::mSelectedRed - set <0 to disable the selected-colour override in Draw/On(Un)Selected
@@ -217,12 +208,10 @@ namespace big::mod_settings
 	static constexpr std::size_t vtable_set_text_color_offset = 0x1'60;
 	static constexpr std::uint32_t disabled_label_grey_packed = 0xFF'38'38'38;
 
-	// NumBox::OnSelected turns the box black by writing the selected colour into the animation's own mColor.
 	static constexpr std::size_t animation_color_offset  = 0x5'58;        // GUIComponentAnimation::mColor (packed ARGB)
 	static constexpr std::uint32_t numbox_hover_bg_black = 0xFF'00'00'00; // the num-box's hovered/selected box colour
 
-	// Called with flags = 0 it destructs and frees owned sub-components without the final operator delete, so the block
-	// itself is freed separately (see game_free).
+	// Flags = 0 destructs owned sub-components without the final operator delete, so the block is freed separately.
 	static constexpr std::size_t vtable_deleting_dtor_offset = 0x1'88;
 
 	using ctor_fn                = void* (*)(void* button, void* owner_screen);
@@ -245,8 +234,7 @@ namespace big::mod_settings
 	using numbox_set_range_fn    = void (*)(void* num_box, float min, float max);
 	using numbox_set_value_fn    = void (*)(void* num_box, float value, bool notify);
 
-	// GUIComponent-derived constructors take the initial location as a Vec2 passed by value (packed into a single.
-	// 64-bit register). 0 is the origin. Used to hand-build a slider and its sub-components.
+	// GUIComponent-derived constructors take the initial location as a Vec2 passed by value in one 64-bit register.
 	using gui_component_ctor_fn  = void (*)(void* self, std::uint64_t location_packed);
 	using slider_defaults_fn     = void (*)(void* slider);
 	using slider_set_fraction_fn = void (*)(void* slider, float fraction, bool notify);
@@ -330,9 +318,7 @@ namespace big::mod_settings
 	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
 	static void* g_active_profile         = nullptr; // &sgg::ProfileManager::ACTIVE_PROFILE
 
-	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has resolved for the
-	// running game build. While false no hooks are installed and the tab is absent. It also gates process-global side
-	// effects (the wndproc callback) as a safety net.
+	// Set true by register_hooks only once every engine symbol, RVA and offset the Mods tab needs has resolved.
 	static bool g_feature_enabled = false;
 
 	// sgg::KeyboardButtonId values used for edit confirm/cancel (validated in the PDB).
@@ -340,8 +326,7 @@ namespace big::mod_settings
 	static constexpr int key_kp_enter = 113;
 	static constexpr int key_return   = 127;
 
-	// Hash of the game's "Blank" (empty) graphic, resolved once, used to hide a row's button background so it renders
-	// as a plain text label.
+	// Hash of the game's "Blank" graphic, used to hide a row's button background.
 	static std::uint32_t g_blank_graphic = 0;
 
 	// Panel layout, in native 1080p menu coordinates. The engine's UpdateScrollState pass positions each on-page row at Y
@@ -357,24 +342,18 @@ namespace big::mod_settings
 	static constexpr float row_pitch             = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
 	static constexpr std::uint32_t rows_per_page = 10;      // vanilla ItemsPerPage = 10
 
-	// Action-button rows use the taller Button_Secondary box, which crowds the neighbouring setting rows on the uniform
-	// row pitch. apply_button_spacing nudges each action button down by this lead and shifts the rows below it by
-	// lead+trail, giving the buttons vertical breathing room (applied through the engine's own SetLocation, so it is
-	// drift-free - see apply_button_spacing).
+	// Action-button rows use the taller Button_Secondary box, so apply_button_spacing adds breathing room around them.
 	static constexpr float button_extra_lead  = 14.0f;
 	static constexpr float button_extra_trail = 14.0f;
 
-	// Config sections. Both rom.mod_settings.load and Chalk bind a mod's settings under the root "config" section.
-	// Nested groups are dot-separated child sections (e.g. "config.biome_pool").
+	// Both rom.mod_settings.load and Chalk bind a mod's settings under the root "config" section.
 	static const std::string root_section = "config";
 
 	// Chalk writes a placeholder entry with this key per section so empty groups persist. Skip it.
 	static constexpr const char* section_empty_key = "...";
 
-	// Approximate visual width budget for the right-column value (freetext + its edit caret), in "width units" where a
-	// typical medium glyph is 1.0 The menu font is variable-width, so a raw character count looks inconsistent (a run of
-	// 'W' is far wider than a run of 'i') budgeting by summed glyph weight keeps the shown value a consistent WIDTH so it
-	// does not run left into the key label.
+	// Approximate visual width budget for the right-column value. The menu font is variable-width, so budget by summed
+	// glyph weight instead of raw character count.
 	static constexpr float value_display_max_width = 30.0f;
 
 	// Edit-cursor blink half-period (ms): the "|" shows for this long, then hides.
@@ -397,8 +376,7 @@ namespace big::mod_settings
 		std::string stem;        // owning mod's config-file stem
 		std::string setting_key; // config entry key (setting rows only)
 
-		// The bound config entry (setting rows only) valid for the config file's lifetime, which spans the whole menu
-		// session.
+		// The bound config entry, valid for the config file's lifetime.
 		toml_v2::config_file::config_entry_base* entry = nullptr;
 
 		bool disabled          = false; // greyed & non-interactable (mod disabled)
@@ -411,35 +389,28 @@ namespace big::mod_settings
 		// last-drawn state so the first click still works. Only meaningful for an interactive virtual bool row.
 		bool toggle_value = false;
 
-		// Author-provided description shown at the bottom of the screen while this row is highlighted (setting rows
-		// only empty for navigation rows).
+		// Author-provided description shown while this row is highlighted.
 		std::string description;
 
-		// Right-column value display for a non-bool setting row (paired with `component`, the left-column key). Not in
-		// mOptions positioned to follow `component` each frame.
+		// Right-column value display for a non-bool setting row, positioned to follow `component` each frame.
 		GUIComponent* value_component = nullptr;
 
-		// Bounded number setting (metadata has both min and max). Rendered as a native slider (drag bar) spanning
-		// [stepper_min, stepper_max] and snapped to stepper_step.
+		// Bounded number setting, rendered as a native slider and snapped to stepper_step.
 		bool is_slider      = false;
 		bool is_stepper     = false;
 		double stepper_min  = 0.0;
 		double stepper_max  = 0.0;
 		double stepper_step = 1.0;
 
-		// Number-display options (slider value text): is_percentage shows a 0..1 value as 0..100 and appends "%"
-		// show_as_percentage only appends "%".
+		// Number-display options for slider value text.
 		bool show_as_percentage = false;
 		bool is_percentage      = false;
 
-		// Enum cycler (metadata has `values`). Rendered as a native number box over the index 0..labels-1 whose value
-		// text is overridden to the label (like the game's own enum options) `enum_values` are the serialized config
-		// values, `enum_labels` the parallel display strings both indexed by the box's current integer value.
+		// Enum cycler, rendered as a native number box whose value text is overridden to the label.
 		bool is_enum = false;
 		std::vector<std::string> enum_values;
 		std::vector<std::string> enum_labels;
 
-		// Group rows (RowKind::group) only: the child config section this row drills into.
 		std::string target_section;
 
 		// The entry's REAL config section (for virtual-row Lua I/O: get/set/text). A `group` override can place a row on a
@@ -449,8 +420,7 @@ namespace big::mod_settings
 
 	static std::vector<PanelRow> g_rows;
 
-	// Set when a restart-required setting is changed this menu session (e.g. toggling the "enabled" switch of an
-	// sjson-backed mod). On options-menu close we warn + close the game.
+	// Set when a restart-required setting is changed this menu session. On options-menu close we warn and close the game.
 	static bool g_restart_required = false;
 
 	// The restart-causing changes this session, keyed by "<stem>\0<section>\0<key>" so re-editing the same setting
@@ -458,24 +428,19 @@ namespace big::mod_settings
 	// popup, e.g. "MyMod: Enabled (on)".
 	static std::map<std::string, std::string> g_restart_changes;
 
-	// Baseline serialized value (as of this menu session's open) for each restart-required setting that was touched,
-	// keyed identically to g_restart_changes. Used to drop a setting from the restart list when it is changed back to
-	// its baseline (no net change -> no restart needed).
+	// Baseline value for each touched restart-required setting, used to drop changes that were reverted.
 	static std::map<std::string, std::string> g_restart_baselines;
 
-	// The native restart message box's (only) button clicking it closes the game (restart).
+	// The native restart message box's only button. Clicking it closes the game.
 	static GUIComponent* g_restart_confirm_button = nullptr;
 
-	// The restart message box itself (owner of g_restart_confirm_button). A genuine restart button's owner is this dialog
-	// any rebuilt row's owner is the options screen, so it will not match.
+	// The restart message box itself, used to distinguish its button from rebuilt option rows.
 	static void* g_restart_dialog = nullptr;
 
 	// True once the restart prompt has been shown this menu session (so closing again proceeds).
 	static bool g_restart_prompt_shown = false;
 
-	// Which view the Mods panel is currently showing, plus a deferred navigation request that a click sets and the
-	// Update hook applies at a safe point (outside input/click iteration, where mutating the component vectors is
-	// safe).
+	// Current Mods panel view plus a deferred navigation request applied from the Update hook.
 	enum class View
 	{
 		mod_list,
@@ -502,9 +467,7 @@ namespace big::mod_settings
 		std::string config_section; // real config section, to distinguish same-named keys grouped onto one page
 	};
 
-	// The clicked row to hold as hovered/selected across a click-triggered instant rebuild, captured in the OnClicked
-	// hook. A rebuild frees every component and the native hover pass re-resolves the cursor a frame later, so this is
-	// re-asserted for a few frames (see reassert_keep_active_row) to steady the prompt, description and highlight.
+	// The clicked row to hold as hovered/selected across a click-triggered instant rebuild.
 	static RowIdentity g_keep_active_row;
 
 	// Frames to re-assert the clicked row as hovered/selected after a click-triggered instant rebuild. The native hover
@@ -513,13 +476,10 @@ namespace big::mod_settings
 	static constexpr int keep_active_frame_count = 3;
 	static int g_keep_active_frames              = 0;
 
-	// Seconds of input quiet after a numeric setting (slider/number-box) changes before the view is rebuilt to
-	// re-evaluate its dynamic (Lua-function) rows - e.g. an apply button's dynamic `disabled`.
+	// Seconds of input quiet after a numeric setting changes before dynamic rows are rebuilt.
 	static constexpr float dynamic_refresh_settle_seconds = 0.15f;
 
-	// Time left on that debounce (0 = nothing pending). A slider fires its change hook every frame while dragged and a
-	// rebuild frees the dragged row, so we wait for a short quiet gap and rebuild once the drag settles. Re-armed on
-	// every change ticked down in the Update hook.
+	// Time left on that debounce. A slider fires every frame while dragged, so rebuild only after a quiet gap.
 	static float g_dynamic_refresh_settle = 0.0f;
 
 	// Navigation restore stack: one entry per drill-in level. Each records the parent view's scroll offset and which row
@@ -536,8 +496,7 @@ namespace big::mod_settings
 	static NavRestore g_pending_restore;
 	static bool g_has_pending_restore = false;
 
-	// Freetext edit state (number/string settings). A click enters edit mode typed input is captured in the window
-	// procedure and applied on the game thread in the Update hook.
+	// Freetext edit state. Typed input is captured in the window procedure and applied on the game thread.
 	static bool g_editing                                        = false;
 	static GUIComponent* g_edit_component                        = nullptr;
 	static toml_v2::config_file::config_entry_base* g_edit_entry = nullptr;
@@ -548,10 +507,7 @@ namespace big::mod_settings
 	static bool g_edit_confirm       = false;
 	static bool g_edit_cancel        = false;
 
-	// Turns a config-file stem ("AuthorName-ModName") into a display name: drops the author (up to the first '-') and runs
-	// the mod name through key_to_display, so '_' becomes a space and camelCase/PascalCase word boundaries are split - the
-	// same friendly-name logic used for setting keys "SGG_Modding-Chalk" -> "Chalk". "NikkelM-Zagreus_Journey" -> "Zagreus
-	// Journey" "zerp-DreamDiveTweaks" -> "Dream Dive Tweaks".
+	// Turns a config-file stem ("AuthorName-ModName") into a display name using the setting-key friendly-name logic.
 	static std::string key_to_display(const std::string& key); // shared friendly-name logic, defined below
 
 #pragma endregion
@@ -584,8 +540,7 @@ namespace big::mod_settings
 		return {};
 	}
 
-	// Shown in the description box in place of the mod description when a mod opted out of the in-game settings menu
-	// (rom.mod_settings.opt_out()), explaining why its row is greyed and where to configure it instead.
+	// Description-box note for a mod that opted out of the in-game settings menu.
 	static std::string opt_out_note()
 	{
 		return "This mod opted out of the in-game settings menu. See the mod's own description for how "
@@ -594,8 +549,7 @@ namespace big::mod_settings
 
 	static std::string resolve_localized(const localized_text& t); // defined below
 
-	// The description shown for an opted-out mod's greyed row: the author's own opt_out(description) if they supplied
-	// one (resolved to the current game language), otherwise the generic opt_out_note().
+	// Description for an opted-out mod's greyed row, preferring the author's localized note.
 	static std::string opt_out_description(const std::string& stem)
 	{
 		const std::string custom = resolve_localized(mod_opt_out_description(stem));
@@ -648,8 +602,7 @@ namespace big::mod_settings
 		return a.size() < b.size() ? -1 : 1;
 	}
 
-	// --- Text metrics + caret helpers (byte indices into a string UTF-8 aware) --- Approximate width of a single byte in
-	// the value font, in the same units as value_display_max_width (medium glyph.
+	// Approximate width of a UTF-8 byte in the value font, in the same units as value_display_max_width.
 	static float glyph_weight(unsigned char c)
 	{
 		if (c >= 0xC0)
@@ -694,7 +647,6 @@ namespace big::mod_settings
 		}
 	}
 
-	// Summed approximate visual width of a string (see glyph_weight).
 	static float measure_width(const std::string& s)
 	{
 		float w = 0.0f;
@@ -713,7 +665,7 @@ namespace big::mod_settings
 		return (u >= '0' && u <= '9') || (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || u == '_' || u >= 0x80;
 	}
 
-	// Caret one codepoint to the left (skips UTF-8 continuation bytes so a multibyte char moves as a unit).
+	// Caret one codepoint to the left, skipping UTF-8 continuation bytes.
 	static std::size_t caret_prev(const std::string& s, std::size_t pos)
 	{
 		if (pos == 0)
@@ -728,7 +680,6 @@ namespace big::mod_settings
 		return pos;
 	}
 
-	// Caret one codepoint to the right.
 	static std::size_t caret_next(const std::string& s, std::size_t pos)
 	{
 		if (pos >= s.size())
@@ -743,8 +694,7 @@ namespace big::mod_settings
 		return pos;
 	}
 
-	// Caret to the start of the current/previous word (Ctrl+Left): skip any non-word bytes to the left, then the run of
-	// word bytes.
+	// Caret to the start of the current/previous word for Ctrl+Left.
 	static std::size_t caret_prev_word(const std::string& s, std::size_t pos)
 	{
 		while (pos > 0 && !is_word_byte(s[pos - 1]))
@@ -758,8 +708,7 @@ namespace big::mod_settings
 		return pos;
 	}
 
-	// Caret to the start of the next word (Ctrl+Right): skip the current run of word bytes, then the following non-word
-	// bytes.
+	// Caret to the start of the next word for Ctrl+Right.
 	static std::size_t caret_next_word(const std::string& s, std::size_t pos)
 	{
 		const std::size_t n = s.size();
@@ -774,8 +723,7 @@ namespace big::mod_settings
 		return pos;
 	}
 
-	// Caps an over-wide value string for the right-aligned value column so it does not run left into the option's key
-	// label. Fits by summed glyph WIDTH, not character count, so wide/narrow text shows a consistent visual width.
+	// Caps an over-wide value string by summed glyph width so it does not run left into the option's key label.
 	static std::string truncate_value(const std::string& text)
 	{
 		if (measure_width(text) <= value_display_max_width)
@@ -815,10 +763,7 @@ namespace big::mod_settings
 		button->m_hidden     = false;
 		button->m_is_useable = true;
 
-		// Point the button's localization id at "Mods" so the engine's own label pipeline resolves it.
-		// GUIComponentButton::UseDefaultText re-derive "Mods" natively - including after a language change, which re-runs
-		// that derivation and would otherwise revert the tab to "Editor" "Mods" has no text-data entry, so the lookup misses
-		// and the engine renders the raw key ("Mods") verbatim in every language.
+		// Point the button's localization id at "Mods" so language changes keep rendering the raw key instead of "Editor".
 		if (g_hash_lookup)
 		{
 			HashGuid id{};
@@ -826,9 +771,7 @@ namespace big::mod_settings
 			*reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(button) + sgg::gui_component_button_display_name_id_offset) = id.m_id;
 		}
 
-		// Apply the label now for the initial display: the original constructor already rendered the native "Editor"
-		// text from the native Editor id, and UseDefaultText only re-derives on the next localization pass. Subsequent
-		// language changes are handled by the id above, not here.
+		// Apply the label now because UseDefaultText only re-derives on the next localization pass.
 		if (g_set_label)
 		{
 			g_set_label(button, "Mods");
@@ -839,7 +782,6 @@ namespace big::mod_settings
 
 #pragma region Native row construction and styling
 
-	// Writes an in-place EASTL short-string (SSO, up to 22 chars) into a component field.
 	static void set_sso_string(void* field, const char* text)
 	{
 		char* bytes   = static_cast<char*>(field);
@@ -895,9 +837,7 @@ namespace big::mod_settings
 		return row;
 	}
 
-	// Links a finished row into the drawn/hit-tested (mComponents) and paged (mOptions) vectors, sets its X, and starts
-	// it transparent UpdateScrollState only fades in and repositions on-page rows, so off-page rows must start
-	// invisible to avoid flashing stacked at the top.
+	// Links a finished row into the drawn and paged vectors. Off-page rows start transparent to avoid flashing at the top.
 	static void finalize_row(MiscSettingsScreen* screen, GUIComponent* row, bool in_options = true)
 	{
 		GUIComponent* value = row;
@@ -911,12 +851,10 @@ namespace big::mod_settings
 		row->m_location_x   = row_location_x;
 		row->m_fade_opacity = 0.0f;
 
-		// Uniform opacity ease rate so every row type fades at the same native speed (see row_fade_speed).
 		*reinterpret_cast<float*>(reinterpret_cast<char*>(row) + component_def_offset + def_fade_speed) = row_fade_speed;
 	}
 
-	// Shows the on or off toggle graphic for a toggle row. The OptionToggleButton template stores both graphic hashes
-	// in the row's def (mGraphic = on, mAlternateGraphic = off) pick one and set it as the drawn texture.
+	// Shows the on or off toggle graphic from the OptionToggleButton template.
 	static void set_toggle_graphic(GUIComponent* row, bool is_on)
 	{
 		if (!g_set_normal_texture)
@@ -929,10 +867,7 @@ namespace big::mod_settings
 		g_set_normal_texture(row, is_on ? on_hash : off_hash, false);
 	}
 
-	// Reproduces the vanilla toggle click sound. A native toggle plays its cue from ToggleOptionValueChanged, which our
-	// toggle path replaces, and the base OnClicked only plays mPressSound (unset in the toggle template) - so a toggle
-	// would be silent. Copying the cue for the value the click will produce into mPressSound lets the native audio path
-	// play it with the correct swap handling.
+	// Reproduces the vanilla toggle click sound by copying the cue for the value the click will produce into mPressSound.
 	static void stage_toggle_press_sound(GUIComponent* row, bool new_value)
 	{
 		char* def             = reinterpret_cast<char*>(row) + component_def_offset;
@@ -954,8 +889,7 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_sel_text_blue)  = grey;
 	}
 
-	// Greys a child GUIComponentTextBox (a slider/num-box label or value box) by giving it a disabled text colour and
-	// flagging it to use that colour. Grey text colour matches set_def_text_grey so every disabled row reads the same.
+	// Greys a child GUIComponentTextBox with the same colour used by set_def_text_grey.
 	static void grey_text_box(void* text_box)
 	{
 		if (!text_box)
@@ -969,9 +903,7 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(b + textbox_disabled_text_alpha)   = 1.0f;
 		*reinterpret_cast<bool*>(b + textbox_use_disabled_color_off) = true;
 
-		// Also grey the normal and selected text colours (red/green/blue triples). A still-selectable greyed row keeps
-		// mIsUseable=1, so Slider/NumBox Draw clears mUseDisabledTextColor and the label falls back to the normal colour (and
-		// the selected colour on hover) - greying both keeps it greyed in every state, with no hover highlight.
+		// Still-selectable greyed rows keep mIsUseable=1, so grey the normal and selected colours too.
 		for (const std::size_t base : {textbox_text_red, textbox_selected_text_red})
 		{
 			*reinterpret_cast<float*>(b + base + 0x0) = disabled_text_grey;
@@ -980,9 +912,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Dims a GUIComponentImage (a slider's bar backing/fill) to the disabled grey. Image::Draw tints from mColor each
-	// frame and neither Slider::Draw nor Slider::Update recolour the bar, so writing mColor (plus mColorTarget so the
-	// per-frame lerp does not pull it back) sticks.
+	// Dims a GUIComponentImage to the disabled grey. mColorTarget is written too so the per-frame lerp does not undo it.
 	static void grey_image(void* image)
 	{
 		if (!image)
@@ -994,10 +924,7 @@ namespace big::mod_settings
 		*reinterpret_cast<std::uint32_t*>(b + image_color_target_offset) = disabled_graphic_grey;
 	}
 
-	// Greys a disabled toggle's on/off ring so it reads greyed from frame one. The ring is a bare texture that Draw
-	// paints with mButtonColor, which starts black and only eases toward mColorTarget on hover - so an untouched
-	// disabled toggle would show black. Setting both to the grey (Update sees them equal and never eases) plus
-	// mSelectedRed < 0 to skip the selected-colour override keeps it greyed at rest and through hover.
+	// Greys a disabled toggle's bare on/off texture from frame one and disables the selected-colour override.
 	static void grey_toggle_graphic(GUIComponent* row)
 	{
 		char* b                                                              = reinterpret_cast<char*>(row);
@@ -1006,10 +933,7 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(b + component_def_offset + def_sel_red)    = -1.0f;
 	}
 
-	// Sets a row's normal text colour to the native settings-option grey (0.55) used by the game's own.
-	// OptionToggleButton/OptionNumBox rows, so plain-text (key/value) rows built on the CategoryOptionsButton template
-	// (whose own text is a darker 0.35) match the toggle rows instead of reading as brighter full white. Must run before
-	// SetupComponent to reach the text box.
+	// Sets a row's normal text colour to the native settings-option grey used by OptionToggleButton/OptionNumBox rows.
 	static void set_def_text_normal(GUIComponent* row, bool also_selected = false)
 	{
 		char* def                                       = reinterpret_cast<char*>(row) + component_def_offset;
@@ -1025,8 +949,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// A plain left-justified text row (mod names, Back, and non-toggle settings). Disabled rows are greyed. By default
-	// they are also hard-disabled (non-selectable).
+	// A plain left-justified text row. Disabled rows are greyed and hard-disabled by default.
 	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true, bool no_hover_highlight = false)
 	{
 		auto* row = create_button(screen);
@@ -1095,10 +1018,7 @@ namespace big::mod_settings
 		return row;
 	}
 
-	// A toggle row (boolean setting): a left-justified label plus the native on/off toggle switch graphic on the right.
-	// The OptionToggleButton template already supplies the toggle graphic, left-justified text and text area we only
-	// realign it to our row grid (mY/mSpacing, read directly by UpdateScrollState) and choose the on/off graphic. Disabled
-	// rows grey their ring (grey_toggle_graphic) and label from frame one.
+	// A toggle row: a left-justified label plus the native on/off toggle graphic.
 	static GUIComponent* make_toggle_row(MiscSettingsScreen* screen, const char* label, bool is_on, bool disabled = false, bool block_input = true)
 	{
 		auto* row = create_button(screen);
@@ -1115,9 +1035,7 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_y)       = row_base_y;
 		*reinterpret_cast<float*>(def + def_spacing) = row_pitch;
 
-		// Greying needs a SetupComponent pass to reach the text box and button colour. The toggle graphic is re-chosen
-		// afterwards so the pass does not revert it. The button tint is switched from additive to a multiplicative dim
-		// so the toggle graphic reads as greyed rather than full brightness.
+		// Greying needs a SetupComponent pass to reach the text box and button colour.
 		if (disabled)
 		{
 			set_def_text_grey(row);
@@ -1140,14 +1058,11 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
-			// Grey the on/off ring from frame one (it has no colour of its own and would otherwise stay black until a
-			// hover eases it grey - see grey_toggle_graphic).
 			grey_toggle_graphic(reinterpret_cast<GUIComponent*>(row));
 
 			if (block_input && g_disable)
 			{
-				// Whole-mod-off toggle: also drop mIsUseable via Disable so nav and hover skip the row. A
-				// context/author-disabled toggle keeps mIsUseable so it stays mouse-hoverable for its note.
+				// Whole-mod-off toggles drop mIsUseable so nav and hover skip the row.
 				g_disable(row);
 			}
 		}
@@ -1156,9 +1071,7 @@ namespace big::mod_settings
 		return row;
 	}
 
-	// A centered native button row (for actions like Apply/Reset), using the CategoryOptionsButton template unchanged so
-	// it keeps its Button_Secondary box graphic and centered label - visually distinct from the plain-text setting rows.
-	// Disabled rows are greyed by default they are also hard-disabled (non-selectable).
+	// A centered native button row for actions like Apply/Reset, visually distinct from plain-text setting rows.
 	static void install_wide_button_nav_rect(GUIComponent* row); // defined below (near row_bounded_area)
 
 	static GUIComponent* make_button_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true)
@@ -1173,8 +1086,7 @@ namespace big::mod_settings
 		set_sso_string(row_bytes + gui_component_name_offset, "CategoryOptionsButton");
 		g_apply_data(reinterpret_cast<MenuScreen*>(screen), row);
 
-		// Stretch the box only enough to fit a label wider than the native box (see button_label_*), so short labels
-		// keep the clean native box. Drawn box width = native * mScale * box_scale_x.
+		// Stretch the box only enough to fit a label wider than the native box.
 		const float box_scale_x = std::max(1.0f, (measure_width(label) + button_label_padding) / button_label_capacity);
 
 		constexpr float button_scale = 0.8f;
@@ -1190,10 +1102,7 @@ namespace big::mod_settings
 		*reinterpret_cast<float*>(def + def_width)  = button_graphic_native_width;
 		*reinterpret_cast<float*>(def + def_height) = 58.0f;
 
-		// Momentary selection: the CategoryOptionsButton template keeps a button selected (its highlight lit) after a
-		// mouse-off - correct for the category tabs, but an action button should not stay lit like a selected tab once
-		// clicked. mDeselectOnMouseOff makes the highlight clear when the cursor leaves (the highlight still shows while
-		// hovered), so the action button reads as momentary.
+		// mDeselectOnMouseOff makes action buttons read as momentary instead of staying lit like category tabs.
 		*reinterpret_cast<bool*>(def + def_deselect_on_mouse_off) = true;
 
 		if (disabled)
@@ -1219,12 +1128,9 @@ namespace big::mod_settings
 			g_set_label(row, label);
 		}
 
-		// Widen the box graphic to box_scale_x. The box is a single-frame animation reached via mAnim enabling
-		// mScaleModifierOnlyX makes GUIComponentAnimation::Draw honour the anim's own def mScaleX (horizontal-only), which
-		// the button otherwise leaves at a uniform scale.
+		// mScaleModifierOnlyX makes GUIComponentAnimation::Draw honour the anim's own horizontal mScaleX.
 		if (box_scale_x > 1.0f)
 		{
-			// component_def_scale_* offsets are from the component base
 			*reinterpret_cast<float*>(row_bytes + component_def_scale_x_offset) = box_scale_x;
 			*reinterpret_cast<float*>(row_bytes + component_def_scale_y_offset) = 1.0f;
 
@@ -1232,9 +1138,8 @@ namespace big::mod_settings
 			{
 				char* anim_bytes = reinterpret_cast<char*>(anim);
 				*reinterpret_cast<bool*>(anim_bytes + anim_scale_modifier_only_x_offset) = true;
-				// component_def_scale_* offsets are from the component base
-				*reinterpret_cast<float*>(anim_bytes + component_def_scale_x_offset) = box_scale_x;
-				*reinterpret_cast<float*>(anim_bytes + component_def_scale_y_offset) = 1.0f;
+				*reinterpret_cast<float*>(anim_bytes + component_def_scale_x_offset)     = box_scale_x;
+				*reinterpret_cast<float*>(anim_bytes + component_def_scale_y_offset)     = 1.0f;
 			}
 		}
 
@@ -1243,9 +1148,7 @@ namespace big::mod_settings
 			g_disable(row);
 		}
 
-		// The CategoryOptionsButton template is shared with the top category tabs (paged by bumpers, not the vertical
-		// nav), so it leaves mFreeFormSelectable unset and SearchInDirection skips it. Opt an enabled action button in,
-		// and give it a wide nav rect too, since its native GetArea is a narrow rect at the centred label.
+		// CategoryOptionsButton leaves mFreeFormSelectable unset, so opt enabled action buttons into vertical nav.
 		if (!disabled)
 		{
 			*reinterpret_cast<bool*>(row_bytes + component_free_form_selectable_offset) = true;
@@ -1254,15 +1157,11 @@ namespace big::mod_settings
 
 		finalize_row(screen, row);
 
-		// Centre the button in the content pane (finalize_row anchors rows at the right-hand option column, which would
-		// put the button over the scrollbar).
 		row->m_location_x = button_center_x;
 		return row;
 	}
 
-	// A right-justified, non-interactive value label for the right column of a key/value setting row (paired with a
-	// left-column key row). It shares the key's component X anchor but uses RIGHT justification, so the value sits in the
-	// right column while the key stays left.
+	// A right-justified, non-interactive value label paired with a left-column key row.
 	static GUIComponent* make_value_display(MiscSettingsScreen* screen, const char* text, bool disabled)
 	{
 		auto* row = create_button(screen);
@@ -1324,14 +1223,12 @@ namespace big::mod_settings
 		return row;
 	}
 
-	// True for a finite whole number (used to pick integer vs float num-box display/stepping).
 	static bool is_whole(double v)
 	{
 		return std::isfinite(v) && v == std::floor(v);
 	}
 
-	// Overrides a num-box's centered value text (its mValueTextBox) with an enum option label. The label is escaped so
-	// paths/brackets in the option text render verbatim (see escape_markup).
+	// Overrides a num-box's centered value text with an escaped enum option label.
 	static void set_numbox_value_text(GUIComponent* numbox, const char* text)
 	{
 		if (!g_show_text || !numbox)
@@ -1344,9 +1241,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// A native num-box stepper row, as used by the game's own FPS-limit and graphics-quality options. The game's factory
-	// allocates it and builds all five sub-components, which the row teardown frees with it. Value edits are persisted
-	// by the SetNumberValue hook. Not a GUIComponentButton, so it never routes through the OnClicked hook.
+	// A native num-box stepper row, as used by the game's own FPS-limit and graphics-quality options.
 	static GUIComponent* make_numbox_row(MiscSettingsScreen* screen, const char* label, double min_v, double max_v, double step_v, double initial, bool disabled, const std::vector<std::string>* value_labels = nullptr, bool block_input = true)
 	{
 		if (!g_numbox_factory || !g_numbox_set_range || !g_numbox_set_value || !g_apply_data || !g_show_text)
@@ -1362,8 +1257,7 @@ namespace big::mod_settings
 		}
 		char* nb_bytes = reinterpret_cast<char*>(nb);
 
-		// Name the box and its sub-components so ApplyDataToComponent applies the matching sjson templates (its
-		// virtual ApplyDataToName routes each def by the sub-component's mName).
+		// Name the box and its sub-components so ApplyDataToComponent applies the matching sjson templates.
 		set_sso_string(nb_bytes + gui_component_name_offset, "OptionNumBox");
 		if (void* value_tb = *reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset))
 		{
@@ -1399,16 +1293,14 @@ namespace big::mod_settings
 			*reinterpret_cast<float*>(def + def_spacing) = row_pitch;
 		}
 
-		// The label lives in the num-box's own left text box (raw text, like our other rows).
 		if (void* label_tb = *reinterpret_cast<void**>(nb_bytes + numbox_label_text_offset))
 		{
 			g_show_text(label_tb, label);
 		}
 
-		// Paint the starting value notify=false so the SetNumberValue hook does not persist it.
+		// notify = false, or the SetNumberValue hook would persist this initial paint as a user edit.
 		g_numbox_set_value(nb, static_cast<float>(initial), false);
 
-		// Enum cycler: replace the raw index. The box just painted with the option's label.
 		if (value_labels && !value_labels->empty())
 		{
 			int idx = static_cast<int>(initial);
@@ -1425,9 +1317,7 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
-			// mDisableInput is the num-box's own input gate, blocking arrow-clicks and keyboard stepping alike;
-			// mIsUseable does NOT gate num-box input. When block_input is set (the whole-mod-off case) clear mIsUseable
-			// too so nav and hover skip the row entirely.
+			// mDisableInput gates num-box input. mIsUseable only controls nav and hover.
 			*reinterpret_cast<bool*>(nb_bytes + numbox_disable_input_offset) = true;
 			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_label_text_offset));
 			grey_text_box(*reinterpret_cast<void**>(nb_bytes + numbox_value_text_offset));
@@ -1453,7 +1343,6 @@ namespace big::mod_settings
 		double shown           = is_pct ? value * 100.0 : value;
 		const double disp_step = is_pct ? step * 100.0 : step;
 
-		// Decimal places implied by the display step (0.01 -> 2, 1 -> 0), capped for sanity.
 		int decimals = 0;
 		if (disp_step > 0.0)
 		{
@@ -1480,8 +1369,7 @@ namespace big::mod_settings
 		return out;
 	}
 
-	// Sets the slider's right-hand value text (mValueTextBox). The native drag handler rewrites this to a percentage on
-	// every change, so we re-apply the setting's real value after each user edit.
+	// Sets the slider's right-hand value text after native dragging rewrites it to a percentage.
 	static void set_slider_value_text(GUIComponent* slider, const char* text)
 	{
 		if (!g_show_text || !slider)
@@ -1520,9 +1408,7 @@ namespace big::mod_settings
 		return reinterpret_cast<std::uintptr_t>(dst);
 	}
 
-	// Installs the patched button vtable (see build_row_area_vtable) on `row`, building the copy lazily from the row's
-	// current native vtable on first use. A centre-column action button's native GetArea is a narrow rect at the button
-	// centre that the vertical nav ray never crosses. The wide rect makes it reachable like any setting row.
+	// Installs the patched button vtable so centre-column action buttons are reachable by vertical nav.
 	static void install_wide_button_nav_rect(GUIComponent* row)
 	{
 		if (!g_button_vtable_patched)
@@ -1556,8 +1442,7 @@ namespace big::mod_settings
 		g_gui_component_ctor(s, 0);
 		*reinterpret_cast<std::uintptr_t*>(s) = g_slider_vtable_patched ? g_slider_vtable_patched : g_slider_vtable;
 
-		// Defaults does not initialise mOnValueChanged or mValueTextBox, so zero them (the block is freshly malloc'd)
-		// before Defaults runs and before anything reads them.
+		// Defaults does not initialise mOnValueChanged or mValueTextBox, so zero them before Defaults runs.
 		std::memset(s + slider_on_changed_offset, 0, 3 * sizeof(void*));
 		*reinterpret_cast<void**>(s + slider_label_offset)      = nullptr;
 		*reinterpret_cast<void**>(s + slider_value_text_offset) = nullptr;
@@ -1600,7 +1485,6 @@ namespace big::mod_settings
 
 		g_apply_data(reinterpret_cast<MenuScreen*>(screen), reinterpret_cast<GUIComponent*>(s));
 
-		// Override the template's row grid (Y=300, Spacing=45) so the bar lines up with the other rows.
 		{
 			char* def                                    = s + component_def_offset;
 			*reinterpret_cast<float*>(def + def_y)       = row_base_y;
@@ -1612,8 +1496,7 @@ namespace big::mod_settings
 			g_show_text(label_tb, label);
 		}
 
-		// Paint the starting value: map [min,max] -> 0..1 and set the fraction without notifying (so the SetFraction
-		// hook does not treat it as a user edit), then show the real value (not a percentage).
+		// Paint the starting value without notifying so the SetFraction hook does not treat it as a user edit.
 		const double range = max_v - min_v;
 		const float frac   = (range > 0.0) ? static_cast<float>((initial - min_v) / range) : 0.0f;
 		g_slider_set_fraction(s, frac, false);
@@ -1622,9 +1505,7 @@ namespace big::mod_settings
 
 		if (disabled)
 		{
-			// Grey every visible part explicitly: the value box and both bar images, plus the label (which Slider::Draw would
-			// otherwise only grey off mIsUseable). Mouse-drag is separately blocked in the HandleInput hook (the native drag
-			// path ignores mIsUseable).
+			// Grey every visible part explicitly. The native drag path ignores mIsUseable, so HandleInput blocks it separately.
 			auto* sc = reinterpret_cast<GUIComponent*>(s);
 			if (block_input)
 			{
@@ -1645,9 +1526,7 @@ namespace big::mod_settings
 
 #pragma region Row teardown and mod list
 
-	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail down in place - the same
-	// unlink the engine's DoShowCategory performs. No-op if not present. The backing storage is left owned by the
-	// vector.
+	// Removes the first pointer equal to `value` from an eastl vector by shifting the tail down in place.
 	static void vector_erase(sgg::eastl_vector<GUIComponent*>& vec, GUIComponent* value)
 	{
 		for (GUIComponent** it = vec.m_begin; it != vec.m_end; ++it)
@@ -1661,10 +1540,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Tears down every custom row we currently own: clears any screen pointer that still references a row (so the engine
-	// cannot dereference it after free), unlinks it from the drawn/hit-tested mComponents and the paged mOptions, then
-	// destroys and frees it. Our rows are not registered in the reflection helper, so the engine never frees them and
-	// never double-frees here.
+	// Tears down every custom row we currently own. Our rows are not registered in the reflection helper.
 	static void destroy_rows(MiscSettingsScreen* screen)
 	{
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
@@ -1704,9 +1580,7 @@ namespace big::mod_settings
 
 			if (owns_subcomponents)
 			{
-				// The num-box and slider are not GUIComponentButtons destruct through the component's own vtable so its owned
-				// sub-components (num-box: box/label/value/arrows slider: background/fill/label/value) are freed too flags=0
-				// destructs without the final operator delete, so we still free the block ourselves (see game_free).
+				// Num-boxes and sliders destruct through their own vtables so their owned sub-components are freed too.
 				void** vtbl = *reinterpret_cast<void***>(comp);
 				auto dtor = reinterpret_cast<void* (*)(void*, unsigned int)>(vtbl[vtable_deleting_dtor_offset / sizeof(void*)]);
 				dtor(comp, 0);
@@ -1727,7 +1601,7 @@ namespace big::mod_settings
 		g_rows.clear();
 	}
 
-	// Level 1: one row per installed mod (config-file stem), friendly display name, sorted.
+	// Level 1: one row per installed mod, sorted by friendly display name.
 	static void build_mod_list(MiscSettingsScreen* screen)
 	{
 		std::vector<std::string> stems;
@@ -1764,9 +1638,7 @@ namespace big::mod_settings
 
 		for (const auto& [display, stem] : mods)
 		{
-			// A mod that called rom.mod_settings.opt_out() is still listed (dropping it would look like a missing mod), but its
-			// row is greyed and cannot be opened, and its description is a note pointing back to the mod's own description. The
-			// drilldown is blocked by the disabled flag in the click handler.
+			// Opted-out mods stay listed so they do not look missing, but their rows are greyed and cannot be opened.
 			const bool opted_out = mod_opted_out(stem);
 			if (auto* row = make_text_row(screen, escape_markup(display).c_str(), opted_out, /*block_input*/ false))
 			{
@@ -1782,8 +1654,7 @@ namespace big::mod_settings
 
 #pragma region Value formatting, freetext editing, and commit
 
-	// Turns an identifier into a friendly display string: underscores become spaces, and camelCase/PascalCase word
-	// boundaries are split ("z_ThisConfigKey" -> "z. The first letter is capitalized ("enabled" -> "Enabled").
+	// Turns an identifier into a friendly display string: underscores become spaces and word boundaries are split.
 	static std::string key_to_display(const std::string& key)
 	{
 		const auto is_upper = [](char c)
@@ -1818,8 +1689,6 @@ namespace big::mod_settings
 			out.push_back(c);
 		}
 
-		// Capitalize the first letter so a key/mod name with no author display_name still reads as a proper title
-		// ("enabled" -> "Enabled").
 		for (char& c : out)
 		{
 			if (c != ' ')
@@ -1848,15 +1717,12 @@ namespace big::mod_settings
 		const float caret_w    = 0.6f; // reserve a little for the caret glyph
 		const float ellipsis_w = measure_width("...");
 
-		// Whole buffer (plus caret) fits: no truncation.
 		if (measure_width(buf) + caret_w <= value_display_max_width)
 		{
 			return escape_markup(buf.substr(0, cursor)) + caret + escape_markup(buf.substr(cursor));
 		}
 
-		// Grow a window [start, end) outward from the caret, one codepoint at a time, alternating left then right,
-		// while it still fits the budget (accounting for the ellipses each side will need). Left grows first each round
-		// so a right-aligned field shows preceding context.
+		// Grow a width-budgeted window outward from the caret, left first so a right-aligned field shows preceding context.
 		std::size_t start = cursor;
 		std::size_t end   = cursor;
 		float used        = caret_w;
@@ -1906,9 +1772,7 @@ namespace big::mod_settings
 		return out;
 	}
 
-	// Accepts a character into a numeric edit buffer only if the result stays a plausible numeric literal: an optional
-	// leading sign (only at the front), digits, at most one decimal point `cursor` is where the character would be
-	// inserted.
+	// Accepts a character into a numeric edit buffer only if the result stays a plausible numeric literal.
 	static bool numeric_char_ok(const std::string& buffer, std::size_t cursor, char c)
 	{
 		if (c >= '0' && c <= '9')
@@ -1917,7 +1781,6 @@ namespace big::mod_settings
 		}
 		if (c == '-' || c == '+')
 		{
-			// A sign is valid only inserted at the very front, and only if no sign is there already.
 			return cursor == 0 && (buffer.empty() || (buffer.front() != '-' && buffer.front() != '+'));
 		}
 		if (c == '.')
@@ -2015,7 +1878,6 @@ namespace big::mod_settings
 		registered = true;
 	}
 
-	// Enters freetext edit on `value_component` (the row's right-column value display).
 	static void enter_edit_mode(GUIComponent* value_component, toml_v2::config_file::config_entry_base* entry)
 	{
 		ensure_wndproc_registered();
@@ -2040,15 +1902,12 @@ namespace big::mod_settings
 		g_edit_cancel  = false;
 	}
 
-	// Composite key ("<stem>\0<section>\0<key>") uniquely identifying a config entry across mods.
 	static std::string restart_change_key(toml_v2::config_file::config_entry_base* entry, const std::string& stem)
 	{
 		return stem + '\0' + entry->m_definition.m_section + '\0' + entry->m_definition.m_key;
 	}
 
-	// Captures a restart-required setting's baseline (its value as of this menu session's open) BEFORE It is first
-	// modified, so a later change back to this value can be recognised as "no net change". Called just before the value
-	// is written. No-op for non-restart-required settings and after the first capture for a given setting.
+	// Captures a restart-required setting's baseline before its first modification so a later revert clears it.
 	static void capture_restart_baseline(toml_v2::config_file::config_entry_base* entry)
 	{
 		if (!entry || !entry->m_config_file)
@@ -2071,9 +1930,7 @@ namespace big::mod_settings
 		return g_config_language ? std::string(g_config_language) : std::string();
 	}
 
-	// Resolves a localized string to the current game language: the entry for the current language code, then English,
-	// then the unlocalized value (empty key), then any entry. Resolution happens here (render time), so re-entering the
-	// tab after a language change picks up the new language.
+	// Resolves a localized string to the current language code, then English, then the unlocalized value, then any entry.
 	static std::string resolve_localized(const localized_text& t)
 	{
 		if (t.empty())
@@ -2099,9 +1956,7 @@ namespace big::mod_settings
 		return t.begin()->second;
 	}
 
-	// True if the current settings view has any row with a dynamic (Lua-function) description field. Recomputed each
-	// build (see build_panel). Consulted when a bool toggle changes so the panel is rebuilt in place to re-evaluate
-	// dynamic disabled/ranges/options against the new value.
+	// True if the current settings view has any row with a dynamic Lua-function field.
 	static bool g_view_has_dynamic = false;
 
 	// A setting's metadata with any dynamic (Lua-function) description fields evaluated against the current game state.
@@ -2111,9 +1966,7 @@ namespace big::mod_settings
 		auto meta = get_setting_metadata(stem, section, key);
 		if (!meta)
 		{
-			// Not a config-backed setting registered at load (e.g. a virtual row, whose metadata lives only in the Lua
-			// descs registry). Resolve it straight from there. Returns nullopt when there is no rich description there
-			// either (a Chalk setting, or a plain-string desc), exactly as before.
+			// Virtual-row metadata lives only in the Lua descs registry, so resolve it straight from there.
 			return resolve_setting_metadata(stem, section, key);
 		}
 		if (meta->has_dynamic)
@@ -2127,8 +1980,7 @@ namespace big::mod_settings
 		return meta;
 	}
 
-	// The friendly display name for a setting: the author's `display_name` override when provided, otherwise the
-	// prettified key. Mirrors how the setting rows are labelled.
+	// The friendly display name for a setting: the author's override when provided, otherwise the prettified key.
 	static std::string setting_display_name(const std::string& stem, const std::string& section, const std::string& key)
 	{
 		const auto meta = resolved_metadata(stem, section, key);
@@ -2161,12 +2013,10 @@ namespace big::mod_settings
 		const auto baseline = g_restart_baselines.find(key);
 		if (baseline != g_restart_baselines.end() && entry->get_serialized_value() == baseline->second)
 		{
-			// Matches the session baseline, so it has no net restart requirement
 			g_restart_changes.erase(key);
 		}
 		else
 		{
-			// Stored plain word-wrapped with regular spaces for the dialog in build_restart_message.
 			const std::string line = display_name_from_stem(stem) + ": "
 			                         + setting_display_name(stem, entry->m_definition.m_section, entry->m_definition.m_key) + " (" + new_value_display + ")";
 			g_restart_changes[key] = line;
@@ -2183,9 +2033,7 @@ namespace big::mod_settings
 		return !row->config_section.empty() ? row->config_section : g_view_section;
 	}
 
-	// Commit helpers for an edited row: they write the config entry (with restart-required tracking) when the row is
-	// config-backed, or call the interactive virtual row's Lua set() callback when it is virtual. Each returns true if
-	// the value actually changed, and arms the dynamic live-refresh so dependent rows re-evaluate.
+	// Commit helpers for edited rows, with restart-required tracking and dynamic live-refresh arming.
 	static bool commit_row_bool(PanelRow* row, bool v)
 	{
 		bool changed = false;
@@ -2250,8 +2098,7 @@ namespace big::mod_settings
 		return changed;
 	}
 
-	// `serialized` is the config-serialized value (also the enum option's stored value). A config entry parses it back.
-	// A virtual set() receives it as a string (virtual enum options are matched/passed as strings).
+	// `serialized` is the config-serialized value. Virtual set() receives it as a string.
 	static bool commit_row_serialized(PanelRow* row, const std::string& serialized, const std::string& display)
 	{
 		bool changed = false;
@@ -2305,12 +2152,9 @@ namespace big::mod_settings
 		{
 			if (g_edit_entry)
 			{
-				// Capture the session baseline before the first write so a later revert is recognised as "no net
-				// change".
 				capture_restart_baseline(g_edit_entry);
 
-				// set_serialized_value validates (e.g. numbers) and only stores/saves a valid value, so bad input for a
-				// number simply keeps the previous value.
+				// Bad numeric input simply keeps the previous value because set_serialized_value validates before saving.
 				g_edit_entry->set_serialized_value(g_edit_buffer);
 
 				// Clamp/snap a bounded freetext number to the stepper grid: [min, max] and min + k*step.
@@ -2348,7 +2192,6 @@ namespace big::mod_settings
 					}
 				}
 
-				// If the author declared this setting restart-required, flag/clear the restart.
 				note_change_if_restart_required(g_edit_entry, g_edit_entry->get_serialized_value());
 
 				// Reflect the committed value in the right-hand display in place. Do NOT rebuild the panel here: a rebuild frees
@@ -2356,8 +2199,7 @@ namespace big::mod_settings
 				// position, so the rows and the scrollbar desync until the next manual scroll.
 				refresh_value_display(g_edit_component, g_edit_entry->get_serialized_value());
 
-				// Other rows may still key off this value (e.g. an apply button's dynamic `disabled`), so a dynamic
-				// view re-evaluates its function rows shortly after (see g_dynamic_refresh_settle).
+				// Other rows may still key off this value, so dynamic views re-evaluate shortly after.
 				if (g_view_has_dynamic)
 				{
 					g_dynamic_refresh_settle = dynamic_refresh_settle_seconds;
@@ -2368,8 +2210,7 @@ namespace big::mod_settings
 		}
 		if (g_edit_cancel)
 		{
-			// Restore the display to the unchanged value (the live caret label was transient) no rebuild, for the same
-			// scroll-preservation reason as the commit path above.
+			// Restore the unchanged value without a rebuild, for the same scroll-preservation reason.
 			if (g_edit_entry)
 			{
 				refresh_value_display(g_edit_component, g_edit_entry->get_serialized_value());
@@ -2380,8 +2221,7 @@ namespace big::mod_settings
 		return false;
 	}
 
-	// Live-updates the edited value display (right column) with a movable, blinking caret. Called from Update while
-	// editing is active g_edit_component is the row's value component.
+	// Live-updates the edited value display with a movable, blinking caret.
 	static void update_edit_label()
 	{
 		if (g_edit_component && g_set_label)
@@ -2402,40 +2242,28 @@ namespace big::mod_settings
 		return big::string::to_lower(key) == "enabled";
 	}
 
-	// True if a config entry carries an author-written description string. Our own loader also writes the description here
-	// for string/`description`-field descs, and additionally records metadata-only descs in g_described_keys, so the two
-	// checks together recognize every configDesc form as "described".
+	// True if a config entry carries an author-written description string.
 	static bool entry_has_description(const toml_v2::config_file::config_entry_base* entry)
 	{
 		return entry && !entry->m_description.m_description.empty();
 	}
 
-	// True when the options screen was opened during gameplay (a save is loaded), false when opened from the main menu.
-	// Captured from the MiscSettingsScreen constructor's "opened from" argument (see hook_MiscSettingsScreen_ctor).
-	// Used to grey out context-restricted setting rows.
+	// True when the options screen was opened during gameplay, false when opened from the main menu.
 	static bool g_opened_in_game = false;
 
-	// True when the game global `CurrentHubRoom` is non-nil, i.e. the player is in the hub (the Crossroads) rather than in
-	// a run. Captured once in the ctor (see hook_MiscSettingsScreen_ctor) via game_is_in_hub() - the context cannot change
-	// while the pause screen is open.
+	// True when CurrentHubRoom is non-nil, i.e. the player is in the Crossroads rather than in a run.
 	static bool g_in_hub = false;
 
 
-	// True while a native options screen is open. Set in the ctor, cleared when it closes in ExitScreen.
 	static bool g_options_screen_open = false;
 
-	// True while a setting change should notify its mod through an on_change callback: an options screen is currently
-	// open. Fires for any edit made through our options menu, in the main menu or in a save (so a callback can also
-	// drive other rows' dynamic min/max/values/disabled), but not from a mod's own config write outside the menu.
-	// Callbacks must guard live-run access (game.CurrentRun and GameState may be absent in the main menu).
+	// True while options-menu edits should notify mods through on_change callbacks.
 	bool on_change_callbacks_enabled()
 	{
 		return g_options_screen_open;
 	}
 
-	// The MiscSettingsScreen ctor's "opened from" argument is the opening screen (sgg::MenuScreen*): a MainMenuScreen when
-	// opened from the main menu, a PauseScreen when opened in-game (the only two call sites in the engine).
-	// GameScreen::GetType (virtual, vtable slot 10 - a `mov eax,imm ret` stub, so calling.
+	// The MiscSettingsScreen ctor's "opened from" argument is MainMenuScreen or PauseScreen.
 	static constexpr std::size_t game_screen_get_type_vtable_slot = 10;
 	static constexpr int screen_type_pause                        = 0x10'00'03; // sgg::ScreenType::Pause
 
@@ -2450,8 +2278,7 @@ namespace big::mod_settings
 		return get_type(opened_from) == screen_type_pause;
 	}
 
-	// The context in which a setting may actually be changed. Authors declare it, but the master "enabled" toggle and
-	// any restart_required setting are. Forced to main_menu because neither can take effect on the live save.
+	// Authors declare editability, but the master "enabled" toggle and restart_required settings are forced to main_menu.
 	static editable_context effective_editable_context(const std::optional<setting_metadata>& meta, bool is_enabled_toggle)
 	{
 		if (is_enabled_toggle)
@@ -2478,8 +2305,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// The note shown in the description box for a row that is read-only because of its editable context. Empty for
-	// `any` (never restricted).
+	// The description-box note for a row blocked by its editable context.
 	static std::string context_note(editable_context ctx)
 	{
 		switch (ctx)
@@ -2491,9 +2317,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Description-box text for a context-restricted (editableContext-blocked) row: the scenario note on the first line(s),
-	// then the row's normal description below it, so the box explains BOTH why the row is read-only here and what it does.
-	// The break is a '\n', handled like the restart dialog's build_list_message.
+	// Description-box text for a context-restricted row: scenario note first, then the row's normal description.
 	static std::string note_then_description(const std::string& note, const std::string& description)
 	{
 		if (note.empty())
@@ -2507,9 +2331,7 @@ namespace big::mod_settings
 		return note + "\n" + description;
 	}
 
-	// True if the mod's config file `cfg` has a direct config entry at (section, key). Used so a group defers a
-	// group-consumed desc field (displayName/description/order/hidden) to a real config child of the same name:
-	// a group's desc table doubles as its children's descriptions, so such a field belongs to the child, not the group.
+	// True if `cfg` has a direct config entry at (section, key), so group desc fields can defer to real children.
 	static bool config_child_exists(toml_v2::config_file* cfg, const std::string& section, const std::string& key)
 	{
 		if (!cfg)
@@ -2524,9 +2346,7 @@ namespace big::mod_settings
 	// warned about (keyed "<stem>\0<path>"), so the per-frame rebuild logs each bad target only once.
 	static std::set<std::string> g_warned_group_overrides;
 
-	// The menu path an entry appears at: its `group` override (resolved to a root_section-rooted dotted path) if it has
-	// one, else the entry's own config section. Author-group segments and config-section names share this path space,
-	// so navigation, bucketing and RowIdentity all keep using dotted-string paths.
+	// The menu path an entry appears at: its `group` override if present, otherwise its own config section.
 	static std::string menu_path_of(const std::string& config_section, const std::vector<std::string>& group)
 	{
 		if (group.empty())
@@ -2542,8 +2362,7 @@ namespace big::mod_settings
 		return p;
 	}
 
-	// Finds an author-declared menu group (configDesc `groups`) by its full menu path (walking the tree by the segments
-	// after root_section), or nullptr if the path names no author group (e.g. it is a config section instead).
+	// Finds an author-declared menu group by its full menu path.
 	static const menu_group* find_author_group(const std::vector<menu_group>& tree, const std::string& menu_path)
 	{
 		const std::string prefix = std::string(root_section) + ".";
@@ -2621,10 +2440,7 @@ namespace big::mod_settings
 
 #pragma region Panel builder
 
-	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`. Leaf entries render as
-	// setting rows (bool -> toggle, enum/bounded number -> num box, else a freetext value).
-	// A menu item is either a leaf setting directly in `section`, or a direct child group (a nested sub-section
-	// such as "config.biome_pool" while viewing "config").
+	// Level 2: the leaf settings and nested groups inside config section `section` of mod `stem`.
 	struct panel_item
 	{
 		bool is_group = false;
@@ -2635,8 +2451,8 @@ namespace big::mod_settings
 		bool is_author_group = false;      // group only: declared in configDesc `groups` (not a config section)
 		localized_text author_name;        // author-group display name (is_author_group only)
 		localized_text author_description; // author-group description (is_author_group only)
-		bool has_order  = false;
-		double order    = 0.0;
+		bool has_order = false;
+		double order   = 0.0;
 		std::string sort_name;            // resolved display name, the alphabetical fallback sort key
 		bool is_enabled = false;          // the mod's master "enabled" toggle (root section only)
 		bool is_action  = false;          // a config.lua action button (runs a Lua callback, no config value)
@@ -2645,8 +2461,7 @@ namespace big::mod_settings
 		bool virtual_interactive = false; // the virtual row has a `set` (an editable get/set widget)
 	};
 
-	// One page of the Mods tab before any native widget exists: the rows in display order, plus what the row builder
-	// needs to know about the mod as a whole.
+	// One page of the Mods tab before any native widget exists.
 	struct panel_contents
 	{
 		std::vector<panel_item> items;
@@ -2693,9 +2508,7 @@ namespace big::mod_settings
 			return 0;
 		};
 
-		// Creates the child group row at `child_path` (no-op if it already exists). A group declared in configDesc
-		// `groups` takes its name/order/description from there; otherwise it is config-derived and resolved in the
-		// render. Its sort name mirrors the label the render picks, so the alphabetical fallback matches what is shown.
+		// Creates the child group row at `child_path`, using author group metadata when available.
 		auto ensure_group = [&](const std::string& child_path)
 		{
 			if (groups.contains(child_path))
@@ -2722,8 +2535,7 @@ namespace big::mod_settings
 			{
 				g.sort_name = resolve_localized(meta->name);
 
-				// Config-derived group: its metadata is configDesc.<section>.<child>, resolved here for order and again
-				// in the render for name/description. Defers to a real config child named "order".
+				// Config-derived group metadata comes from configDesc.<section>.<child>.
 				if (meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
 				{
 					g.has_order = true;
@@ -2751,7 +2563,6 @@ namespace big::mod_settings
 					continue;
 				}
 
-				// Tracked whatever section is shown, so nested rows are greyed when the mod is disabled.
 				if (!out.enabled_entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
 				{
 					out.enabled_entry = entry.get();
@@ -2766,8 +2577,7 @@ namespace big::mod_settings
 					continue;
 				}
 
-				// `group` is a static field, so the cheap (no-Lua) stored metadata is enough to place the entry.
-				// Everything else still uses its real config section.
+				// `group` is static, so the cheap stored metadata is enough to place the entry.
 				const auto static_meta             = get_setting_metadata(stem, key.m_section, key.m_key);
 				const std::vector<std::string> grp = static_meta ? static_meta->group : std::vector<std::string>{};
 				std::string child_path;
@@ -2828,8 +2638,7 @@ namespace big::mod_settings
 			items.push_back(std::move(it));
 		}
 
-		// Interleaved with the settings by `order`/source rank. A dynamic field on a row that lands on THIS page makes
-		// an edit re-run this build, for live refresh.
+		// Interleaved with settings by `order` and source rank.
 		for (const auto& vr : get_virtual_rows(stem, ""))
 		{
 			std::string child_path;
@@ -2870,9 +2679,7 @@ namespace big::mod_settings
 			}
 		}
 
-		// Row order: the master "enabled" toggle is pinned to the top, then rows carrying an authored `order` (ascending),
-		// then everything else alphabetically by its displayed name. Sorting on the display name (not the config key)
-		// keeps the list alphabetical in whatever language is active, matching what the player actually reads.
+		// Row order: pinned "enabled", authored `order`, then displayed name in the active language.
 		std::stable_sort(items.begin(),
 		                 items.end(),
 		                 [](const panel_item& a, const panel_item& b)
@@ -2899,7 +2706,6 @@ namespace big::mod_settings
 		return out;
 	}
 
-	// Builds the native widget for each collected row, in order, appending to g_rows.
 	static void build_panel_rows(MiscSettingsScreen* screen, const std::string& stem, const std::string& section, const panel_contents& contents)
 	{
 		const bool mod_enabled               = contents.mod_enabled;
@@ -2910,9 +2716,7 @@ namespace big::mod_settings
 			const bool is_enabled_row = it.is_enabled;
 			const bool disabled       = !is_enabled_row && !mod_enabled;
 
-			// An action button runs a Lua callback (config.lua `action`). It edits no config value. It is greyed and
-			// inert when the mod is disabled, when the author marked it `disabled`, or when its editable_context does
-			// not match the current screen (main-menu vs in-save).
+			// An action button runs a Lua callback and edits no config value.
 			if (it.is_action)
 			{
 				if (it.action.has_dynamic)
@@ -2925,14 +2729,10 @@ namespace big::mod_settings
 				const std::string name  = resolve_localized(it.action.name);
 				const std::string label = escape_markup(name.empty() ? key_to_display(it.key) : name);
 
-				// A mod-off action is hard-disabled (block_input). An author-disabled or context-blocked action is only
-				// greyed (block_input=false), so it stays focusable/hoverable to show its note - clicks are still
-				// blocked by pr.disabled in the OnClicked hook. This mirrors context-restricted settings.
+				// Author-disabled and context-blocked actions stay hoverable to show their notes.
 				if (auto* row = make_button_row(screen, label.c_str(), act_disabled, /*block_input*/ mod_off))
 				{
-					// A mod-off action button is fully inert: clearing mSelectable makes MenuScreen::SetMouseOver skip
-					// it so it never highlights or takes the selection, and m_can_be_focused = false blocks keyboard
-					// focus too. A soft-disabled action keeps both so it can be highlighted (mouse) to read its note.
+					// A mod-off action button is fully inert, while soft-disabled actions remain highlightable for their notes.
 					if (mod_off)
 					{
 						row->m_can_be_focused = false;
@@ -2940,9 +2740,7 @@ namespace big::mod_settings
 					}
 					else
 					{
-						// Soft-disabled (author-disabled or context-blocked) but kept useable so it can be highlighted
-						// to show its note. Clear the hover + selection overlays so it does not flash a clickable
-						// glow on mouse-over (the grey label already signals it is disabled, like a text row).
+						// Clear hover and selection overlays so soft-disabled action buttons do not flash clickable.
 						*reinterpret_cast<std::uint32_t*>(reinterpret_cast<char*>(row) + sgg::gui_component_button_under_mouse_texture_offset) = 0;
 						if (g_set_selected_texture)
 						{
@@ -2953,9 +2751,7 @@ namespace big::mod_settings
 					pr.disabled       = act_disabled;
 					pr.target_section = it.action.section; // the section the action's callback lives in.
 
-					// A context mismatch shows the scenario note first, then the normal description below it. An
-					// author-disabled action shows its disabledDescription (falling back to the normal description) so
-					// the author can explain why it is greyed.
+					// Context-blocked rows show the scenario note first. Author-disabled rows show disabledDescription.
 					if (ctx_blocked)
 					{
 						pr.description =
@@ -2975,8 +2771,7 @@ namespace big::mod_settings
 				continue;
 			}
 
-			// A virtual row's value comes from Lua callbacks, not a config entry. There is no `hidden`: with no backing
-			// state, an author omits one by not declaring it.
+			// A virtual row's value comes from Lua callbacks, not a config entry.
 			if (it.is_virtual)
 			{
 				// A `group` override can move a virtual row onto a page whose path differs from its config section, so
@@ -2987,8 +2782,7 @@ namespace big::mod_settings
 				const std::string vlabel    = escape_markup(!vname.empty() ? vname : key_to_display(it.key));
 				const std::string vdesc     = vmeta ? resolve_localized(vmeta->description) : std::string{};
 
-				// A read-only virtual row, or an interactive row with no widget, becomes key + value text. mIsUseable
-				// stays on so the mouse can still resolve it for the description.
+				// Read-only virtual rows stay mouse-resolvable for their descriptions.
 				const auto build_readonly = [&](const std::string& value_text)
 				{
 					if (auto* row = make_text_row(screen, vlabel.c_str(), /*disabled*/ false, /*block_input*/ false, /*no_hover_highlight*/ true))
@@ -3051,8 +2845,6 @@ namespace big::mod_settings
 				const double step    = (vmeta && vmeta->has_step) ? vmeta->step : 1.0;
 				const bool is_stepper = !is_enum && is_number && vmeta && vmeta->has_min && vmeta->has_max && !vmeta->freetext;
 
-				// The current value serialized the same way config values/enum options are, for enum matching and the
-				// read-only fallback.
 				std::string vv_serialized;
 				switch (vv.type)
 				{
@@ -3062,8 +2854,7 @@ namespace big::mod_settings
 				default:                           break;
 				}
 
-				// The whole mod being disabled greys the widget (native look). Author `disabled` or an editableContext
-				// mismatch render the value read-only with a note, like a config setting.
+				// Author-disabled or context-blocked interactive rows render read-only with a note.
 				const bool author_disabled = vmeta && vmeta->disabled;
 				const editable_context ctx = vmeta ? vmeta->context : editable_context::any;
 				const bool context_blocked = is_context_restricted(ctx);
@@ -3095,8 +2886,6 @@ namespace big::mod_settings
 					}
 				}
 
-				// Read-only presentation for a context/author-disabled interactive row (unless the mod is fully off,
-				// whose native greying covers it below).
 				if (!disabled && (context_blocked || author_disabled))
 				{
 					std::string vtext;
@@ -3160,8 +2949,7 @@ namespace big::mod_settings
 				}
 				else
 				{
-					// get() returned a string with no `values`, or nil: interactive free-text virtual rows are not
-					// supported yet, so show the current value read-only rather than an uneditable input.
+					// Interactive free-text virtual rows are not supported yet, so show the current value read-only.
 					build_readonly(truncate_value(vv_serialized));
 					continue;
 				}
@@ -3201,7 +2989,7 @@ namespace big::mod_settings
 			}
 
 			// A nested group drills into its child menu path when activated. A config-derived group takes its name and
-			// description from its configDesc entry; an author group carries its own, captured during collection.
+			// description from its configDesc entry. Author groups carry their own descriptions, captured during collection.
 			if (it.is_group)
 			{
 				std::string glabel;
@@ -3257,7 +3045,6 @@ namespace big::mod_settings
 			const std::string& key = it.key;
 			auto* entry            = it.entry;
 
-			// Author metadata (if any) can rename the row, hide it, and (later) pick its widget.
 			const auto meta = resolved_metadata(stem, entry->m_definition.m_section, entry->m_definition.m_key);
 			if (meta && meta->hidden)
 			{
@@ -3270,15 +3057,13 @@ namespace big::mod_settings
 			const std::string mname    = meta ? resolve_localized(meta->name) : std::string{};
 			const std::string label    = escape_markup(!mname.empty() ? mname : key_to_display(key));
 
-			// An enum cycles its label list in a num-box; a bounded number gets a slider unless the author set `freetext`
-			// (better for a very large range). Everything else is a freetext-editable right-column value.
+			// Enums use num-boxes, bounded numbers use sliders unless `freetext` is set, and everything else uses freetext.
 			const bool is_number  = entry->type() == typeid(double);
 			const bool is_enum    = meta && !meta->values.empty();
 			const bool is_stepper = !is_enum && is_number && meta && meta->has_min && meta->has_max && !meta->freetext;
 			const double step     = (meta && meta->has_step) ? meta->step : 1.0;
 
-			// Enum option lists (serialized values + parallel labels), resolved once so the widget and the PanelRow
-			// share them. The current value maps to its index, defaulting to 0.
+			// Enum option lists are resolved once so the widget and PanelRow share them.
 			std::vector<std::string> enum_values;
 			std::vector<std::string> enum_labels;
 			int enum_index = 0;
@@ -3286,8 +3071,7 @@ namespace big::mod_settings
 			{
 				enum_values = meta->values;
 
-				// Labels parallel the values when the author supplied a full set (each resolved to the current
-				// language) otherwise the raw values double as their own labels.
+				// Labels parallel the values when the author supplied a full set, otherwise values label themselves.
 				if (meta->labels.size() == enum_values.size())
 				{
 					for (const auto& lbl : meta->labels)
@@ -3317,14 +3101,12 @@ namespace big::mod_settings
 			bool built_enum     = false;
 			bool built_toggle   = false;
 
-			// A context-blocked or author-disabled setting still takes focus, so the description box can explain why it
-			// is unavailable. Edits are blocked by pr.disabled in the row handlers.
+			// Context-blocked and author-disabled settings still take focus so the description can explain why.
 			const editable_context ctx = effective_editable_context(meta, is_enabled_row);
 			const bool context_blocked = is_context_restricted(ctx);
 			if (!disabled && (context_blocked || author_disabled))
 			{
-				// Greyed but still visible: keep the real widget focusable so the description can explain why it is
-				// unavailable. Edits are blocked by pr.disabled.
+				// Greyed widgets stay focusable for their descriptions. Edits are blocked by pr.disabled.
 				GUIComponent* ro_row   = nullptr;
 				GUIComponent* ro_value = nullptr;
 				bool ro_is_toggle      = false;
@@ -3353,7 +3135,6 @@ namespace big::mod_settings
 				}
 				if (!ro_row)
 				{
-					// Plain string (or a widget that could not be built): greyed key + value text row.
 					const std::string vtext = truncate_value(entry->get_serialized_value());
 					ro_row = make_text_row(screen, label.c_str(), /*disabled*/ true, /*block_input*/ false);
 					if (ro_row)
@@ -3392,9 +3173,7 @@ namespace big::mod_settings
 						pr.value_component = ro_value;
 					}
 
-					// A context mismatch shows the scenario note first, then the normal description below it. An
-					// author-disabled row shows its disabledDescription (falling back to the normal description) so the
-					// author can explain why it is greyed.
+					// Context-blocked rows show the scenario note first. Author-disabled rows show disabledDescription.
 					if (context_blocked)
 					{
 						pr.description = note_then_description(context_note(ctx), meta ? resolve_localized(meta->description) : std::string{});
@@ -3421,8 +3200,7 @@ namespace big::mod_settings
 			}
 			else if (is_stepper)
 			{
-				// Bounded number: a slider (drag bar) like the audio-volume rows, snapped to step. Fall back to a
-				// number-box stepper if the slider cannot be built on this game build.
+				// Bounded numbers use sliders, falling back to a number-box if the slider cannot be built.
 				row = make_slider_row(screen, label.c_str(), meta->min, meta->max, step, entry->get_value_base<double>(), meta->show_as_percentage, meta->is_percentage, disabled);
 				if (row)
 				{
@@ -3436,7 +3214,6 @@ namespace big::mod_settings
 			}
 			else
 			{
-				// Left-aligned key + right-aligned value (two components), like a keybind row.
 				row = make_text_row(screen, label.c_str(), disabled);
 				if (row)
 				{
@@ -3483,7 +3260,6 @@ namespace big::mod_settings
 		}
 	}
 
-	// One page of a mod's settings: collect what belongs on it, then build a native row for each.
 	static void build_mod_settings(MiscSettingsScreen* screen, const std::string& stem, const std::string& section)
 	{
 		build_panel_rows(screen, stem, section, collect_panel_items(stem, section));
@@ -3531,16 +3307,14 @@ namespace big::mod_settings
 		}
 	}
 
-	// The component the user is currently on: the mouse-over one (mouse) takes priority, else the selected one
-	// (keyboard/controller). These are MenuScreen fields (flat struct view).
+	// The component the user is currently on: mouse-over first, otherwise keyboard/controller selection.
 	static GUIComponent* active_row_component(MiscSettingsScreen* screen)
 	{
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
 		return menu->m_mouse_over_component ? menu->m_mouse_over_component : menu->m_selected_component;
 	}
 
-	// Finds the PanelRow whose left-column component is `comp`, or nullptr. Valid until the next panel rebuild
-	// (deferred to Update), so callers within a single input/update pass may keep it.
+	// Finds the PanelRow whose left-column component is `comp`. Valid until the next panel rebuild.
 	static PanelRow* find_row(GUIComponent* comp)
 	{
 		if (!comp)
@@ -3558,7 +3332,6 @@ namespace big::mod_settings
 	}
 
 	// Builds a stable identity for a row so it can be re-found after a rebuild recreates the components.
-	// A row's real config section, used to tell same-named keys apart when a `group` override moves them onto one page.
 	static std::string row_config_section_of(const PanelRow& r)
 	{
 		if (r.entry)
@@ -3613,12 +3386,10 @@ namespace big::mod_settings
 		return g_mouse_button_down ? g_mouse_button_down(input) : true;
 	}
 
-	// The component whose description was last written to the description box. The box is only updated when the
-	// highlighted row changes (not every frame). Reset when the panel rebuilds.
+	// The component whose description was last written to the description box.
 	static GUIComponent* g_last_description_component = nullptr;
 
-	// Shows the highlighted row's author description in the screen's native description box
-	// (MiscSettingsScreen::mDescriptionBox @ 0x460). Otherwise the box is cleared.
+	// Shows the highlighted row's author description in the native description box.
 	static void sync_description_box(MiscSettingsScreen* screen)
 	{
 		if (!g_show_text || !screen->m_description_box)
@@ -3629,7 +3400,6 @@ namespace big::mod_settings
 
 		GUIComponent* active = active_row_component(screen);
 
-		// Resolve the highlighted row's description (cheap linear scan over the few visible rows).
 		const std::string* description = nullptr;
 		if (PanelRow* row = find_row(active))
 		{
@@ -3637,15 +3407,11 @@ namespace big::mod_settings
 		}
 		const bool show = description && !description->empty();
 
-		// Rebuild the text only when the highlighted row changes (ShowText re-lays out the lines).
 		if (active != g_last_description_component)
 		{
 			g_last_description_component = active;
 
-			// Escape markup so paths/brackets in the description render verbatim (see escape_markup), then turn any embedded
-			// newline into the box's hard-break escape. GUIComponentTextBox::Parse strips a raw 0x0A but honors the escape "\n"
-			// (backslash + n) as a wrap-independent hard break (via ParseEscapeSequence), so a context note stays on its own
-			// line above the description while each part still word-wraps.
+			// Escape markup and convert embedded newlines to the text box's hard-break escape.
 			std::string shown;
 			if (show)
 			{
@@ -3666,15 +3432,12 @@ namespace big::mod_settings
 			}
 		}
 
-		// Re-apply the fade every frame: the native Update runs before this and re-hides. The box on the Mods tab (it
-		// does not use mDescriptionBox here), so a one-time set would fade back out.
+		// Re-apply the fade every frame because native Update runs before this and re-hides the box.
 		box->m_fade_opacity = show ? 1.0f : 0.0f;
 		box->m_fade_target  = show ? 1.0f : 0.0f;
 	}
 
-	// Last label we wrote to each bottom-prompt button, so SetDisplayName is only called when the label actually
-	// changes (avoids re-laying out the text every frame). Cleared when we leave the Mods tab so the native labels take
-	// back over and re-entering re-applies ours.
+	// Last label we wrote to each bottom-prompt button, so SetDisplayName only runs when the label changes.
 	static std::string g_prompt_confirm_label;
 	static std::string g_prompt_cancel_label;
 
@@ -3704,13 +3467,10 @@ namespace big::mod_settings
 
 		auto* menu = reinterpret_cast<MenuScreen*>(screen);
 
-		// The native prompt strings embed a glyph token that the text box expands to the device- appropriate key icon:.
-		// Labels are upper-case to match the game Cancel (Esc): "CANCEL" while editing a field "BACK" inside a mod's settings
-		// (Esc returns to the mod list, see the ExitScreen hook) "EXIT" at the mod list (closes the options screen).
+		// Labels are upper-case to match the game: "CANCEL" while editing, "BACK" in settings, "EXIT" at the mod list.
 		const char* cancel = g_editing ? "{CN} CANCEL" : (g_view == View::mod_settings ? "{CN} BACK" : "{CN} EXIT");
 		set_prompt_label(menu->m_cancel_button, g_prompt_cancel_label, cancel);
 
-		// Confirm (Enter): "SUBMIT" while editing otherwise a verb matching the highlighted row.
 		std::string confirm;
 		if (g_editing)
 		{
@@ -3720,8 +3480,6 @@ namespace big::mod_settings
 		{
 			if (row->disabled)
 			{
-				// A greyed, non-interactable row (e.g. an opted-out mod) has no confirm action, so show no confirm
-				// prompt for it.
 				confirm.clear();
 			}
 			else
@@ -3757,10 +3515,7 @@ namespace big::mod_settings
 			}
 		}
 
-		// Drive the Confirm prompt's visibility ourselves: native only fades it in (OnOptionMouseOver) for its OWN option
-		// rows, which never fires for our custom rows Show it with its glyph whenever we have a hint, hide it when we don't
-		// mFadeOpacity is the field the draw gate reads native Update rewrites mHidden each frame, so both are set here
-		// (after the original Update).
+		// Drive Confirm prompt visibility ourselves because native OnOptionMouseOver never fires for our custom rows.
 		if (menu->m_confirm_button)
 		{
 			if (confirm.empty())
@@ -3875,9 +3630,7 @@ namespace big::mod_settings
 		screen->m_category_focused = false;
 	}
 
-	// The row a pending back-navigation should re-focus: the mod_entry row of the mod that was open (focus_stem set),
-	// or the group row that drills into the section that was open (focus_section set). Exactly one of the two fields is
-	// set per restore. Returns nullptr if that row is not in the freshly built view (e.g. it was removed since).
+	// The row a pending back-navigation should re-focus.
 	static GUIComponent* restore_target_row(const NavRestore& r)
 	{
 		for (const auto& row : g_rows)
@@ -3927,9 +3680,7 @@ namespace big::mod_settings
 		return (g_input_get_state(input, control) & 0x4u) != 0;
 	}
 
-	// Holds the clicked row as moused-over and selected, and re-applies our prompt and description, for a few frames
-	// after a click-triggered rebuild. The native hover pass runs later in HandleInput and over freshly laid-out rows can
-	// transiently resolve the stationary cursor to a neighbour, which would blink the highlight and prompt.
+	// Holds the clicked row as moused-over and selected for a few frames after a click-triggered rebuild.
 	static void reassert_keep_active_row(MiscSettingsScreen* screen)
 	{
 		if (!(g_use_mouse && *g_use_mouse))
@@ -3945,8 +3696,7 @@ namespace big::mod_settings
 		menu->m_mouse_over_component = keep;
 		menu->m_selected_component   = keep;
 
-		// Clear the prompt caches and the last-description marker so this frame's sync re-applies our label and text,
-		// overriding a native clear on the rebuild frame.
+		// Clear caches so this frame's sync overrides a native clear on the rebuild frame.
 		g_prompt_confirm_label.clear();
 		g_prompt_cancel_label.clear();
 		g_last_description_component = nullptr;
@@ -3961,10 +3711,7 @@ namespace big::mod_settings
 		reinterpret_cast<void (*)(void*)>(fn)(comp);
 	}
 
-	// Moves a row (and its owned child components) to an absolute location via the engine's own SetLocation (GUIComponent
-	// vtable slot +0x180) - the same call UpdateScrollState uses to lay rows on the grid. Going through SetLocation
-	// (rather than writing m_location_y directly) keeps a row's children - a slider's bar/label, a button's label - in
-	// step, avoiding the per-frame drift a raw location write causes.
+	// Moves a row through the engine's own SetLocation so child components stay in step.
 	static void set_component_location(GUIComponent* comp, float x, float y)
 	{
 		char* vtable = *reinterpret_cast<char**>(comp);
@@ -3993,9 +3740,7 @@ namespace big::mod_settings
 
 			if (row.is_slider)
 			{
-				// Moused-over look lives on the left label textbox. Revert it unless this row is the live mouse-over -
-				// but a disabled (greyed, still-selectable) row is reverted even while hovered, so its bar/label never
-				// light up: it must read as greyed no matter the cursor.
+				// Disabled still-selectable sliders are reverted even while hovered so they stay greyed.
 				if (row.disabled || row.component != menu->m_mouse_over_component)
 				{
 					if (auto* label = *reinterpret_cast<char**>(s + slider_label_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
@@ -4004,8 +3749,6 @@ namespace big::mod_settings
 					}
 				}
 
-				// Focused look lives on mFocused/the value textbox. Revert it unless this row is the focused option (a
-				// disabled row is never focused, so it is always reverted here).
 				if ((row.disabled || row.component != screen->m_component_focused) && *reinterpret_cast<bool*>(s + slider_focused_offset))
 				{
 					call_component_vfn(row.component, vtable_on_focus_off_offset);
@@ -4013,9 +3756,7 @@ namespace big::mod_settings
 			}
 			else if ((row.is_enum || row.is_stepper) && (mouse_mode || row.disabled))
 			{
-				// Num-box selected look (black box + green label) set by OnSelected, on the label textbox mUseSelected
-				// flag. Revert via OnUnselected (not OnMouseOff, a no-op here) unless it is the live mouse-over - a
-				// disabled (greyed, still-selectable) row is reverted even while hovered so it stays greyed.
+				// Num-box selected look is reverted through OnUnselected because OnMouseOff is a no-op here.
 				if (row.disabled || row.component != menu->m_mouse_over_component)
 				{
 					if (auto* label = *reinterpret_cast<char**>(s + numbox_label_text_offset); label && *reinterpret_cast<bool*>(label + textbox_use_selected_color_off))
@@ -4027,10 +3768,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Keeps a greyed-but-still-selectable widget row's label (and value) text greyed. We re-apply the grey through the
-	// text box's own SetTextColor each frame (the same call the engine's UpdateButtonStates uses to grey a still-hoverable
-	// option), which writes that cached mTextColor directly. The selected-colour def is greyed too (grey_text_box) so a
-	// hover that briefly sets the selected flag stays grey.
+	// Keeps a greyed-but-still-selectable widget row's label and value text greyed.
 	static void keep_disabled_labels_grey()
 	{
 		const auto grey_label = [](char* base, std::size_t tb_offset)
@@ -4093,8 +3831,7 @@ namespace big::mod_settings
 
 	static void build_panel(MiscSettingsScreen* screen, bool instant = false)
 	{
-		// A rebuild frees and recreates the row components, so the cached highlighted-row pointer is stale force the
-		// description box to refresh next frame.
+		// A rebuild frees the highlighted-row pointer, so refresh the description next frame.
 		g_last_description_component = nullptr;
 
 		// Preserve the current scroll offset across an in-place refresh (same view/mod, e.g. after committing a setting
@@ -4120,7 +3857,6 @@ namespace big::mod_settings
 			}
 		}
 
-		// Remove any rows from a previous view/visit before building the new set.
 		destroy_rows(screen);
 
 		// Resolve the blank graphic lazily: the string-intern table is not ready at hook registration time, so "Blank"
@@ -4136,7 +3872,6 @@ namespace big::mod_settings
 		// toggle should trigger an in-place rebuild to re-evaluate it live.
 		g_view_has_dynamic = false;
 
-		// This rebuild supersedes any pending numeric-change refresh, so cancel its debounce.
 		g_dynamic_refresh_settle = 0.0f;
 
 		if (g_view == View::mod_settings && !g_view_stem.empty())
@@ -4183,13 +3918,9 @@ namespace big::mod_settings
 			}
 		}
 
-		// A view change leaves the freshly built rows at mFadeOpacity 0 (finalize_row). The native ease
-		// (GUIComponent::Update) then fades the on-page rows in toward mFadeTarget == 1, matching the game's own
-		// category-switch transition.
+		// A view change leaves fresh rows transparent so native GUIComponent::Update fades them in.
 		sync_value_columns();
 
-		// Take the disabled/greyed rows out of the keyboard/controller nav so the cursor only lands on interactable
-		// ones (mouse hover is unaffected).
 		apply_row_freeform_selectability();
 
 		// On a real view change (tab entry, drilling in, going back), drop the cursor on the first row so it highlights
@@ -4209,8 +3940,7 @@ namespace big::mod_settings
 		}
 		else if (had_cursor)
 		{
-			// Put the keyboard/controller cursor back on the equivalent new row so an instant rebuild (a toggle, an
-			// action, or the deferred numeric refresh) does not drop it. No-op for mouse.
+			// Put the keyboard/controller cursor back on the equivalent new row after an instant rebuild.
 			for (const auto& row : g_rows)
 			{
 				if (row.component && row.kind == cursor_kind && row.setting_key == cursor_key && !row.disabled
@@ -4222,8 +3952,7 @@ namespace big::mod_settings
 			}
 		}
 
-		// Arm a short re-assert window after a click-triggered instant rebuild (a toggle or an action). The Update hook
-		// re-asserts the clicked row over these frames (see reassert_keep_active_row).
+		// Arm a short re-assert window after a click-triggered instant rebuild.
 		if (instant && g_keep_active_row.valid && g_use_mouse && *g_use_mouse)
 		{
 			g_keep_active_frames = keep_active_frame_count;
@@ -4244,11 +3973,10 @@ namespace big::mod_settings
 	// same view/mod (e.g. after toggling "enabled") is applied instantly to avoid a fade flash.
 	static void apply_nav(MiscSettingsScreen* screen)
 	{
-		// A rebuild that stays on the same view/mod/section (a setting edit, an "enabled" toggle, or a Reset) is
-		// applied instantly, which preserves the current scroll page instead of snapping back to the top.
+		// Same-view rebuilds preserve the current scroll page instead of snapping back to the top.
 		const bool instant = (g_pending_view == g_view) && (g_pending_stem == g_view_stem) && (g_pending_section == g_view_section);
 
-		// Maintain the restore stack. A same-view rebuild (instant:.
+		// Maintain the restore stack.
 		const bool drilling_in =
 		    (g_view == View::mod_list && g_pending_view == View::mod_settings)
 		    || (g_view == View::mod_settings && g_pending_view == View::mod_settings && g_pending_section.rfind(g_view_section + ".", 0) == 0);
@@ -4287,9 +4015,7 @@ namespace big::mod_settings
 
 #pragma region Reset to defaults
 
-	// The serialized default of a config entry, read from the entry itself via the public write_description (whose last
-	// output line is "#. The serialized form uses the same converter as get_serialized_value, so it round-trips through
-	// set_serialized_value.
+	// The serialized default of a config entry, read via write_description and round-tripped through set_serialized_value.
 	static std::optional<std::string> entry_default_serialized(toml_v2::config_file::config_entry_base* entry)
 	{
 		if (!entry)
@@ -4335,17 +4061,14 @@ namespace big::mod_settings
 				}
 				auto* e = entry.get();
 
-				// Reset only the settings the menu actually shows: described keys (from our loader or a Chalk
-				// plain-string description) plus the always-shown master "enabled" toggle. Hidden (undescribed) keys
-				// are the mod's internal state, so a menu Reset leaves them untouched.
+				// Reset only shown settings plus the master "enabled" toggle, leaving hidden internal state untouched.
 				const bool is_enabled_toggle = def.m_section == root_section && e->type() == typeid(bool) && is_enabled_key(def.m_key);
 				if (!is_enabled_toggle && !setting_is_described(guid, def.m_section, def.m_key) && !entry_has_description(e))
 				{
 					continue;
 				}
 
-				// Skip entries outside the current menu group. The `group` override is a static field, so the cheap
-				// stored metadata gives the placement.
+				// Skip entries outside the current menu group.
 				const auto static_meta             = get_setting_metadata(guid, def.m_section, def.m_key);
 				const std::vector<std::string> grp = static_meta ? static_meta->group : std::vector<std::string>{};
 				const std::string mpath = resolve_entry_menu_path(guid, author_groups, cfg, def.m_section, grp);
@@ -4357,8 +4080,7 @@ namespace big::mod_settings
 				auto def_val = get_setting_default(guid, def.m_section, def.m_key);
 				if (!def_val)
 				{
-					// Not bound via rom.mod_settings.load (e.g. a Chalk mod): recover the default from the config entry
-					// itself.
+					// Chalk mods recover the default from the config entry itself.
 					def_val = entry_default_serialized(e);
 				}
 				if (!def_val || e->get_serialized_value() == *def_val)
@@ -4469,9 +4191,7 @@ namespace big::mod_settings
 		return build_list_message("A restart is required because you changed these settings:", lines, "The game will now close. Please restart it to apply the changes.");
 	}
 
-	// Builds an empty EASTL SSO string (24-byte layout) in `buf` (>=24 bytes). Passed to the dialog ctor (message) and
-	// AddScreen (name). The real message is applied afterwards via ShowText. Layout: bytes[0..]=chars,
-	// byte[23]=remaining-capacity marker (23 - length).
+	// Builds an empty EASTL SSO string in `buf`. The real message is applied afterwards via ShowText.
 	static void make_eastl_sso(char* buf, const char* text)
 	{
 		std::size_t n = std::strlen(text);
@@ -4498,7 +4218,7 @@ namespace big::mod_settings
 
 	// Shows the native single-button message box, modal over the options screen. When confirm_closes_game is set the
 	// confirm button is captured so the OnClicked hook closes the game on press (a forced restart, which must not be
-	// cancellable); otherwise the button keeps its native dismiss behaviour.
+	// cancellable). Otherwise the button keeps its native dismiss behaviour.
 	static bool show_message_dialog(void* screen_manager, const char* title, const std::string& message, bool confirm_closes_game)
 	{
 		if (screen_manager && g_message_dialog_ctor && g_add_screen)
@@ -4510,21 +4230,17 @@ namespace big::mod_settings
 			{
 				std::memset(dialog, 0, message_dialog_size);
 
-				// The ctor builds every component (single button + text) and loads GUI/MessageDialog.sjson. Pass an
-				// empty message. The real (multi-line) text is applied below via ShowText so it need not be an eastl
-				// heap string.
+				// Pass an empty message so the real multi-line text can be applied below via ShowText.
 				char empty_message[24];
 				make_eastl_sso(empty_message, "");
 				g_message_dialog_ctor(dialog, screen_manager, empty_message);
 
 				auto* bytes = reinterpret_cast<char*>(dialog);
 
-				// Ensure the dialog is visible and modal over the options screen.
 				bytes[screen_removed_offset]     = 0;
 				bytes[screen_visible_offset]     = 1;
 				bytes[screen_block_input_offset] = 1;
 
-				// Set the title + body (raw text. The body carries the list of settings/mods).
 				if (g_show_text)
 				{
 					if (auto* title_box = *reinterpret_cast<void**>(bytes + dialog_title_offset))
@@ -4533,15 +4249,12 @@ namespace big::mod_settings
 					}
 					if (auto* message_box = *reinterpret_cast<GUIComponent**>(bytes + dialog_message_offset))
 					{
-						// Shrink the body font: the sjson template renders at size 26 scale the live font handle's size
-						// ratios down before ShowText lays out the lines (the def's mFontSize is ignored once the
-						// template is loaded).
+						// Shrink the loaded font handle before ShowText lays out the lines.
 						char* handle = reinterpret_cast<char*>(message_box) + textbox_font_handle_offset;
 						*reinterpret_cast<float*>(handle + font_handle_size_ratio_offset) *= restart_message_font_scale;
 						*reinterpret_cast<float*>(handle + font_handle_eng_size_ratio_offset) *= restart_message_font_scale;
 
-						// Escape markup so a path value (e.g. hadesGameFolder) with '\' or brackets in the listed lines
-						// renders verbatim (see escape_markup).
+						// Escape markup so path values render verbatim.
 						const std::string shown = escape_markup(message);
 						g_show_text(message_box, shown.c_str());
 					}
@@ -4556,7 +4269,7 @@ namespace big::mod_settings
 					g_restart_dialog         = dialog;
 				}
 
-				// Add at the END of the screen list so it draws on top of the options menu.
+				// Add at the end of the screen list so it draws on top.
 				char empty_name[24];
 				make_eastl_sso(empty_name, "");
 				g_add_screen(screen_manager, dialog, true, empty_name);
@@ -4567,15 +4280,13 @@ namespace big::mod_settings
 		return false;
 	}
 
-	// The "restart required" prompt: its only button closes the game (a restart-required change must not be
-	// cancellable, since cancelling would have to undo the change).
+	// The restart-required prompt. Its only button closes the game.
 	static bool show_restart_dialog(void* screen_manager, const std::string& message)
 	{
 		return show_message_dialog(screen_manager, "Restart Required", message, /*confirm_closes_game*/ true);
 	}
 
-	// The "can't disable this mod" prompt: purely informational, so its button just dismisses the dialog and returns
-	// the player to the options screen with the mod left enabled.
+	// The dependency-block prompt is informational, so its button just dismisses the dialog.
 	static bool show_dependency_dialog(void* screen_manager, const std::string& message)
 	{
 		return show_message_dialog(screen_manager, "Cannot Disable Mod", message, /*confirm_closes_game*/ false);
@@ -4603,9 +4314,7 @@ namespace big::mod_settings
 		return true;
 	}
 
-	// Display names of the currently-enabled loaded mods that declare `stem` as a dependency (via their Thunderstore
-	// manifest, which lists dependency guids in dependencies_no_version_number). A dependent that is itself disabled is
-	// skipped -.
+	// Display names of enabled loaded mods that declare `stem` as a Thunderstore dependency.
 	static std::vector<std::string> active_dependents_of(const std::string& stem)
 	{
 		std::vector<std::string> result;
@@ -4678,7 +4387,6 @@ namespace big::mod_settings
 		g_in_hub              = game_is_in_hub();
 		g_options_screen_open = true;
 
-		// The engine constructor returns `this` forward it unchanged
 		auto* screen = static_cast<MiscSettingsScreen*>(big::g_hooking->get_original<hook_MiscSettingsScreen_ctor>()(self, screen_manager, opened_from, profile_name));
 
 		if (!mods_category_button(screen))
@@ -4727,9 +4435,7 @@ namespace big::mod_settings
 		return result;
 	}
 
-	// Value-change hook for our native number-box rows. GUIComponentNumBox::SetNumberValue is called (with notify=true) on
-	// every user step - left/right, arrow click, keyboard or controller. This fires for native settings num-boxes too,
-	// hence the `find_row` filter.
+	// Value-change hook for our native number-box rows, filtered because it also fires for native settings num-boxes.
 	static void hook_GUIComponentNumBox_SetNumberValue(void* self, float value, bool notify)
 	{
 		big::g_hooking->get_original<hook_GUIComponentNumBox_SetNumberValue>()(self, value, notify);
@@ -4745,8 +4451,7 @@ namespace big::mod_settings
 			return;
 		}
 
-		// Enum cycler: The box tracks the option index persist the matching serialized value and replace the raw index
-		// the original just painted with the option's label.
+		// Enum cyclers persist the matching serialized value and repaint the option label.
 		if (row->is_enum)
 		{
 			int idx = static_cast<int>(*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + numbox_value_offset));
@@ -4792,7 +4497,6 @@ namespace big::mod_settings
 		const double step_v = row->stepper_step;
 		const double range  = max_v - min_v;
 
-		// Continuous post-clamp fraction the original just wrote, mapped to the value and snapped to step.
 		const float f = *reinterpret_cast<float*>(reinterpret_cast<char*>(self) + slider_fraction_offset);
 		double v      = min_v + static_cast<double>(f) * range;
 		if (step_v > 0.0 && range > 0.0)
@@ -4810,8 +4514,6 @@ namespace big::mod_settings
 
 		commit_row_number(row, v);
 
-		// Restore the real value in place of the percentage the original wrote (applying the setting's own
-		// percentage-display options).
 		set_slider_value_text(reinterpret_cast<GUIComponent*>(self),
 		                      format_setting_display(v, row->show_as_percentage, row->is_percentage, step_v).c_str());
 	}
@@ -5033,10 +4735,7 @@ namespace big::mod_settings
 		return result;
 	}
 
-	// Restores vertical breathing room around action-button rows, whose taller Button_Secondary box would otherwise
-	// crowd neighbouring setting rows on the uniform grid. Runs after the native UpdateScrollState has laid out the
-	// page. The shift goes through the engine's own SetLocation so each row's child components follow - a raw
-	// m_location_y write leaves them behind, which is what caused the earlier slider-bar drift.
+	// Restores vertical breathing room around action-button rows after native UpdateScrollState lays out the page.
 	static void apply_button_spacing(MiscSettingsScreen* screen)
 	{
 		const std::size_t first = screen->m_page_start_index;
@@ -5096,7 +4795,6 @@ namespace big::mod_settings
 			*reinterpret_cast<bool*>(bytes + component_auto_activate_offset) = true;
 		};
 
-		// Down arrow aims one row below the last visible row. Up arrow one row above the first visible row.
 		aim(screen->m_down_arrow, g_rows[last].component, row_pitch);
 		aim(screen->m_up_arrow, g_rows[first].component, -row_pitch);
 	}
@@ -5125,8 +4823,7 @@ namespace big::mod_settings
 		auto* screen = static_cast<MiscSettingsScreen*>(self);
 		const bool on_mods_tab = screen->m_current_category_button == reinterpret_cast<GUIComponent*>(screen->m_editor_options_button);
 
-		// Freetext editing: refresh the edited row's live label Confirm/cancel is handled in the HandleInput hook so
-		// the submitting key/click is swallowed on the same frame.
+		// Freetext editing refreshes here. Confirm/cancel is handled in the HandleInput hook.
 		if (g_editing)
 		{
 			if (on_mods_tab)
@@ -5167,8 +4864,7 @@ namespace big::mod_settings
 						g_pending_section = g_view_section;
 						g_nav_pending     = true;
 
-						// Pin the edited row so the rebuild keeps focus on it. Keyboard/controller focus is restored by
-						// build_panel's cursor tracking.
+						// Pin the edited row so the rebuild keeps focus on it.
 						if (GUIComponent* active = active_row_component(screen))
 						{
 							if (const PanelRow* fr = find_row(active))
@@ -5183,7 +4879,6 @@ namespace big::mod_settings
 
 		if (g_nav_pending)
 		{
-			// Only act while this screen is actually showing the Mods tab.
 			if (on_mods_tab)
 			{
 				// Stepping from a mod's settings back to the mod overview is the "done configuring this mod" point: if a

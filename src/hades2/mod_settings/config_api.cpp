@@ -172,8 +172,7 @@ namespace big::mod_settings
 	}
 
 	// Resolves a localized string to a single language-independent value for on-disk use (the .cfg comment), which is
-	// not re-written per language: English, then the unlocalized value, then any entry. The in-game menu resolves to
-	// the live game language separately at render time.
+	// not re-written per language: English, then the unlocalized value, then any entry.
 	static std::string localized_fallback(const localized_text& t)
 	{
 		if (t.empty())
@@ -192,8 +191,8 @@ namespace big::mod_settings
 	}
 
 	// Extracts the (possibly localized) description from a config.lua description value, which may be a plain string,
-	// or a rich table with a `description` field (or `[1]` shorthand) that is itself a plain string or a localization
-	// table.
+	// or a rich table with a `description` field (or `[1]` shorthand for backwards-compatibility) that is itself a
+	// plain string or a localization table.
 	static localized_text describe(const sol::object& desc)
 	{
 		if (desc.get_type() == sol::type::string)
@@ -361,22 +360,16 @@ namespace big::mod_settings
 
 #pragma region Metadata extraction
 
-	// Builds a setting_metadata from a config.lua description table for a flat (non-table) value. Captures the
-	// author-only inputs that can't be inferred (name, bounds, enum options/labels, order, hidden, restart). The widget
+	// Builds a setting_metadata from a config.lua description table for a flat (non-table) value. The widget
 	// kind is not stored - the menu derives it from the value's type plus the presence of `values` (enum).
 	static setting_metadata extract_metadata(const sol::table& desc)
 	{
 		setting_metadata m;
 		m.description = describe(desc);
 
-		// Display-name override (`displayName`) empty -> the menu prettifies the key. May be a plain string or a
-		// localization table.
 		sol::object display_name = desc["displayName"];
 		m.name                   = parse_localized(display_name);
 
-		// Alternative description shown while the row is greyed by its `disabled` field (empty -> fall back to the
-		// normal description). String or localization table, like displayName. If it was written as a function it has
-		// already been resolved to a concrete value by resolve_description before this runs.
 		m.disabled_description = parse_localized(desc["disabledDescription"]);
 
 		sol::object min_field = desc["min"];
@@ -405,7 +398,6 @@ namespace big::mod_settings
 			          return serialize_option(v);
 		          });
 
-		// Enum option display labels (parallel to `values`). Each may be a plain string or a localization table.
 		if (sol::object labels_obj = desc["labels"]; labels_obj.is<sol::table>())
 		{
 			sol::table lt = labels_obj.as<sol::table>();
@@ -477,21 +469,19 @@ namespace big::mod_settings
 			}
 		}
 
-		// Virtual-row `default`: the value a menu Reset restores the row to (config settings recover their own default
-		// from the .cfg / config.lua). Serialized the same way as an enum option value so it round-trips through set().
+		// Virtual-row `default`: the value a menu Reset restores the row to (config settings recover their own default).
 		if (sol::object default_field = desc["default"]; default_field.valid() && default_field.get_type() != sol::type::lua_nil)
 		{
 			m.has_default   = true;
 			m.default_value = serialize_option(default_field);
 		}
 
-		// When the setting may be changed relative to a loaded save (`editableContext`). The menu forces the master
-		// "enabled" toggle and restartRequired settings to main_menu regardless.
+		// When the setting may be changed relative to a loaded save (`editableContext`). The menu forces the
+		// "enabled" toggle and any restartRequired settings to main_menu regardless.
 		m.context = parse_editable_context(desc["editableContext"], editable_context::any);
 
 		// A field written as a Lua function is dynamic: skipped by the type-guarded reads above and re-evaluated at
-		// render. `hidden` is deliberately not dynamic (toggling it shifts layout, so it is only re-done on a full
-		// rebuild - use `disabled` for a live condition), and `editableContext` is a fixed design property.
+		// render.
 		for (const char* field : {"displayName", "description", "disabledDescription", "min", "max", "step", "values", "labels", "order", "disabled"})
 		{
 			if (desc[field].get_type() == sol::type::function)
@@ -513,7 +503,7 @@ namespace big::mod_settings
 
 	// The Lua-side registry (rom.mod_settings._descs) mapping guid -> the mod's raw configDesc table, kept alive so
 	// dynamic description fields and action callbacks can be evaluated at render. Recreated each Lua state, so it never
-	// dangles. Returns a nil object if the guid has no stored description.
+	// dangles.
 	static sol::object stored_descriptions(sol::state_view state, const std::string& guid)
 	{
 		sol::object ns = state[rom::g_lua_api_namespace];
@@ -535,8 +525,7 @@ namespace big::mod_settings
 	}
 
 	// Navigates a mod's stored configDesc to the description of (section, key). The configDesc mirrors the config table
-	// under the "config" root, so the section's remaining path (after "config") indexes nested description tables, then
-	// `key` selects the leaf/group description. Returns nil if any hop is missing or not a table.
+	// under the "config" root, so the section's remaining path indexes nested description tables.
 	static sol::object navigate_description(const sol::object& root, const std::string& section, const std::string& key)
 	{
 		if (!root.is<sol::table>())
@@ -546,7 +535,6 @@ namespace big::mod_settings
 		sol::table node = root.as<sol::table>();
 
 
-		// section is "config" or "config.a.b..." walk the part after the root.
 		std::string rel;
 		if (section.size() > std::strlen(root_section) && section.compare(0, std::strlen(root_section) + 1, std::string(root_section) + ".") == 0)
 		{
@@ -574,7 +562,7 @@ namespace big::mod_settings
 
 	// A minimal Lua message handler that returns the error object unchanged. Unlike ReturnOfModding's global default
 	// handler it neither appends a stack traceback nor logs the failure at ERROR (and does not count it against the
-	// mod's error tally), leaving the raw one-line error for our own concise WARNING to report.
+	// mod's error tally).
 	static int silent_error_handler(lua_State* /*L*/)
 	{
 		return 1; // keep the single error value already on the stack.
@@ -659,7 +647,7 @@ namespace big::mod_settings
 
 	// Walks a mod's configDesc (guided by the config defaults, like bind_defaults) collecting action buttons -
 	// description entries carrying an `action` function and no config value. Recurses into groups so actions can live at
-	// any level. Dynamic fields (has_dynamic) are re-resolved at render by get_actions.
+	// any level.
 	static void collect_actions(const sol::table& config_tbl, const sol::object& desc_obj, const std::string& section, std::vector<action_info>& out)
 	{
 		if (desc_obj.is<sol::table>())
@@ -821,7 +809,7 @@ namespace big::mod_settings
 				const bool has_text = t.get_type() == sol::type::string || t.get_type() == sol::type::function;
 
 				// A row is interactive (an editable get/set widget) when it has a `set`, otherwise it is a read-only
-				// `text` row. get/set/text/values/min/max may be functions too (dynamic), so re-evaluate at render.
+				// `text` row.
 				vr.interactive = has_set;
 				for (const char* field : {"displayName", "description", "text", "values", "min", "max", "step", "labels"})
 				{
@@ -838,7 +826,6 @@ namespace big::mod_settings
 
 				if (vr.interactive)
 				{
-					// Interactive row: needs `get` to read its current value for the widget. `set` is present here.
 					if (!has_get)
 					{
 						LOG(WARNING) << "[mod_settings] " << guid << ": interactive virtual row '" << path << "' has a `set` but no `get`, so its widget cannot read a value; add a `get` callback.";
@@ -847,7 +834,6 @@ namespace big::mod_settings
 				}
 				else if (!has_text)
 				{
-					// Read-only row: needs `text`. (A stray `get` with no `set` is not a display path.)
 					LOG(WARNING) << "[mod_settings] " << guid << ": virtual row '" << path << "' has no `text` (a string or a function returning one) and no `set` (to be interactive), so it has nothing to show.";
 				}
 				out.push_back(std::move(vr));
@@ -870,8 +856,7 @@ namespace big::mod_settings
 
 #pragma region Config entry access and change hooks
 
-	// Finds the config entry for (section, key), or nullptr. m_entries is keyed by config_definition, so this is a
-	// direct map lookup.
+	// Finds the config entry for (section, key), or nullptr.
 	static toml_v2::config_file::config_entry_base* find_entry(toml_v2::config_file* cf, const std::string& section, const std::string& key)
 	{
 		toml_v2::config_definition def(section, key);
@@ -912,8 +897,7 @@ namespace big::mod_settings
 		return sol::lua_nil;
 	}
 
-	// Writes a Lua value into a config entry, dispatching on the value's Lua type (matching the toml_v2
-	// config_entry:set overloads: bool/number/string).
+	// Writes a Lua value into a config entry, dispatching on the value's Lua type.
 	static void entry_set(toml_v2::config_file::config_entry_base* entry, const sol::object& value)
 	{
 		switch (value.get_type())
@@ -953,7 +937,7 @@ namespace big::mod_settings
 	}
 
 	// Parses a config key that is a positive-integer array index ("1", "2", ...), used to expose array-like sections
-	// through #, ipairs and inext. Returns false for an empty or non-digit key.
+	// through #, ipairs and inext.
 	static bool parse_positive_index(const std::string& key, long& out)
 	{
 		if (key.empty())
@@ -1159,8 +1143,7 @@ namespace big::mod_settings
 		return mod_config_proxy{cf, section};
 	}
 
-	// Coerces a Lua index key to the string form config entries use (Chalk stringifies numeric keys). Returns false for
-	// a key that is neither a string nor a number.
+	// Coerces a Lua index key to the string form config entries use (Chalk stringifies numeric keys).
 	static bool coerce_key(const sol::stack_object& key, std::string& out)
 	{
 		if (key.get_type() == sol::type::string)
@@ -1225,8 +1208,7 @@ namespace big::mod_settings
 
 #pragma region Default binding and config.lua load
 
-	// A setting's extracted metadata together with the section/key it belongs to, collected while walking config.lua
-	// and then folded into the registry.
+	// A setting's extracted metadata together with the section/key it belongs to, collected while walking config.lua.
 	struct collected_metadata
 	{
 		std::string section;
@@ -1284,29 +1266,25 @@ namespace big::mod_settings
 			default: continue;
 			}
 
-			// Capture the config.lua default, serialized exactly as the entry serializes its own value, so the menu's.
+			// Capture the config.lua default, serialized exactly as the entry serializes its own value, so the menu's
 			// Reset can round-trip it back through set_serialized_value.
 			if (default_any)
 			{
 				defaults_out.emplace_back(section, key, toml_v2::toml_type_converter::convert_to_string(*default_any));
 
-				// Record a described leaf so the menu shows it. An undescribed leaf is hidden. Only leaves reach here
-				// (default_any is set for bool/number/string, not a group table).
+				// An undescribed leaf is hidden from the menu.
 				if (described)
 				{
 					described_out.emplace_back(section, key);
 				}
 			}
 
-			// A rich description table carries metadata. For a leaf it is the setting's metadata. For a nested group (a
-			// table value). It is group-level metadata (e.g. order/displayName/hidden) declared alongside the child
-			// descriptions. Registered under (section, key) either way.
+			// A rich description table carries metadata: the setting's own for a leaf, or group-level metadata (order,
+			// displayName, ...) for a nested group. Registered under (section, key) either way.
 			if (desc.is<sol::table>())
 			{
 				meta_out.push_back({section, key, extract_metadata(desc.as<sol::table>())});
 
-				// A leaf may also declare an onChanged callback. Attach it to the bound entry so a menu edit (or the
-				// mod's own write) of this setting notifies the mod in Lua.
 				if (bound_entry)
 				{
 					sol::object on_changed = desc.as<sol::table>()["onChanged"];
@@ -1325,8 +1303,6 @@ namespace big::mod_settings
 	// of the Options menu. Replaces depending on `Chalk`.
 	static sol::object load(sol::this_state ts, sol::this_environment this_env, const std::string& config_lua)
 	{
-		// Derives the mod's <config>/<guid>.cfg, creates a config_file owned by the mod, runs its config.lua, binds the
-		// defaults/descriptions, records restart-required settings, and returns the proxy.
 		if (!this_env)
 		{
 			return sol::lua_nil;
@@ -1350,10 +1326,8 @@ namespace big::mod_settings
 		const std::string cfg_folder = config_folder();
 		const std::string cfg_path   = path_combine(cfg_folder, guid + ".cfg");
 
-		// Create the config_file owned by this mod (freed when the mod unloads).
 		auto& cf = module->m_data.m_config_files.emplace_back(std::make_unique<toml_v2::config_file>(cfg_path, true, guid));
 
-		// Load the mod's config.lua (returns `config, configDesc`), relative to its folder.
 		const std::string mod_folder      = env["_PLUGIN"]["plugins_mod_folder_path"];
 		const std::string config_lua_path = mod_folder + "/" + config_lua;
 
@@ -1376,10 +1350,9 @@ namespace big::mod_settings
 		sol::object defaults     = cfg_result[0];
 		sol::object descriptions = cfg_result[1];
 
-		// Bind the defaults into the config_file (section root "config", matching. Chalk) and collect each rich
-		// setting's metadata, then persist the file.
+		// Section root is "config", matching Chalk, so an existing .cfg stays byte-compatible.
 		std::vector<collected_metadata> collected;
-		std::vector<std::tuple<std::string, std::string, std::string>> collected_defaults; // (section.
+		std::vector<std::tuple<std::string, std::string, std::string>> collected_defaults; // (section, key, serialized)
 		std::vector<std::pair<std::string, std::string>> collected_described;              // (section, key) with a desc
 		if (defaults.is<sol::table>())
 		{
@@ -1388,8 +1361,8 @@ namespace big::mod_settings
 		cf->save();
 
 		// Keep this mod's configDesc alive in Lua so the menu can evaluate dynamic (function) description fields and
-		// action callbacks at render time. Stored under rom.mod_settings._descs[guid], which is Lua-owned and recreated
-		// per state, so no sol reference is cached in a dangling C++ static.
+		// action callbacks at render time. Lua-owned and recreated per state, so no sol reference dangles in a C++
+		// static.
 		if (sol::object ms_ns = rom["mod_settings"]; ms_ns.is<sol::table>())
 		{
 			if (sol::object descs = ms_ns.as<sol::table>()["_descs"]; descs.is<sol::table>())
@@ -1398,23 +1371,21 @@ namespace big::mod_settings
 			}
 		}
 
-		// Collect action buttons declared in configDesc (entries with an `action` function no config value).
+		// Collect action buttons declared in configDesc (entries with an `action` function and no config value).
 		std::vector<action_info> actions;
 		if (defaults.is<sol::table>())
 		{
 			collect_actions(defaults.as<sol::table>(), descriptions, root_section, actions);
 		}
 
-		// Collect virtual rows (configDesc entries marked `virtual = true` with no config value) and validate that
-		// every configDesc entry resolves to a config value, an action, or a virtual marker (warns otherwise).
+		// Also validates that every configDesc entry resolves to a config value, an action, or a virtual marker.
 		std::vector<virtual_row_info> virtual_rows;
 		if (defaults.is<sol::table>())
 		{
 			collect_virtual_rows(guid, defaults.as<sol::table>(), descriptions, root_section, virtual_rows);
 		}
 
-		// Parse the author-declared menu group tree (top-level configDesc `groups`), the categories a per-entry `group`
-		// can target that do not exist as config sections.
+		// The categories a per-entry `group` can target that do not exist as config sections.
 		std::vector<menu_group> menu_groups;
 		if (descriptions.is<sol::table>())
 		{
@@ -1469,8 +1440,7 @@ namespace big::mod_settings
 	}
 
 	// True when the game is in the hub (the Crossroads), i.e. the game Lua global `CurrentHubRoom` is non-nil. Reads
-	// the game's Lua state directly, so it must be called on the game thread while the state is alive. Returns false
-	// when the Lua manager is not up yet.
+	// the game's Lua state directly, so it must be called on the game thread while the state is alive.
 	bool game_is_in_hub()
 	{
 		if (!big::g_lua_manager)
@@ -1501,8 +1471,7 @@ namespace big::mod_settings
 			}
 		}
 
-		// Re-evaluate any dynamic fields (name/description/order/disabled) against the current game state, mirroring
-		// resolve_setting_metadata for settings.
+		// Re-evaluate any dynamic fields against the current game state, mirroring resolve_setting_metadata.
 		if (big::g_lua_manager)
 		{
 			sol::state_view state  = big::g_lua_manager->lua_state();
@@ -1584,9 +1553,7 @@ namespace big::mod_settings
 		}
 		sol::table t = desc.as<sol::table>();
 
-		// The read-only display comes from `text`: a plain string, or a function returning a bool/number/string that
-		// is stringified. Evaluated protected so a mod error cannot crash the menu. (`get`/`set` is the separate
-		// editable value pair, added with interactive virtual rows - it is not a display path.)
+		// `text` is a plain string, or a function returning a bool/number/string that is stringified.
 		const sol::object text = t["text"];
 		if (text.get_type() == sol::type::string)
 		{
@@ -1706,7 +1673,7 @@ namespace big::mod_settings
 	}
 
 	// The virtual_value kind an author-forced widget_type maps to (enum options and strings are both carried as
-	// strings). widget_type::inferred / an unmapped value yield kind::none.
+	// strings).
 	static virtual_value::kind kind_of_widget(widget_type t)
 	{
 		switch (t)
@@ -1719,7 +1686,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Builds a typed virtual_value from a serialized scalar for the given kind. kind::none yields a none value.
+	// Builds a typed virtual_value from a serialized scalar for the given kind.
 	static virtual_value virtual_value_from_serialized(virtual_value::kind kind, const std::string& serialized)
 	{
 		virtual_value v;
@@ -1886,9 +1853,9 @@ namespace big::mod_settings
 		ns.set_function("load", &load);
 		ns.set_function("opt_out", &opt_out);
 
-		// A Lua-owned table holding each mod's raw configDesc (rom.mod_settings._descs[guid]), so the menu can evaluate
-		// dynamic (function) description fields and action callbacks at render time without caching sol references in.
-		// C++ statics (which would dangle across a Lua-state reset).
+		// A Lua-owned table holding each mod's raw configDesc, so the menu can evaluate dynamic description fields and
+		// action callbacks at render time without caching sol references in C++ statics (which would dangle across a
+		// Lua-state reset).
 		ns["_descs"] = state.create_table();
 	}
 
