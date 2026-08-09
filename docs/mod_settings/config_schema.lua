@@ -24,12 +24,22 @@
 --- be presented under an arbitrary menu tree. Only needed for categories that are not config sections already.
 ---@class (exact) mod_settings.menu_group
 --- Category label shown on its drill-down row. Defaults to a prettified version of the group's key.
----@field displayName? mod_settings.localized_string
+---@field displayName? mod_settings.dynamic_string
 --- Help text shown while the category's row is highlighted.
----@field description? mod_settings.localized_string
+---@field description? mod_settings.dynamic_string
 --- Sort key among sibling categories/rows, lowest first. Entries with an `order` are listed above those without
 --- one, which are sorted alphabetically by their displayName.
 ---@field order? number
+--- Grey the group out (shown read-only, cannot be entered) while this is true. Updates live while the menu is
+--- open (e.g. grey a group unless a toggle is enabled).
+---@field disabled? mod_settings.dynamic_boolean
+--- Description shown in place of `description` while the setting is greyed by its own `disabled` field, to
+--- explain why it is unavailable. Defaults to the normal `description` when omitted.
+---@field disabledDescription? mod_settings.dynamic_string
+--- Restrict where this category can be entered: main menu, in a save, in the Crossroads, or anywhere (default
+--- "any"). Outside the allowed context the row is greyed and cannot be opened, which restricts everything inside
+--- it too - rows in the category do not need to repeat it, but may restrict themselves further.
+---@field editableContext? "any" | "mainMenu" | "inSave" | "inHub"
 --- Further nested sub-categories, keyed by their id (referenced as later path segments in a `group`).
 ---@field groups? table<string, mod_settings.menu_group>
 

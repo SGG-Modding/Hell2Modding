@@ -43,13 +43,21 @@ namespace big::mod_settings
 		std::string id;
 		localized_text name;
 		localized_text description;
-		bool has_order = false;
-		double order   = 0.0;
+		localized_text disabled_description;
+		bool has_order   = false;
+		double order     = 0.0;
+		bool disabled    = false;
+		editable_context context = editable_context::any;
+		bool has_dynamic = false;
 		std::vector<menu_group> children;
 	};
 
 	// The author-declared menu group tree for mod `guid`, empty when none was declared.
 	std::vector<menu_group> mod_menu_groups(const std::string& guid);
+
+	// Re-resolves one author-declared group's dynamic fields against the current game state. `path` is its id chain
+	// under the root configDesc `groups` (e.g. { "debugging", "logging" }).
+	std::optional<menu_group> resolve_menu_group(const std::string& guid, const std::vector<std::string>& path);
 
 	// Author-declared metadata for one setting, from its config.lua description table. Only settings described with a
 	// rich table get an entry - the rest fall back to type-based rendering. All fields are optional (see the has_*).

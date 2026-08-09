@@ -2357,6 +2357,25 @@ namespace big::mod_settings
 		return p;
 	}
 
+	// The id chain of an author group menu path, i.e. its segments after the root section. Empty for the root itself.
+	static std::vector<std::string> author_group_path(const std::string& menu_path)
+	{
+		std::vector<std::string> out;
+		const std::string prefix = std::string(root_section) + ".";
+		if (menu_path.rfind(prefix, 0) != 0)
+		{
+			return out;
+		}
+		std::string rest = menu_path.substr(prefix.size());
+		while (!rest.empty())
+		{
+			const auto dot = rest.find('.');
+			out.push_back(rest.substr(0, dot));
+			rest = (dot == std::string::npos) ? std::string{} : rest.substr(dot + 1);
+		}
+		return out;
+	}
+
 	// Finds an author-declared menu group by its full menu path.
 	static const menu_group* find_author_group(const std::vector<menu_group>& tree, const std::string& menu_path)
 	{
@@ -2446,6 +2465,9 @@ namespace big::mod_settings
 		bool is_author_group = false;      // group only: declared in configDesc `groups` (not a config section)
 		localized_text author_name;        // author-group display name (is_author_group only)
 		localized_text author_description; // author-group description (is_author_group only)
+		localized_text author_disabled_description; // shown instead of the description while disabled
+		bool author_disabled = false;               // author-group `disabled` (already resolved if dynamic)
+		editable_context group_context = editable_context::any; // group only: when the page may be entered
 		bool has_order = false;
 		double order   = 0.0;
 		std::string sort_name;            // resolved display name, the alphabetical fallback sort key
@@ -2519,22 +2541,44 @@ namespace big::mod_settings
 				g.is_author_group    = true;
 				g.author_name        = ag->name;
 				g.author_description = ag->description;
-				g.sort_name          = resolve_localized(ag->name);
+				g.author_disabled_description = ag->disabled_description;
+				g.author_disabled             = ag->disabled;
+				g.group_context               = ag->context;
 				if (ag->has_order)
 				{
 					g.has_order = true;
 					g.order     = ag->order;
 				}
+
+				// A dynamic field is skipped at load, so re-evaluate the whole declaration against the current state.
+				if (ag->has_dynamic)
+				{
+					g_view_has_dynamic = true;
+					if (const auto live = resolve_menu_group(stem, author_group_path(child_path)))
+					{
+						g.author_name                 = live->name;
+						g.author_description          = live->description;
+						g.author_disabled_description = live->disabled_description;
+						g.author_disabled             = live->disabled;
+						g.group_context               = live->context;
+					}
+				}
+				g.sort_name = resolve_localized(g.author_name);
 			}
 			else if (const auto meta = resolved_metadata(stem, section, g.key); meta)
 			{
 				g.sort_name = resolve_localized(meta->name);
 
-				// Config-derived group metadata comes from configDesc.<section>.<child>.
+				// Config-derived group metadata comes from configDesc.<section>.<child>, whose desc table doubles as
+				// its children's descriptions, so defer to a real config child of the same name.
 				if (meta->has_order && !config_child_exists(view_cfg, child_path, "order"))
 				{
 					g.has_order = true;
 					g.order     = meta->order;
+				}
+				if (!config_child_exists(view_cfg, child_path, "editableContext"))
+				{
+					g.group_context = meta->context;
 				}
 			}
 			if (g.sort_name.empty())
@@ -2989,18 +3033,22 @@ namespace big::mod_settings
 			{
 				std::string glabel;
 				std::string gdescription;
+				std::string gdisabled_description;
+				bool group_disabled = false;
 				if (it.is_author_group)
 				{
 					const std::string gname = resolve_localized(it.author_name);
 					glabel                  = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
 					gdescription            = resolve_localized(it.author_description);
+					gdisabled_description   = resolve_localized(it.author_disabled_description);
+					group_disabled          = it.author_disabled;
 				}
 				else
 				{
 					auto gmeta = resolved_metadata(stem, section, it.key);
 
-					// A group's desc table doubles as its children's descriptions. If displayName/description/hidden is
-					// one of the group's own config children, defer to that child.
+					// A group's desc table doubles as its children's descriptions. If displayName/description/hidden or
+					// disabled is one of the group's own config children, defer to that child.
 					if (gmeta && view_cfg)
 					{
 						if (config_child_exists(view_cfg, it.child_section, "displayName"))
@@ -3015,6 +3063,10 @@ namespace big::mod_settings
 						{
 							gmeta->hidden = false;
 						}
+						if (config_child_exists(view_cfg, it.child_section, "disabled"))
+						{
+							gmeta->disabled = false;
+						}
 					}
 
 					if (gmeta && gmeta->hidden)
@@ -3024,14 +3076,32 @@ namespace big::mod_settings
 					const std::string gname = gmeta ? resolve_localized(gmeta->name) : std::string{};
 					glabel                  = escape_markup(!gname.empty() ? gname : key_to_display(it.key));
 					gdescription            = gmeta ? resolve_localized(gmeta->description) : std::string{};
+					gdisabled_description   = gmeta ? resolve_localized(gmeta->disabled_description) : std::string{};
+					group_disabled          = gmeta && gmeta->disabled;
 				}
 
-				if (auto* row = make_text_row(screen, glabel.c_str(), disabled))
+				// A category the current context does not allow is greyed and cannot be entered, which restricts every
+				// row inside it without them having to repeat the restriction.
+				const bool ctx_blocked = is_context_restricted(it.group_context);
+
+				// Greyed like any other row: author-disabled or context-blocked keeps it hoverable so the note can be
+				// read, while the whole mod being disabled makes it fully inert.
+				const bool greyed = disabled || group_disabled || ctx_blocked;
+				if (auto* row = make_text_row(screen, glabel.c_str(), greyed, /*block_input*/ disabled))
 				{
 					PanelRow pr{row, RowKind::group, stem, {}};
-					pr.disabled       = disabled;
+					pr.disabled       = greyed; // blocks the drill-in in the click handler
 					pr.target_section = it.child_section;
-					pr.description    = gdescription;
+
+					// Context-blocked rows show the scenario note first. Author-disabled rows show disabledDescription.
+					if (ctx_blocked)
+					{
+						pr.description = note_then_description(context_note(it.group_context), gdescription);
+					}
+					else
+					{
+						pr.description = (group_disabled && !gdisabled_description.empty()) ? gdisabled_description : gdescription;
+					}
 					g_rows.push_back(std::move(pr));
 				}
 				continue;
@@ -5160,12 +5230,14 @@ namespace big::mod_settings
 			missing.push_back("ucrtbase.dll _aligned_malloc/_aligned_free (the game's CRT heap)");
 		}
 
-		// The hardcoded RVAs and struct offsets above are valid only for the Ship build they were captured against, and
-		// unlike the name-resolved symbols they do NOT auto-adapt - a game update could move them and crash the options
-		// screen. So gate the menu on the exact build via its PDB GUID: after an update the GUID no longer matches and
-		// the tab is cleanly skipped (the rom.mod_settings Lua API is unaffected) until Hell2Modding is updated.
-		static constexpr const char* validated_pdb_guid = "744ea71c-2c21-4b40-a6c486d1fa6647da";
-		const bool build_validated                      = big::hades2_pdb_guid == validated_pdb_guid;
+		// The hardcoded RVAs and struct offsets above are valid only for the build they were captured against.
+		// We gate the (attempted) creation of the menu itself on a valid GUID to not crash the game unnecessarily.
+		// The config API itself works regardless
+		static constexpr const char* validated_pdb_guids[] = {
+		    "744ea71c-2c21-4b40-a6c486d1fa6647da", // Ship, 2026-08-04
+		};
+		const bool build_validated = std::find(std::begin(validated_pdb_guids), std::end(validated_pdb_guids), big::hades2_pdb_guid)
+		    != std::end(validated_pdb_guids);
 
 		// Secondary sanity check on top of the GUID allow-list: the anchor (button ctor) must sit at its known module
 		// RVA. A matching GUID already implies this, so a failure here means the PDB and the loaded exe disagree (e.g.
@@ -5197,7 +5269,7 @@ namespace big::mod_settings
 			{
 				detail += "\n    - game build not validated for this Hell2Modding version (PDB GUID '";
 				detail += big::hades2_pdb_guid.empty() ? "<unknown>" : big::hades2_pdb_guid;
-				detail += "'). The game likely updated; update validated_pdb_guid to this GUID after re-validating the "
+				detail += "'). The game likely updated; add this GUID to validated_pdb_guids after re-validating the "
 				          "engine offsets/RVAs against the new Ship build.";
 			}
 			if (!build_matches)

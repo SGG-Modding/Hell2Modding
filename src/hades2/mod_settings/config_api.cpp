@@ -145,6 +145,7 @@ namespace big::mod_settings
 #pragma region Config.lua parsing helpers
 
 	static std::string serialize_option(const sol::object& v); // defined below.
+	static editable_context parse_editable_context(const sol::object& o, editable_context fallback); // defined below.
 
 	// Parses a user-facing string field: either a plain scalar (stored under the empty key) or a localization table
 	// keyed by language folder codes, e.g. { en = "...", ["zh-TW"] = "..." }. Empty/absent yields an empty map.
@@ -252,8 +253,8 @@ namespace big::mod_settings
 	}
 
 	// Recursively parses a configDesc `groups` table into menu_group nodes. Each key is a group id (used in a `group`
-	// path), its value a table of optional `displayName`/`description`, `order`, and nested `groups`. Non-tables are
-	// skipped. Siblings sort by `order` then id (Lua declaration order is lost).
+	// path), its value a table of optional `displayName`/`description`/`disabled`/`disabledDescription`, `order`, and
+	// nested `groups`. Non-tables are skipped. Siblings sort by `order` then id (Lua declaration order is lost).
 	static std::vector<menu_group> parse_menu_groups(const sol::object& groups_obj)
 	{
 		std::vector<menu_group> out;
@@ -276,12 +277,29 @@ namespace big::mod_settings
 				    LOG(WARNING) << "[mod_settings] ignoring menu group id '" << g.id << "' containing '.', which is reserved as the menu-path separator (nest via a `groups` sub-table instead).";
 				    return;
 			    }
-			    g.name        = parse_localized(gt["displayName"]);
-			    g.description = parse_localized(gt["description"]);
+			    g.name                 = parse_localized(gt["displayName"]);
+			    g.description          = parse_localized(gt["description"]);
+			    g.disabled_description = parse_localized(gt["disabledDescription"]);
 			    if (sol::object order = gt["order"]; order.get_type() == sol::type::number)
 			    {
 				    g.has_order = true;
 				    g.order     = order.as<double>();
+			    }
+			    if (sol::object d = gt["disabled"]; d.is<bool>())
+			    {
+				    g.disabled = d.as<bool>();
+			    }
+			    g.context = parse_editable_context(gt["editableContext"], editable_context::any);
+
+			    // A field written as a Lua function is skipped by the type-guarded reads above and re-evaluated at
+			    // render by resolve_menu_group.
+			    for (const char* field : {"displayName", "description", "disabledDescription", "disabled"})
+			    {
+				    if (gt[field].get_type() == sol::type::function)
+				    {
+					    g.has_dynamic = true;
+					    break;
+				    }
 			    }
 			    g.children = parse_menu_groups(gt["groups"]);
 			    out.push_back(std::move(g));
@@ -1431,6 +1449,56 @@ namespace big::mod_settings
 		setting_metadata m        = extract_metadata(resolved);
 		m.has_dynamic             = false; // already resolved to concrete values.
 		return m;
+	}
+
+	std::optional<menu_group> resolve_menu_group(const std::string& guid, const std::vector<std::string>& path)
+	{
+		if (!big::g_lua_manager || path.empty())
+		{
+			return std::nullopt;
+		}
+		sol::state_view state  = big::g_lua_manager->lua_state();
+		const sol::object root = stored_descriptions(state, guid);
+		if (!root.is<sol::table>())
+		{
+			return std::nullopt;
+		}
+
+		// Walk the declaration tree: root `groups` for the first id, then each node's own `groups` for the next.
+		sol::object node = root.as<sol::table>()["groups"];
+		sol::table entry;
+		for (std::size_t i = 0; i < path.size(); ++i)
+		{
+			if (!node.is<sol::table>())
+			{
+				return std::nullopt;
+			}
+			sol::object child = node.as<sol::table>()[path[i]];
+			if (!child.is<sol::table>())
+			{
+				return std::nullopt;
+			}
+			entry = child.as<sol::table>();
+			node  = entry["groups"];
+		}
+
+		const sol::table r = resolve_description(state, entry, guid);
+		menu_group g;
+		g.id                   = path.back();
+		g.name                 = parse_localized(r["displayName"]);
+		g.description          = parse_localized(r["description"]);
+		g.disabled_description = parse_localized(r["disabledDescription"]);
+		if (sol::object order = r["order"]; order.get_type() == sol::type::number)
+		{
+			g.has_order = true;
+			g.order     = order.as<double>();
+		}
+		if (sol::object d = r["disabled"]; d.is<bool>())
+		{
+			g.disabled = d.as<bool>();
+		}
+		g.context = parse_editable_context(r["editableContext"], editable_context::any);
+		return g;
 	}
 
 	// True when the game is in the hub (the Crossroads), i.e. the game Lua global `CurrentHubRoom` is non-nil. Reads
