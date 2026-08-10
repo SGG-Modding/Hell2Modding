@@ -125,4 +125,8 @@ function memory.resolve_pointer_to_type(target_address, target_type) end
 ---@return number # The object address as a lua number.
 function memory.get_usertype_pointer(usertype_object) end
 
+---@param table table A lua table instance.
+---@return number # The table address as a lua number.
+function memory.get_table_pointer(table) end
+
 
