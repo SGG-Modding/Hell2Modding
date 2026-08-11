@@ -8,7 +8,7 @@ namespace lua::hades::inputs
 	struct keybind_callback
 	{
 		std::string name;
-		sol::function cb;
+		sol::coroutine cb;
 	};
 
 	extern std::map<std::string, std::vector<keybind_callback>> vanilla_key_callbacks;
