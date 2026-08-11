@@ -39,7 +39,7 @@ below. Two other kinds of `configDesc` entry have their own fields and sections:
 | `hidden` | boolean | Hide the setting from the menu entirely. Static only - use `disabled` for rows that change state while the menu is open. |
 | `disabled` | boolean \| callback | Grey the setting out (read-only) while true. Updates live while the menu is open. |
 | `disabledDescription` | string \| localization table \| callback | Description shown in place of `description` while the setting is greyed by its own `disabled` field, to explain why. Falls back to `description` when omitted. |
-| `restartRequired` | boolean | Force the user to restart the game after existing the mod menu if this setting was changed. |
+| `restartRequired` | boolean | Force the user to restart the game after exiting the mod menu if this setting was changed. |
 | `editableContext` | `"any"` \| `"mainMenu"` \| `"inSave"` \| `"inHub"` | Restrict where the row can be edited: `"any"` (default), `"mainMenu"` (only from the main menu), `"inSave"` (only while a save is loaded), or `"inHub"` (only in the Crossroads). Outside of the allowed context the row shows as disabled. Restrict this if the mod or game would break if the setting is edited in the wrong context. Can also be set on a whole menu category, which restricts everything inside it. The "enabled" setting and any `restartRequired` settings are always treated as `"mainMenu"`. |
 | `showAsPercentage` | boolean | Append "%" to the value. Usually used for min/max restricted number fields. |
 | `isPercentage` | boolean | Show a 0..x value as 0..x00 *and* append "%". You don't need `showAsPercentage` when using this. |

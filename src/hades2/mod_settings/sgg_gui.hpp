@@ -3,13 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// Minimal views over the native option-screen GUI objects, limited to the fields this feature reads or writes. Only
-// sgg::GUIComponent base fields and MiscSettingsScreen members are used, which stay stable across the button-layout
-// changes that occur between game versions.
+// Native option-screen GUI views limited to fields this feature reads or writes.
 namespace big::mod_settings::sgg
 {
-	// Two floats, 8 bytes. As a function argument this is an integer-class aggregate, so it is passed in a
-	// general-purpose register rather than an XMM one - the by-value POD typing reproduces that ABI.
+	// Passed by value in a general-purpose register, not XMM.
 	struct Vec2
 	{
 		float x;
@@ -18,8 +15,7 @@ namespace big::mod_settings::sgg
 
 	static_assert(sizeof(Vec2) == 8);
 
-	// eastl::vector<T> stores three pointers (begin, end, capacity) followed by its allocator. begin/end are enough to
-	// iterate an existing vector.
+	// eastl::vector<T> stores begin, end, capacity, then its allocator.
 	template<typename T>
 	struct eastl_vector
 	{
@@ -47,7 +43,6 @@ namespace big::mod_settings::sgg
 
 	struct GUIComponentButton;
 
-	// sgg::GUIComponent, the base of every menu widget.
 	struct GUIComponent
 	{
 		char m_pad0[0x0C];
@@ -81,26 +76,20 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(GUIComponent, m_id) == 0x5'38);
 	static_assert(sizeof(GUIComponent) == 0x5'40);
 
-	// Byte offset of GUIComponentButton::mOwner (MenuScreen*), set after construction.
+	// GUIComponentButton::mOwner (MenuScreen*) is set after construction.
 	inline constexpr std::size_t gui_component_button_owner_offset = 0x5'A0;
 	inline constexpr std::size_t gui_component_button_size         = 0x5'B0;
 
-	// IsSelectable returns this, and MenuScreen::SetMouseOver skips a component whose IsSelectable is false - so
-	// clearing it makes a button non-hoverable and non-selectable.
+	// IsSelectable returns this. Clearing it also prevents mouse-over selection.
 	inline constexpr std::size_t gui_component_button_selectable_offset = 0x5'51;
 
-	// mUnderMouseTexture: Draw paints this hover-highlight overlay only when it is valid and mIsUseable is set. A greyed
-	// but still hoverable action clears it so it does not flash a clickable-looking glow. The selection overlay
-	// mSelectedTexture is at 0x564, cleared via SetSelectedTexture.
+	// Draw paints mUnderMouseTexture only when valid and mIsUseable is set. mSelectedTexture is at 0x564.
 	inline constexpr std::size_t gui_component_button_under_mouse_texture_offset = 0x5'68;
 
-	// mDisplayNameId, a 32-bit interned-string id. UseDefaultText resolves it back to its interned string, looks that up
-	// in the localized text data and sets the label from the result. It re-runs on every localization pass, including a
-	// live language change, so this id - not any string handed to SetDisplayName - determines the persistent label.
+	// mDisplayNameId is the persistent localized label source across localization passes.
 	inline constexpr std::size_t gui_component_button_display_name_id_offset = 0x1'68;
 
-	// mComponents owns every live widget that is drawn and hit-tested; freed components are dropped from it. mAnchor is
-	// the base location the engine gives freshly created option components.
+	// mComponents owns live drawn and hit-tested widgets. mAnchor seeds new option component locations.
 	struct MenuScreen
 	{
 		char m_pad_anchor[0x50];
@@ -121,8 +110,7 @@ namespace big::mod_settings::sgg
 	static_assert(offsetof(MenuScreen, m_cancel_button) == 0x1'A8);
 	static_assert(offsetof(MenuScreen, m_selected_component) == 0x1'B0);
 
-	// The native tabbed options screen. Category buttons are laid out contiguously from +0x388 (Gameplay) to +0x3F8
-	// (Debug), the non-user categories such as Editor following the eight user-facing ones.
+	// Native tabbed options screen. Category buttons run contiguously from +0x388 to +0x3F8.
 	struct MiscSettingsScreen
 	{
 		char m_pad_psi[0x3'44];
