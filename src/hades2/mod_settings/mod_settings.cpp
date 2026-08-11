@@ -180,6 +180,11 @@ namespace big::mod_settings
 	// GUIComponentSlider has no Draw-time highlight gate (unlike GUIComponentButton, whose Draw re-derives it from
 	// mForceSelected/owner->mSelectedComponent), so the focus look tracks its own mFocused bool.
 	static constexpr std::size_t slider_focused_offset          = 0x5'48;  // GUIComponentSlider::mFocused (bool)
+
+	// Held-input auto-repeat for slider rows, matching the values the native num-box constructor writes into
+	// mRepeatDelay/mRepeatInterval: the press steps once immediately, then holding repeats at 20 Hz after a pause.
+	static constexpr float slider_repeat_delay    = 0.6f;
+	static constexpr float slider_repeat_interval = 0.05f;
 	static constexpr std::size_t textbox_use_selected_color_off = 0x5'52;  // GUIComponentTextBox::mUseSelectedTextColor
 	static constexpr std::size_t vtable_on_mouse_off_offset     = 0x00'60; // GUIComponent::OnMouseOff slot
 	static constexpr std::size_t vtable_on_unselected_offset    = 0x00'88; // GUIComponent::OnUnselected slot
@@ -313,6 +318,8 @@ namespace big::mod_settings
 	static mouse_button_down_fn g_mouse_button_down = nullptr; // true while a mouse button is held (active drag detect)
 	static input_dir_pressed_fn g_input_was_left_pressed  = nullptr; // left/decrease press edge (dpad, arrow, stick)
 	static input_dir_pressed_fn g_input_was_right_pressed = nullptr; // right/increase press edge
+	static input_dir_pressed_fn g_input_is_left_pressed   = nullptr; // left/decrease held (level, not just the edge)
+	static input_dir_pressed_fn g_input_is_right_pressed  = nullptr; // right/increase held
 	static const void* g_controls_cancel  = nullptr; // &sgg::Controls::Cancel (controller B/keyboard Esc)
 	static const void* g_controls_select  = nullptr; // &sgg::Controls::Select (controller A/Enter)
 	static save_profile_fn g_save_profile = nullptr; // sgg::ProfileManager::SaveProfile (flush native settings)
@@ -333,10 +340,9 @@ namespace big::mod_settings
 	// = (index - pageStart) * row_pitch + row_base_y + ScreenCenterOffsetY, and X = the row's own location.
 	static constexpr float row_location_x      = 1560.0f; // component X (right pane), like OptionToggleButton
 	static constexpr float row_text_offset_x   = -900.0f; // left-justify the label to the option-name column
-	static constexpr float value_text_offset_x = 15.0f; // right-justify the value, right edge aligns with the toggle's
+	static constexpr float value_text_offset_x = 15.0f; // right-justify the value, aligning it with the toggle column
 	static constexpr float numbox_location_x   = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
 	static constexpr float slider_location_x   = 1330.0f; // native OptionSlider X (bar + value clear the scrollbar)
-	// template's label offset puts the name in the option-name column).
 	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
 	static constexpr float row_base_y            = 300.0f;  // first row's Y - matches the vanilla option templates
 	static constexpr float row_pitch             = 45.0f;   // vertical distance between rows (vanilla Spacing = 45)
@@ -1267,9 +1273,6 @@ namespace big::mod_settings
 			set_sso_string(static_cast<char*>(right_arrow) + gui_component_name_offset, "OptionNumBoxRightArrow");
 		}
 
-		// Integer box when the bounds and step are all whole (shows "3" not "3.0" and uses the discrete single-step
-		// path) otherwise a float box (decimals + analog repeat). Set the flag BEFORE SetRange, whose auto-step.
-		// Derives from it, then pin our own step.
 		const bool is_integer = is_whole(min_v) && is_whole(max_v) && is_whole(step_v);
 		*reinterpret_cast<bool*>(nb_bytes + numbox_is_integer_offset) = is_integer;
 
@@ -1278,10 +1281,9 @@ namespace big::mod_settings
 
 		g_apply_data(reinterpret_cast<MenuScreen*>(screen), nb);
 
-		// ApplyDataToComponent copies the OptionNumBox template's own row grid (Y=300, Spacing=45) into the component
-		// override it to our grid so the box lines up with the other rows instead of drawing on the previous one
-		// def_y/def_spacing alias the component's baseY(+0xC8) and pitch(+0x204) that UpdateScrollState reads (def sits at
-		// component+0xA8).
+		// ApplyDataToComponent copies the OptionNumBox template's own row grid (Y=300, Spacing=45) into the component,
+		// so override it with ours or the box draws on top of the previous row. def_y/def_spacing are the baseY and
+		// pitch that UpdateScrollState reads.
 		{
 			char* def                                    = nb_bytes + component_def_offset;
 			*reinterpret_cast<float*>(def + def_y)       = row_base_y;
@@ -1431,8 +1433,8 @@ namespace big::mod_settings
 		}
 		std::memset(s, 0, slider_sizeof);
 
-		// Base GUIComponent constructor (location passed by value. 0 = origin, overridden below by
-		// ApplyDataToComponent./finalize_row), then install the patched slider vtable (bounded GetArea) over the base
+		// Base GUIComponent constructor (location passed by value, 0 = origin, overridden below by
+		// ApplyDataToComponent/finalize_row), then install the patched slider vtable (bounded GetArea) over the base
 		// one, falling back to the unpatched native vtable if the copy was not built.
 		g_gui_component_ctor(s, 0);
 		*reinterpret_cast<std::uintptr_t*>(s) = g_slider_vtable_patched ? g_slider_vtable_patched : g_slider_vtable;
@@ -1469,8 +1471,8 @@ namespace big::mod_settings
 		*reinterpret_cast<void**>(s + slider_label_offset)      = lbl;
 		*reinterpret_cast<void**>(s + slider_value_text_offset) = val;
 
-		// Parent container, matching DoShowCategory SetParent is a plain setter (writes mParentContainer), so a direct
-		// write is equivalent and avoids a vtable call. SetParent writes. GUIComponent::GUIComponent::mParentContainer.
+		// Parent container, matching DoShowCategory. SetParent is a plain setter (it writes mParentContainer), so a
+		// direct write is equivalent and avoids a vtable call.
 		*reinterpret_cast<void**>(s + slider_parent_offset) = reinterpret_cast<char*>(screen) + menu_screen_container_offset;
 
 		// Name the slider and its value box so ApplyDataToComponent applies the OptionSlider/OptionSliderValueText
@@ -1991,7 +1993,7 @@ namespace big::mod_settings
 
 	// Records or clears a restart-required setting change after the value has been written. If the new value equals the
 	// session baseline (e.g. a toggle flipped and flipped back, or a number re-typed to its original), nothing actually
-	// changed, so the setting is dropped from the restart list otherwise.
+	// changed and the setting is dropped from the restart list; otherwise it is recorded.
 	static void note_change_if_restart_required(toml_v2::config_file::config_entry_base* entry, const std::string& new_value_display)
 	{
 		if (!entry || !entry->m_config_file)
@@ -3598,7 +3600,7 @@ namespace big::mod_settings
 		}
 
 		// Reset prompt: shown only inside a single mod's settings (resets that mod) and not while editing. It is hidden
-		// in the mod list/overview so users cannot reset every mod's config by accident (the. RestoreDefaults hook also
+		// in the mod list/overview so users cannot reset every mod's config by accident (the RestoreDefaults hook also
 		// swallows the shortcut there).
 		if (screen->m_defaults_button)
 		{
@@ -3735,7 +3737,7 @@ namespace big::mod_settings
 	}
 
 	// True if a remappable control (e.g. Back/Cancel = controller B + keyboard Esc, or Select = controller A + Enter)
-	// was pressed this frame Bit 0x4 of the control's state is "was pressed" (edge, not held).
+	// was pressed this frame. Bit 0x4 of the control's state is "was pressed" (edge, not held).
 	static bool control_pressed(void* input, const void* control)
 	{
 		if (!input || !g_input_get_state || !control)
@@ -4272,7 +4274,7 @@ namespace big::mod_settings
 	// Persists the game's native Options settings (language, audio volumes, resolution/window/graphics, and all
 	// gameplay/interface/accessibility toggles) to disk. The engine normally does this only when the options screen
 	// finishes closing (MiscSettingsScreen::OnExit -> ProfileManager::SaveProfile), which never runs when we force a
-	// restart. SaveProfile's synchronous path (async=false, no save spinner) so the files are written before we exit.
+	// restart. Uses SaveProfile's synchronous path (async=false, no save spinner) so the files are written before we exit.
 	static void flush_native_settings()
 	{
 		if (g_save_profile && g_active_profile)
@@ -4472,7 +4474,7 @@ namespace big::mod_settings
 		// Leaving the Mods tab for another category: tear our rows down FIRST, before the native category switch runs. They
 		// would then linger in mComponents on the other category - re-localized by a language change and walked by the native
 		// layout - which can corrupt unrelated widgets (e.g. a category button's label). Doing our own teardown here keeps
-		// mComponents clean for the native code re-entering the tab rebuilds.
+		// mComponents clean for the native code; re-entering the tab rebuilds them.
 		if (!is_mods_tab && !g_rows.empty())
 		{
 			destroy_rows(screen);
@@ -4485,7 +4487,7 @@ namespace big::mod_settings
 
 		if (is_mods_tab)
 		{
-			// Entering the tab always starts at the mod list drill-down happens in-place via the Update hook, not by
+			// Entering the tab always starts at the mod list. Drill-down happens in-place via the Update hook, not by
 			// re-entering the category.
 			g_view = View::mod_list;
 			g_view_stem.clear();
@@ -4615,10 +4617,16 @@ namespace big::mod_settings
 		g_slider_set_fraction(slider, static_cast<float>((v - min_v) / range), true);
 	}
 
-	// Discrete keyboard/controller stepping for our slider rows, and a disabled-row guard. The native
-	// The native HandleInput slides mFraction continuously behind a dead-zone, so a small tap can land back on the same
-	// snapped value. Under keyboard/controller we bypass it and move exactly one step per left/right press edge, gated
-	// on the slider's own mFocused so only the entered slider reacts.
+	// Auto-repeat state for the slider row currently taking input. GUIComponentSlider carries no repeat fields of its
+	// own and only one row can be focused, so a single slot keyed by the component is enough.
+	static void* g_slider_repeat_component = nullptr;
+	static float g_slider_repeat_timer     = 0.0f;
+	static int g_slider_repeat_dir         = 0;
+
+	// Discrete keyboard/controller stepping for our slider rows, and a disabled-row guard. The native HandleInput
+	// slides mFraction continuously behind a dead-zone, so a small tap can land back on the same snapped value. Under
+	// keyboard/controller we bypass it and move whole steps, gated on the slider's own mFocused so only the entered
+	// slider reacts. A held direction repeats, since one press per step makes a wide range unusable.
 	static bool hook_GUIComponentSlider_HandleInput(void* self, void* input, float dt)
 	{
 		PanelRow* row = self ? find_row(reinterpret_cast<GUIComponent*>(self)) : nullptr;
@@ -4630,22 +4638,53 @@ namespace big::mod_settings
 			}
 			if ((row->entry || row->is_virtual_input) && !(g_use_mouse && *g_use_mouse) && *reinterpret_cast<bool*>(reinterpret_cast<char*>(self) + slider_focused_offset))
 			{
-				if (g_input_was_right_pressed(input))
+				// The repeat needs to know the direction is still HELD. Was*Pressed only reports the press edge, so it
+				// is the fallback that degrades to one step per press when the level probes are unavailable.
+				const bool right_down = g_input_is_right_pressed ? g_input_is_right_pressed(input) : g_input_was_right_pressed(input);
+				const bool left_down  = g_input_is_left_pressed ? g_input_is_left_pressed(input) : g_input_was_left_pressed(input);
+				const int dir         = right_down ? 1 : (left_down ? -1 : 0);
+
+				if (self != g_slider_repeat_component)
 				{
-					step_slider_row(self, row, 1);
+					g_slider_repeat_component = self; // focus moved to another slider, so start its repeat fresh
+					g_slider_repeat_dir       = 0;
+					g_slider_repeat_timer     = 0.0f;
 				}
-				else if (g_input_was_left_pressed(input))
+
+				bool step_now = false;
+				if (dir == 0)
 				{
-					step_slider_row(self, row, -1);
+					g_slider_repeat_timer = 0.0f;
 				}
-				return true; // own the focused slider's input so the native continuous slide never runs
+				else if (dir != g_slider_repeat_dir)
+				{
+					step_now              = true; // a fresh press steps at once, then waits out the delay
+					g_slider_repeat_timer = slider_repeat_delay;
+				}
+				else
+				{
+					g_slider_repeat_timer -= dt;
+					if (g_slider_repeat_timer <= 0.0f)
+					{
+						step_now              = true;
+						g_slider_repeat_timer = slider_repeat_interval;
+					}
+				}
+				g_slider_repeat_dir = dir;
+
+				if (step_now)
+				{
+					step_slider_row(self, row, dir);
+					return true; // claim only the frames that actually moved the value, like the native num-box
+				}
+				return false; // the native continuous slide still never runs, it cannot land on our step grid
 			}
 		}
 		return big::g_hooking->get_original<hook_GUIComponentSlider_HandleInput>()(self, input, dt);
 	}
 
-	// Button-click hook GUIComponentButton overrides. GUIComponent::OnClicked (vtable slot +0x100, the engine's
-	// terminal-click), so this is where our button rows' clicks land.
+	// Button-click hook. GUIComponentButton overrides GUIComponent::OnClicked (the engine's terminal click), so this is
+	// where our button rows' clicks land.
 	static bool hook_GUIComponentButton_OnClicked(GUIComponent* self, std::uint64_t location)
 	{
 		// Clicking the restart message box's button closes the game (forced restart). Re-validate the button's owner is
@@ -4980,7 +5019,7 @@ namespace big::mod_settings
 
 		void* result = big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
 
-		// The original just laid out the key rows for this frame mirror the value columns onto them so the right column
+		// The original just laid out the key rows for this frame. Mirror the value columns onto them so the right column
 		// tracks scrolling and fade, and show the highlighted row's description in the native description box.
 		if (on_mods_tab)
 		{
@@ -5034,7 +5073,7 @@ namespace big::mod_settings
 		{
 			auto* menu = reinterpret_cast<MenuScreen*>(screen);
 
-			// Select enters a slider/enum row (so the stick adjusts it) toggles and buttons are left to the native
+			// Select enters a slider/enum row (so the stick adjusts it). Toggles and buttons are left to the native
 			// component pass.
 			if (g_component_focused && control_pressed(input, g_controls_select))
 			{
@@ -5099,8 +5138,8 @@ namespace big::mod_settings
 
 		// The screen is really closing now. Tear our rows down first: the engine frees a MenuScreen's components through its
 		// reflection helper (which our rows are deliberately not registered in), not by walking mComponents, so on close it
-		// would neither free nor double-free them - they would just leak destroy_rows is a no-op when g_rows is already empty
-		// (e.g. closing off the Mods tab).
+		// would neither free nor double-free them - they would just leak. destroy_rows is a no-op when g_rows is already
+		// empty (e.g. closing off the Mods tab).
 		g_options_screen_open    = false; // stop gating on_change on this now-closing screen.
 		g_dynamic_refresh_settle = 0.0f;  // drop any pending numeric-change refresh for the closing screen.
 		destroy_rows(screen);
@@ -5134,9 +5173,9 @@ namespace big::mod_settings
 	void register_hooks()
 	{
 		// Resolve every engine symbol, RVA and offset the Mods tab depends on up front. The symbol map is built from the
-		// game's live PDB, so if the game updates and a required function moved or was renamed it resolves to null here
-		// likewise the hardcoded RVAs and struct offsets this feature was reverse-engineered against only match one specific
-		// Ship build.
+		// game's live PDB, so if the game updates and a required function moved or was renamed it resolves to null here.
+		// Likewise, the hardcoded RVAs and struct offsets this feature was reverse-engineered against only match one
+		// specific Ship build.
 		std::vector<const char*> missing;
 		const auto require = [&](const char* name) -> gmAddress
 		{
@@ -5207,6 +5246,11 @@ namespace big::mod_settings
 		g_input_was_left_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasLeftPressed"].as_func<bool(void*)>();
 		g_input_was_right_pressed = big::hades2_symbol_to_address["sgg::InputHandler::WasRightPressed"].as_func<bool(void*)>();
 
+		// The level counterparts of the above, so holding a direction repeats instead of stepping once. Optional -
+		// without them a slider still steps, just once per press.
+		g_input_is_left_pressed  = big::hades2_symbol_to_address["sgg::InputHandler::IsLeftPressed"].as_func<bool(void*)>();
+		g_input_is_right_pressed = big::hades2_symbol_to_address["sgg::InputHandler::IsRightPressed"].as_func<bool(void*)>();
+
 		// Native-settings flush before a forced restart. SaveProfile persists language, volumes, graphics and gameplay
 		// toggles. Optional - missing symbols only mean those native edits may wait for a normal save.
 		g_save_profile = big::hades2_symbol_to_address["sgg::ProfileManager::SaveProfile"].as_func<char(void*, bool, bool)>();
@@ -5232,7 +5276,7 @@ namespace big::mod_settings
 
 		// The hardcoded RVAs and struct offsets above are valid only for the build they were captured against.
 		// We gate the (attempted) creation of the menu itself on a valid GUID to not crash the game unnecessarily.
-		// The config API itself works regardless
+		// The config API itself works regardless.
 		static constexpr const char* validated_pdb_guids[] = {
 		    "744ea71c-2c21-4b40-a6c486d1fa6647da", // Ship, 2026-08-04
 		};
@@ -5247,7 +5291,7 @@ namespace big::mod_settings
 		::module_info_helper::get_module_base_and_size(&game_base, &game_size, nullptr);
 		const bool build_matches = anchor && game_base && (anchor.as<uintptr_t>() - game_base == anchor_rva);
 
-		// push_back is a named PDB symbol but is occasionally emitted inline fall back to its RVA
+		// push_back is a named PDB symbol but is occasionally emitted inline, so fall back to its RVA.
 		if (!g_push_back && build_matches)
 		{
 			g_push_back = reinterpret_cast<push_back_fn>(anchor.as<uintptr_t>() - anchor_rva + push_back_rva);
@@ -5335,7 +5379,7 @@ namespace big::mod_settings
 		{
 			static auto set_fraction_hook = hooking::detour_hook_helper::add_queue<hook_GUIComponentSlider_SetFraction>("sgg::GUIComponentSlider::SetFraction", slider_set_fraction);
 
-			// Discrete keyboard/controller stepping needs the left/right edge probes. Without them our slider rows keep
+			// Discrete keyboard/controller stepping needs the left/right probes. Without them our slider rows keep
 			// the native continuous slide, so only install the input override when both resolved.
 			const auto slider_handle_input = big::hades2_symbol_to_address["sgg::GUIComponentSlider::HandleInput"];
 			if (slider_handle_input && g_input_was_left_pressed && g_input_was_right_pressed)

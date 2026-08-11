@@ -18,7 +18,7 @@ namespace big::mod_settings::sgg
 
 	static_assert(sizeof(Vec2) == 8);
 
-	// eastl::vector<T> stores three pointers (begin, end, capacity) followed by its allocator begin/end are enough to
+	// eastl::vector<T> stores three pointers (begin, end, capacity) followed by its allocator. begin/end are enough to
 	// iterate an existing vector.
 	template<typename T>
 	struct eastl_vector

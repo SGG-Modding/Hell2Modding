@@ -318,7 +318,7 @@ namespace big::mod_settings
 		return flag.is<bool>() && flag.as<bool>();
 	}
 
-	// Parses an `editableContext` field ("any"/"mainMenu"/"inSave"/"inHub") returns `fallback` for anything else.
+	// Parses an `editableContext` field ("any"/"mainMenu"/"inSave"/"inHub"), returning `fallback` for anything else.
 	// Shared by setting metadata and action buttons.
 	static editable_context parse_editable_context(const sol::object& o, editable_context fallback)
 	{
@@ -359,7 +359,7 @@ namespace big::mod_settings
 		}
 	}
 
-	// Reads the array part of a Lua list table (ipairs order) applying `transform` to each element.
+	// Reads the array part of a Lua list table (ipairs order), applying `transform` to each element.
 	template<typename Transform>
 	static void read_list(const sol::object& obj, std::vector<std::string>& out, Transform transform)
 	{
@@ -1330,7 +1330,7 @@ namespace big::mod_settings
 		}
 		const std::string guid = module->guid();
 
-		// .cfg path = rom.path.combine(rom.paths.config(), guid ".cfg") - identical to the path Chalk used, so an
+		// .cfg path = rom.path.combine(rom.paths.config(), guid .. ".cfg") - identical to the path Chalk used, so an
 		// existing .cfg is reused.
 		sol::table rom               = env["rom"];
 		sol::function path_combine   = rom["path"]["combine"];
