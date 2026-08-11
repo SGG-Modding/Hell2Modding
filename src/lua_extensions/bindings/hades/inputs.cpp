@@ -328,7 +328,9 @@ namespace lua::hades::inputs
 				for (auto &cb : it_callback->second)
 				{
 					LOG(DEBUG) << cb.name << " (Vanilla)";
-					cb.cb();
+					sol::state_view lua(big::g_lua_manager->lua_state());
+					sol::function luaThread = lua["thread"];
+					luaThread(cb.cb);
 				}
 			}
 		}
@@ -345,13 +347,15 @@ namespace lua::hades::inputs
 				for (auto &cb : it_callback->second)
 				{
 					LOG(DEBUG) << cb.name;
-					cb.cb();
+					sol::state_view lua(big::g_lua_manager->lua_state());
+					sol::function luaThread = lua["thread"];
+					luaThread(cb.cb);
 				}
 			}
 		}
 	}
 
-	static void parse_and_register_keybind(std::string &keybind, const sol::coroutine &callback, const std::string &name, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
+	static void parse_and_register_keybind(std::string &keybind, const sol::function &callback, const std::string &name, auto &RegisterDebugKey, bool is_vanilla, big::lua_module_ext *mod)
 	{
 		eastl_custom::function<void(uintptr_t)> funcy;
 		funcy.mMgrFuncPtr    = nullptr;
@@ -435,7 +439,7 @@ namespace lua::hades::inputs
 			if (RegisterDebugKey)
 			{
 				auto keybind_opt       = args[1].get<std::optional<std::string>>();
-				auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
+				auto callback_opt      = args[2].get<std::optional<sol::function>>();
 				auto callback_name_opt = args["Name"].get<std::optional<std::string>>();
 
 				if (keybind_opt.has_value() && keybind_opt->size() && callback_opt.has_value() && callback_opt->valid())
@@ -489,7 +493,7 @@ namespace lua::hades::inputs
 			if (RegisterDebugKey)
 			{
 				auto keybind_opt       = args[1].get<std::optional<std::string>>();
-				auto callback_opt      = args[2].get<std::optional<sol::coroutine>>();
+				auto callback_opt      = args[2].get<std::optional<sol::function>>();
 				auto callback_name_opt = args["Name"].get<std::optional<std::string>>();
 				auto is_safe_opt       = args["Safe"].get<std::optional<bool>>();
 
