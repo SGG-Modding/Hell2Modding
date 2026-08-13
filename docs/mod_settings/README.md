@@ -1,5 +1,7 @@
 # In-game mod settings - IDE schema & hints
 
+> Note: Load your config using `config = rom.mod_settings.load("config.lua")` in your `main.lua` to benefit from the advanced features below.
+
 Hell2Modding renders each mod's config file as a tab in the game's Options screen. Mods declare how
 their settings look and read/write their values through a `config.lua` that returns two tables:
 
