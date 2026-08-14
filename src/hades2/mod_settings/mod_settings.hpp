@@ -10,6 +10,10 @@ namespace big::mod_settings
 	void register_hooks();
 	void bind_config_api(sol::state_view& state, sol::table& lua_ext);
 
+	// The live config file for a mod, or nullptr when it has none registered. A mod's config_file is destroyed and
+	// rebuilt on every hot reload and Lua state reset, so it must never be cached across those.
+	toml_v2::config_file* live_config_file(const std::string& guid);
+
 	// Plain text or language-code -> text, with a plain string under the empty key.
 	using localized_text = std::map<std::string, std::string>;
 

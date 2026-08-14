@@ -2412,7 +2412,7 @@ namespace big::mod_settings
 
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
-			if (!cfg || cfg->m_config_file_stem_as_str != stem)
+			if (!cfg || cfg->m_config_file_stem_as_str != stem || cfg != live_config_file(stem))
 			{
 				continue;
 			}
@@ -3836,7 +3836,8 @@ namespace big::mod_settings
 		toml_v2::config_file* mod_cfg               = nullptr; // for virtual-row path resolution.
 		for (auto* cfg : toml_v2::config_file::g_config_files)
 		{
-			if (!cfg || cfg->m_config_file_stem_as_str.empty() || cfg->m_config_file_stem_as_str != g_view_stem)
+			if (!cfg || cfg->m_config_file_stem_as_str.empty() || cfg->m_config_file_stem_as_str != g_view_stem
+			    || cfg != live_config_file(g_view_stem))
 			{
 				continue;
 			}
@@ -4061,12 +4062,8 @@ namespace big::mod_settings
 
 	static bool mod_is_enabled(const std::string& guid)
 	{
-		for (auto* cfg : toml_v2::config_file::g_config_files)
+		if (auto* cfg = live_config_file(guid))
 		{
-			if (!cfg || cfg->m_config_file_stem_as_str != guid)
-			{
-				continue;
-			}
 			for (auto& [key, entry] : cfg->m_entries)
 			{
 				if (entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))

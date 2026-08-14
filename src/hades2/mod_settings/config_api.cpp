@@ -807,8 +807,27 @@ namespace big::mod_settings
 
 #pragma region Config entry access and change hooks
 
+	// A mod's config_file is destroyed and rebuilt on every hot reload and Lua state reset, and a stale one can
+	// briefly outlive a reload, so the most recently registered file for a guid is the live one.
+	toml_v2::config_file* live_config_file(const std::string& guid)
+	{
+		toml_v2::config_file* found = nullptr;
+		for (auto* cfg : toml_v2::config_file::g_config_files)
+		{
+			if (cfg && cfg->m_config_file_stem_as_str == guid)
+			{
+				found = cfg;
+			}
+		}
+		return found;
+	}
+
 	static toml_v2::config_file::config_entry_base* find_entry(toml_v2::config_file* cf, const std::string& section, const std::string& key)
 	{
+		if (!cf)
+		{
+			return nullptr;
+		}
 		toml_v2::config_definition def(section, key);
 		return cf->try_get_entry(def);
 	}
@@ -816,6 +835,10 @@ namespace big::mod_settings
 	// Treats a section as present if it has bound leaves or child sections.
 	static bool has_section(toml_v2::config_file* cf, const std::string& section)
 	{
+		if (!cf)
+		{
+			return false;
+		}
 		const std::string prefix = section + ".";
 		for (const auto& [def, entry] : cf->m_entries)
 		{
@@ -909,16 +932,24 @@ namespace big::mod_settings
 	static constexpr const char* k_proxy_cf_map      = "h2m_mod_config_cf";
 	static constexpr const char* k_proxy_section_map = "h2m_mod_config_section";
 
-	static sol::object make_proxy(sol::this_state ts, toml_v2::config_file* cf, const std::string& section);
+	static sol::object make_proxy(sol::this_state ts, const std::string& guid, const std::string& section);
 
-	// Live config view. The mod owns the config_file and recreates it with each Lua state.
+	// Live config view. The mod's config_file is destroyed and rebuilt on every hot reload and Lua state reset, so
+	// the proxy stores the owning guid and looks the file up on each access instead of holding a pointer that would
+	// be left dangling.
 	struct mod_config_proxy
 	{
-		toml_v2::config_file* cf = nullptr;
+		std::string guid;
 		std::string section;
+
+		toml_v2::config_file* file() const
+		{
+			return live_config_file(guid);
+		}
 
 		sol::object index(sol::this_state ts, const std::string& key) const
 		{
+			auto* cf = file();
 			if (auto* entry = find_entry(cf, section, key))
 			{
 				return entry_get(ts, entry);
@@ -926,13 +957,14 @@ namespace big::mod_settings
 			const std::string child = section + "." + key;
 			if (has_section(cf, child))
 			{
-				return make_proxy(ts, cf, child);
+				return make_proxy(ts, guid, child);
 			}
 			return sol::lua_nil;
 		}
 
 		void new_index(const std::string& key, const sol::object& value) const
 		{
+			auto* cf = file();
 			if (auto* entry = find_entry(cf, section, key))
 			{
 				entry_set(entry, value);
@@ -943,7 +975,7 @@ namespace big::mod_settings
 			const std::string child = section + "." + key;
 			if (value.is<sol::table>() && has_section(cf, child))
 			{
-				const mod_config_proxy child_proxy{cf, child};
+				const mod_config_proxy child_proxy{guid, child};
 				for (const auto& [k, v] : value.as<sol::table>())
 				{
 					if (k.get_type() == sol::type::string)
@@ -960,6 +992,11 @@ namespace big::mod_settings
 			sol::table out           = lua.create_table();
 			const std::string prefix = section + ".";
 			std::set<std::string> seen_children;
+			auto* cf = file();
+			if (!cf)
+			{
+				return out;
+			}
 			for (const auto& [def, entry] : cf->m_entries)
 			{
 				if (def.m_section == section)
@@ -972,7 +1009,7 @@ namespace big::mod_settings
 					    def.m_section.substr(prefix.size(), def.m_section.find('.', prefix.size()) - prefix.size());
 					if (seen_children.insert(child).second)
 					{
-						out[child] = make_proxy(ts, cf, prefix + child);
+						out[child] = make_proxy(ts, guid, prefix + child);
 					}
 				}
 			}
@@ -983,6 +1020,11 @@ namespace big::mod_settings
 		std::size_t length() const
 		{
 			std::size_t n = 0;
+			auto* cf      = file();
+			if (!cf)
+			{
+				return n;
+			}
 			for (const auto& [def, entry] : cf->m_entries)
 			{
 				long index = 0;
@@ -1010,6 +1052,7 @@ namespace big::mod_settings
 			sol::state_view lua(ts);
 			sol::table sequence = lua.create_table();
 			const std::size_t n = length();
+			auto* cf            = file();
 			for (std::size_t i = 1; i <= n; ++i)
 			{
 				if (auto* entry = find_entry(cf, section, std::to_string(i)))
@@ -1041,7 +1084,7 @@ namespace big::mod_settings
 				i = index.as<long>();
 			}
 			const long next_index = i + 1;
-			if (auto* entry = find_entry(cf, section, std::to_string(next_index)))
+			if (auto* entry = find_entry(file(), section, std::to_string(next_index)))
 			{
 				return std::make_tuple(sol::make_object(ts, next_index), entry_get(ts, entry));
 			}
@@ -1049,19 +1092,35 @@ namespace big::mod_settings
 		}
 	};
 
-	sol::object make_proxy(sol::this_state ts, toml_v2::config_file* cf, const std::string& section)
+	static sol::object install_proxy(sol::this_state ts, sol::table target, const std::string& guid, const std::string& section)
 	{
 		sol::state_view lua(ts);
 		sol::table registry = lua.registry();
+
+		std::vector<sol::object> keys;
+		for (const auto& [k, v] : target)
+		{
+			keys.push_back(k);
+		}
+		for (const auto& k : keys)
+		{
+			target[k] = sol::lua_nil;
+		}
+
+		sol::table metatable      = registry[k_proxy_metatable];
+		sol::table cf_map         = registry[k_proxy_cf_map];
+		sol::table section_map    = registry[k_proxy_section_map];
+		target[sol::metatable_key] = metatable;
+		cf_map[target]             = guid;
+		section_map[target]        = section;
+		return target;
+	}
+
+	sol::object make_proxy(sol::this_state ts, const std::string& guid, const std::string& section)
+	{
+		sol::state_view lua(ts);
 		// The empty wrapper keeps state in weak-keyed maps, so rawpairs stays empty.
-		sol::table wrapper          = lua.create_table();
-		sol::table metatable        = registry[k_proxy_metatable];
-		sol::table cf_map           = registry[k_proxy_cf_map];
-		sol::table section_map      = registry[k_proxy_section_map];
-		wrapper[sol::metatable_key] = metatable;
-		cf_map[wrapper]             = cf;
-		section_map[wrapper]        = section;
-		return wrapper;
+		return install_proxy(ts, lua.create_table(), guid, section);
 	}
 
 	static mod_config_proxy recover(sol::this_state ts, const sol::table& wrapper)
@@ -1070,9 +1129,9 @@ namespace big::mod_settings
 		sol::table registry       = lua.registry();
 		sol::table cf_map         = registry[k_proxy_cf_map];
 		sol::table section_map    = registry[k_proxy_section_map];
-		toml_v2::config_file* cf  = cf_map[wrapper];
+		const std::string guid    = cf_map[wrapper];
 		const std::string section = section_map[wrapper];
-		return mod_config_proxy{cf, section};
+		return mod_config_proxy{guid, section};
 	}
 
 	// Chalk stringifies numeric config keys.
@@ -1333,7 +1392,12 @@ namespace big::mod_settings
 			g_menu_groups[guid]  = std::move(menu_groups);
 		}
 
-		return make_proxy(ts, cf.get(), "config");
+		// Reuses the mod's own config table so `config` stays the same object it declared, now reading live values.
+		if (defaults.is<sol::table>())
+		{
+			return install_proxy(ts, defaults.as<sol::table>(), guid, "config");
+		}
+		return make_proxy(ts, guid, "config");
 	}
 
 #pragma endregion

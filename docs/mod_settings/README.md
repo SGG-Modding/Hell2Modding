@@ -72,14 +72,19 @@ is opened and refreshed (after any other setting is changed). This lets a settin
 state or to other settings. The function runs in your mod's environment, so it can read your `config`, 
 and call functions in your `mod` or the `game` namespace.
 
+One thing to watch out for in callbacks: Guard any calls to functions in your mod namespace: Write `mod and mod.Thing`
+rather than `mod.Thing`. This is needed as these callbacks are registered independently of the mod's enabled state,
+so if your mod was disabled on startup, and the user then enables it in the mod menu, any callbacks would error as
+these functions are not yet registered.
+
 Examples:
 
 ```lua
 revive_count = {
   displayName = "Allowed Revives",
   min = 2,
-  -- Max could be dependent on internal mod state
-  max = function() return mod.CalcNumAllowedRevives() end,
+  -- Max could be dependent on internal mod state, which is unset if the mod is disabled on startup
+  max = function() return (mod and mod.CalcNumAllowedRevives()) or 2 end,
   -- Perhaps mod.CalcNumAllowedRevives() accesses the game's GameState, in which case it would error when called in the Main Menu
   editableContext = "inSave",
 },
@@ -89,7 +94,7 @@ revive_chance = {
   min = 0,
   max = 100,
   -- Row is greyed/disabled unless another config value is toggled on
-  disabled = function() return not mod.config.easy_mode end,
+  disabled = function() return not config.easy_mode end,
   disabledDescription = "Enable \"Easy Mode\" above to change this.",
 },
 ```
