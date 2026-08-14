@@ -932,6 +932,10 @@ namespace big::mod_settings
 	static constexpr const char* k_proxy_cf_map      = "h2m_mod_config_cf";
 	static constexpr const char* k_proxy_section_map = "h2m_mod_config_section";
 
+	// Chalk writes this placeholder key into expandable sections and hides it from reads and iteration. A config
+	// migrating from Chalk still has them in its .cfg, so they stay hidden here too.
+	static constexpr const char* section_empty_key = "...";
+
 	static sol::object make_proxy(sol::this_state ts, const std::string& guid, const std::string& section);
 
 	// Live config view. The mod's config_file is destroyed and rebuilt on every hot reload and Lua state reset, so
@@ -949,6 +953,10 @@ namespace big::mod_settings
 
 		sol::object index(sol::this_state ts, const std::string& key) const
 		{
+			if (key == section_empty_key)
+			{
+				return sol::lua_nil;
+			}
 			auto* cf = file();
 			if (auto* entry = find_entry(cf, section, key))
 			{
@@ -964,6 +972,10 @@ namespace big::mod_settings
 
 		void new_index(const std::string& key, const sol::object& value) const
 		{
+			if (key == section_empty_key)
+			{
+				return;
+			}
 			auto* cf = file();
 			if (auto* entry = find_entry(cf, section, key))
 			{
@@ -971,9 +983,9 @@ namespace big::mod_settings
 				return;
 			}
 
-			// Assigning a table to a nested section writes only existing bound leaves.
+			// Chalk binds an unknown key on assignment instead of dropping it, and does so recursively for tables.
 			const std::string child = section + "." + key;
-			if (value.is<sol::table>() && has_section(cf, child))
+			if (value.is<sol::table>())
 			{
 				const mod_config_proxy child_proxy{guid, child};
 				for (const auto& [k, v] : value.as<sol::table>())
@@ -983,6 +995,18 @@ namespace big::mod_settings
 						child_proxy.new_index(k.as<std::string>(), v);
 					}
 				}
+				return;
+			}
+			if (!cf)
+			{
+				return;
+			}
+			switch (value.get_type())
+			{
+			case sol::type::boolean: cf->bind(section, key, value.as<bool>(), ""); break;
+			case sol::type::number:  cf->bind(section, key, value.as<double>(), ""); break;
+			case sol::type::string:  cf->bind(section, key, value.as<std::string>(), ""); break;
+			default:                 break;
 			}
 		}
 
@@ -999,6 +1023,10 @@ namespace big::mod_settings
 			}
 			for (const auto& [def, entry] : cf->m_entries)
 			{
+				if (def.m_key == section_empty_key)
+				{
+					continue;
+				}
 				if (def.m_section == section)
 				{
 					out[def.m_key] = entry_get(ts, entry.get());
