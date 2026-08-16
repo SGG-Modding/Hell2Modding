@@ -527,6 +527,29 @@ namespace big::mod_settings
 		return descs.as<sol::table>()[guid];
 	}
 
+	// Internal keys are always the stringified form, while configDesc mirrors config's shape, so a numeric segment
+	// has to be tried as a number too.
+	static sol::object desc_child(const sol::table& node, const std::string& part)
+	{
+		sol::object child = node[part];
+		if (child.valid() && child.get_type() != sol::type::lua_nil)
+		{
+			return child;
+		}
+		if (part.empty())
+		{
+			return sol::lua_nil;
+		}
+		for (const char c : part)
+		{
+			if (c < '0' || c > '9')
+			{
+				return sol::lua_nil;
+			}
+		}
+		return node[std::stoll(part)];
+	}
+
 	// configDesc mirrors the config table under the "config" root.
 	static sol::object navigate_description(const sol::object& root, const std::string& section, const std::string& key)
 	{
@@ -547,7 +570,7 @@ namespace big::mod_settings
 		{
 			const std::size_t dot  = rel.find('.', pos);
 			const std::string part = rel.substr(pos, dot == std::string::npos ? std::string::npos : dot - pos);
-			sol::object child      = node[part];
+			sol::object child      = desc_child(node, part);
 			if (!child.is<sol::table>())
 			{
 				return sol::lua_nil;
@@ -559,7 +582,7 @@ namespace big::mod_settings
 			}
 			pos = dot + 1;
 		}
-		return node[key];
+		return desc_child(node, key);
 	}
 
 	// Avoids ReturnOfModding's traceback logging and error tally.
@@ -646,7 +669,21 @@ namespace big::mod_settings
 			sol::table desc = desc_obj.as<sol::table>();
 			for (const auto& [k, v] : desc)
 			{
-				if (k.get_type() != sol::type::string || !v.is<sol::table>())
+				if (!v.is<sol::table>())
+				{
+					continue;
+				}
+				// configDesc may be written array-shaped, mirroring an array in config.
+				std::string desc_key;
+				if (k.get_type() == sol::type::string)
+				{
+					desc_key = k.as<std::string>();
+				}
+				else if (k.get_type() == sol::type::number)
+				{
+					desc_key = std::to_string(k.as<long long>());
+				}
+				else
 				{
 					continue;
 				}
@@ -657,7 +694,7 @@ namespace big::mod_settings
 				}
 				action_info a;
 				a.section = section;
-				a.key     = k.as<std::string>();
+				a.key     = desc_key;
 				read_action_fields(entry, a);
 				for (const char* field : {"displayName", "description", "disabledDescription", "order", "disabled"})
 				{
@@ -672,12 +709,26 @@ namespace big::mod_settings
 		}
 		for (const auto& [k, v] : config_tbl)
 		{
-			if (k.get_type() != sol::type::string || !v.is<sol::table>())
+			if (!v.is<sol::table>())
 			{
 				continue;
 			}
-			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[k] : sol::object(sol::lua_nil);
-			collect_actions(v.as<sol::table>(), child_desc, section + "." + k.as<std::string>(), out);
+			// Array elements are bound under their stringified index, so recurse into those sections too.
+			std::string child_key;
+			if (k.get_type() == sol::type::string)
+			{
+				child_key = k.as<std::string>();
+			}
+			else if (k.get_type() == sol::type::number)
+			{
+				child_key = std::to_string(k.as<long long>());
+			}
+			else
+			{
+				continue;
+			}
+			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[child_key] : sol::object(sol::lua_nil);
+			collect_actions(v.as<sol::table>(), child_desc, section + "." + child_key, out);
 		}
 	}
 
@@ -722,18 +773,28 @@ namespace big::mod_settings
 			sol::table desc = desc_obj.as<sol::table>();
 			for (const auto& [k, v] : desc)
 			{
-				if (k.get_type() != sol::type::string)
+				// configDesc may be written array-shaped, mirroring an array in config.
+				std::string key;
+				if (k.get_type() == sol::type::string)
+				{
+					key = k.as<std::string>();
+				}
+				else if (k.get_type() == sol::type::number)
+				{
+					key = std::to_string(k.as<long long>());
+				}
+				else
 				{
 					continue;
 				}
-				const std::string key = k.as<std::string>();
 				if (is_reserved_desc_field(key))
 				{
 					continue;
 				}
 
 				const std::string path    = section + "." + key;
-				const sol::object cfg_val = config_tbl[key];
+				// Indexed with the original key, so configDesc mirrors whatever shape config uses.
+				const sol::object cfg_val = config_tbl[k];
 				const bool has_config     = cfg_val.valid() && cfg_val.get_type() != sol::type::lua_nil;
 				if (v.get_type() == sol::type::string)
 				{
@@ -1014,7 +1075,20 @@ namespace big::mod_settings
 			auto* cf = file();
 			if (auto* entry = find_entry(cf, section, key))
 			{
+				// Lua removes a key when it is assigned nil, and table.remove relies on that to shrink an array.
+				// Without it a config array could grow but never shrink, leaving stray keys in the .cfg.
+				if (value.get_type() == sol::type::lua_nil || value.get_type() == sol::type::none)
+				{
+					toml_v2::config_definition def(section, key);
+					cf->remove(def);
+					return;
+				}
 				entry_set(entry, value);
+				return;
+			}
+
+			if (value.get_type() == sol::type::lua_nil || value.get_type() == sol::type::none)
+			{
 				return;
 			}
 
@@ -1279,13 +1353,8 @@ namespace big::mod_settings
 			desc_tbl = desc_obj.as<sol::table>();
 		}
 
-		auto bind_one = [&](const std::string& key, const sol::object& value_obj)
+		auto bind_one = [&](const std::string& key, const sol::object& value_obj, const sol::object& desc)
 		{
-			sol::object desc = sol::lua_nil;
-			if (has_desc)
-			{
-				desc = desc_tbl[key];
-			}
 			const bool described = desc.get_type() != sol::type::lua_nil && desc.get_type() != sol::type::none;
 
 			const sol::type vt = value_obj.get_type();
@@ -1338,6 +1407,7 @@ namespace big::mod_settings
 			}
 		};
 
+		// The array part first, described by the matching array entry in configDesc, then the string keys.
 		for (std::size_t i = 1;; ++i)
 		{
 			sol::object v = defaults[i];
@@ -1345,14 +1415,15 @@ namespace big::mod_settings
 			{
 				break;
 			}
-			bind_one(std::to_string(i), v);
+			bind_one(std::to_string(i), v, has_desc ? sol::object(desc_tbl[i]) : sol::object(sol::lua_nil));
 		}
 
 		for (const auto& [key_obj, value_obj] : defaults)
 		{
 			if (key_obj.get_type() == sol::type::string)
 			{
-				bind_one(key_obj.as<std::string>(), value_obj);
+				const std::string key = key_obj.as<std::string>();
+				bind_one(key, value_obj, has_desc ? sol::object(desc_tbl[key]) : sol::object(sol::lua_nil));
 			}
 		}
 	}
