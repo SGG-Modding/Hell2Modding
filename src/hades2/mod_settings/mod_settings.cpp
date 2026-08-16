@@ -2424,17 +2424,26 @@ namespace big::mod_settings
 					continue;
 				}
 
-				if (!out.enabled_entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+				// Keys left in the .cfg that the mod no longer declares are not part of its settings.
+				if (!setting_is_declared(stem, key.m_section, key.m_key))
 				{
-					out.enabled_entry = entry.get();
+					continue;
 				}
 
-				// Undescribed keys stay hidden, except the master "enabled" toggle.
+				// Undescribed keys stay hidden. The master toggle is exempt only for mods that declare their settings,
+				// since Chalk re-binds stale .cfg keys with an empty description and an old "enabled" would resurface.
 				const bool is_enabled_toggle = key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key);
-				if (!is_enabled_toggle && !setting_is_described(stem, key.m_section, key.m_key)
+				const bool desc_exempt       = is_enabled_toggle && mod_declares_settings(stem);
+				if (!desc_exempt && !setting_is_described(stem, key.m_section, key.m_key)
 				    && !entry_has_description(entry.get()))
 				{
 					continue;
+				}
+
+				// Only a toggle that is actually shown may mark the mod disabled.
+				if (!out.enabled_entry && is_enabled_toggle)
+				{
+					out.enabled_entry = entry.get();
 				}
 
 				const auto static_meta             = get_setting_metadata(stem, key.m_section, key.m_key);
@@ -3854,8 +3863,15 @@ namespace big::mod_settings
 				}
 				auto* e = entry.get();
 
+				// Reset must not touch keys the mod no longer declares, matching what the menu shows.
+				if (!setting_is_declared(guid, def.m_section, def.m_key))
+				{
+					continue;
+				}
+
 				const bool is_enabled_toggle = def.m_section == root_section && e->type() == typeid(bool) && is_enabled_key(def.m_key);
-				if (!is_enabled_toggle && !setting_is_described(guid, def.m_section, def.m_key) && !entry_has_description(e))
+				const bool desc_exempt       = is_enabled_toggle && mod_declares_settings(guid);
+				if (!desc_exempt && !setting_is_described(guid, def.m_section, def.m_key) && !entry_has_description(e))
 				{
 					continue;
 				}
@@ -4066,10 +4082,19 @@ namespace big::mod_settings
 		{
 			for (auto& [key, entry] : cfg->m_entries)
 			{
-				if (entry && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+				if (!entry || key.m_section != root_section || entry->type() != typeid(bool) || !is_enabled_key(key.m_key))
 				{
-					return entry->get_value_base<bool>();
+					continue;
 				}
+				// A stale toggle the menu does not show must not decide whether the mod counts as disabled,
+				// otherwise every row greys out with no way to recover.
+				if (!setting_is_declared(guid, key.m_section, key.m_key)
+				    || (!mod_declares_settings(guid) && !setting_is_described(guid, key.m_section, key.m_key)
+				        && !entry_has_description(entry.get())))
+				{
+					continue;
+				}
+				return entry->get_value_base<bool>();
 			}
 		}
 		return true;

@@ -46,6 +46,9 @@ namespace big::mod_settings
 	// Author-declared menu categories that do not correspond to config sections.
 	static std::map<std::string, std::vector<menu_group>> g_menu_groups;
 
+	// Guids that loaded their settings through mod_settings.load.
+	static std::set<std::string> g_mod_settings_mods;
+
 	static constexpr const char* root_section = "config";
 
 	static std::string metadata_key(const std::string& guid, const std::string& section, const std::string& key)
@@ -99,6 +102,24 @@ namespace big::mod_settings
 	{
 		std::scoped_lock lock(g_metadata_mutex);
 		return g_described_keys.contains(metadata_key(guid, section, key));
+	}
+
+	// True while the mod loaded its settings through mod_settings.load rather than Chalk.
+	bool mod_declares_settings(const std::string& guid)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		return g_mod_settings_mods.contains(guid);
+	}
+
+	// True while the key is one the mod declared in its config table this session.
+	bool setting_is_declared(const std::string& guid, const std::string& section, const std::string& key)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		if (!g_mod_settings_mods.contains(guid))
+		{
+			return true;
+		}
+		return g_setting_default.contains(metadata_key(guid, section, key));
 	}
 
 	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key)
@@ -1418,6 +1439,7 @@ namespace big::mod_settings
 			g_actions[guid]      = std::move(actions);
 			g_virtual_rows[guid] = std::move(virtual_rows);
 			g_menu_groups[guid]  = std::move(menu_groups);
+			g_mod_settings_mods.insert(guid);
 		}
 
 		// Reuses the mod's own config table so `config` stays the same object it declared, now reading live values.

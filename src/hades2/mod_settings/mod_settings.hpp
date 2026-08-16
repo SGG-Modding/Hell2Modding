@@ -175,6 +175,13 @@ namespace big::mod_settings
 
 	std::optional<std::string> get_setting_default(const std::string& guid, const std::string& section, const std::string& key);
 
+	// False for a key left over in the .cfg that the mod no longer declares. Always true for Chalk mods, which
+	// re-bind the whole file and so cannot distinguish stale keys.
+	bool setting_is_declared(const std::string& guid, const std::string& section, const std::string& key);
+
+	// True while the mod loaded its settings through mod_settings.load rather than Chalk.
+	bool mod_declares_settings(const std::string& guid);
+
 	bool mod_opted_out(const std::string& guid);
 
 	localized_text mod_opt_out_description(const std::string& guid);
