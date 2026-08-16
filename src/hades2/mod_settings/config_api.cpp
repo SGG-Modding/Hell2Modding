@@ -815,12 +815,26 @@ namespace big::mod_settings
 		}
 		for (const auto& [k, v] : config_tbl)
 		{
-			if (k.get_type() != sol::type::string || !v.is<sol::table>())
+			if (!v.is<sol::table>())
 			{
 				continue;
 			}
-			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[k] : sol::object(sol::lua_nil);
-			collect_virtual_rows(guid, v.as<sol::table>(), child_desc, section + "." + k.as<std::string>(), out);
+			// Array elements are bound under their stringified index, so recurse into those sections too.
+			std::string child_key;
+			if (k.get_type() == sol::type::string)
+			{
+				child_key = k.as<std::string>();
+			}
+			else if (k.get_type() == sol::type::number)
+			{
+				child_key = std::to_string(k.as<long long>());
+			}
+			else
+			{
+				continue;
+			}
+			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[child_key] : sol::object(sol::lua_nil);
+			collect_virtual_rows(guid, v.as<sol::table>(), child_desc, section + "." + child_key, out);
 		}
 	}
 
@@ -1265,14 +1279,8 @@ namespace big::mod_settings
 			desc_tbl = desc_obj.as<sol::table>();
 		}
 
-		for (const auto& [key_obj, value_obj] : defaults)
+		auto bind_one = [&](const std::string& key, const sol::object& value_obj)
 		{
-			if (key_obj.get_type() != sol::type::string)
-			{
-				continue;
-			}
-			const std::string key = key_obj.as<std::string>();
-
 			sol::object desc = sol::lua_nil;
 			if (has_desc)
 			{
@@ -1300,7 +1308,7 @@ namespace big::mod_settings
 				bound_entry = cf->bind(section, key, value_obj.as<std::string>(), localized_fallback(describe(desc)));
 				default_any = std::any(value_obj.as<std::string>());
 				break;
-			default: continue;
+			default: return;
 			}
 
 			// Capture the serialized default for Reset.
@@ -1327,6 +1335,24 @@ namespace big::mod_settings
 						attach_on_change(bound_entry, on_changed.as<sol::protected_function>());
 					}
 				}
+			}
+		};
+
+		for (std::size_t i = 1;; ++i)
+		{
+			sol::object v = defaults[i];
+			if (!v.valid() || v.get_type() == sol::type::lua_nil)
+			{
+				break;
+			}
+			bind_one(std::to_string(i), v);
+		}
+
+		for (const auto& [key_obj, value_obj] : defaults)
+		{
+			if (key_obj.get_type() == sol::type::string)
+			{
+				bind_one(key_obj.as<std::string>(), value_obj);
 			}
 		}
 	}

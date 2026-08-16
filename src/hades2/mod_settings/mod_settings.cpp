@@ -509,11 +509,52 @@ namespace big::mod_settings
 
 	static int compare_display_names(const std::string& a, const std::string& b)
 	{
-		const std::size_t n = std::min(a.size(), b.size());
-		for (std::size_t i = 0; i < n; ++i)
+		std::size_t i = 0;
+		std::size_t j = 0;
+		while (i < a.size() && j < b.size())
 		{
-			unsigned char ca = static_cast<unsigned char>(a[i]);
-			unsigned char cb = static_cast<unsigned char>(b[i]);
+			const unsigned char ra = static_cast<unsigned char>(a[i]);
+			const unsigned char rb = static_cast<unsigned char>(b[j]);
+			if (ra >= '0' && ra <= '9' && rb >= '0' && rb <= '9')
+			{
+				std::size_t ea = i;
+				while (ea < a.size() && a[ea] >= '0' && a[ea] <= '9')
+				{
+					++ea;
+				}
+				std::size_t eb = j;
+				while (eb < b.size() && b[eb] >= '0' && b[eb] <= '9')
+				{
+					++eb;
+				}
+				std::size_t sa = i;
+				while (sa + 1 < ea && a[sa] == '0')
+				{
+					++sa;
+				}
+				std::size_t sb = j;
+				while (sb + 1 < eb && b[sb] == '0')
+				{
+					++sb;
+				}
+				const std::size_t la = ea - sa;
+				const std::size_t lb = eb - sb;
+				if (la != lb)
+				{
+					return la < lb ? -1 : 1;
+				}
+				const int cmp = a.compare(sa, la, b, sb, lb);
+				if (cmp != 0)
+				{
+					return cmp < 0 ? -1 : 1;
+				}
+				i = ea;
+				j = eb;
+				continue;
+			}
+
+			unsigned char ca = ra;
+			unsigned char cb = rb;
 			if (ca >= 'A' && ca <= 'Z')
 			{
 				ca = static_cast<unsigned char>(ca + ('a' - 'A'));
@@ -526,12 +567,16 @@ namespace big::mod_settings
 			{
 				return ca < cb ? -1 : 1;
 			}
+			++i;
+			++j;
 		}
-		if (a.size() == b.size())
+		const std::size_t ra = a.size() - i;
+		const std::size_t rb = b.size() - j;
+		if (ra == rb)
 		{
 			return 0;
 		}
-		return a.size() < b.size() ? -1 : 1;
+		return ra < rb ? -1 : 1;
 	}
 
 	static float glyph_weight(unsigned char c)
