@@ -4824,7 +4824,9 @@ namespace big::mod_settings
 		// Required helpers. The button ctor anchors later RVA fallbacks.
 		const auto anchor = require("sgg::GUIComponentButton::GUIComponentButton");
 		g_button_ctor     = anchor.as_func<void*(void*, void*)>();
-		g_set_label       = require("sgg::GUIComponentButton::SetDisplayName").as_func<void(void*, const char*)>();
+		// SetText, not SetDisplayName: the latter runs the string through GameDataManager::GetTextData and swaps in
+		// that entry's display name, so e.g. "Random" would render as "Fates' Whim".
+		g_set_label       = require("sgg::GUIComponentButton::SetText").as_func<void(void*, const char*)>();
 		g_apply_data      = require("sgg::MenuScreen::ApplyDataToComponent").as_func<void(void*, GUIComponent*)>();
 		g_update_scroll   = require("sgg::MiscSettingsScreen::UpdateScrollState").as_func<void(void*)>();
 		g_set_animation   = require("sgg::GUIComponentButton::SetAnimation").as_func<void(void*, std::uint32_t)>();
