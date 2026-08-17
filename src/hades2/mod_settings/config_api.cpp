@@ -685,6 +685,11 @@ namespace big::mod_settings
 	}
 
 	// Collects action buttons from configDesc, guided by config defaults.
+	static sol::object nil_object(lua_State* L)
+	{
+		return sol::make_object(L, sol::lua_nil);
+	}
+
 	static void collect_actions(const sol::table& config_tbl, const sol::object& desc_obj, const std::string& section, std::vector<action_info>& out)
 	{
 		if (desc_obj.is<sol::table>())
@@ -750,7 +755,7 @@ namespace big::mod_settings
 			{
 				continue;
 			}
-			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[child_key] : sol::object(sol::lua_nil);
+			const sol::object child_desc = desc_obj.is<sol::table>() ? sol::object(desc_obj.as<sol::table>()[child_key]) : nil_object(config_tbl.lua_state());
 			collect_actions(v.as<sol::table>(), child_desc, section + "." + child_key, out);
 		}
 	}
@@ -917,7 +922,7 @@ namespace big::mod_settings
 			{
 				continue;
 			}
-			const sol::object child_desc = desc_obj.is<sol::table>() ? desc_obj.as<sol::table>()[child_key] : sol::object(sol::lua_nil);
+			const sol::object child_desc = desc_obj.is<sol::table>() ? sol::object(desc_obj.as<sol::table>()[child_key]) : nil_object(config_tbl.lua_state());
 			collect_virtual_rows(guid, v.as<sol::table>(), child_desc, section + "." + child_key, out);
 		}
 	}
@@ -1375,6 +1380,8 @@ namespace big::mod_settings
 		{
 			desc_tbl = desc_obj.as<sol::table>();
 		}
+		// A mod may have no configDesc at all, so the "no description" value must still carry the Lua state.
+		const sol::object nil_desc = nil_object(defaults.lua_state());
 
 		auto bind_one = [&](const std::string& key, const sol::object& value_obj, const sol::object& desc)
 		{
@@ -1438,7 +1445,7 @@ namespace big::mod_settings
 			{
 				break;
 			}
-			bind_one(std::to_string(i), v, has_desc ? sol::object(desc_tbl[i]) : sol::object(sol::lua_nil));
+			bind_one(std::to_string(i), v, has_desc ? sol::object(desc_tbl[i]) : nil_desc);
 		}
 
 		for (const auto& [key_obj, value_obj] : defaults)
@@ -1446,7 +1453,7 @@ namespace big::mod_settings
 			if (key_obj.get_type() == sol::type::string)
 			{
 				const std::string key = key_obj.as<std::string>();
-				bind_one(key, value_obj, has_desc ? sol::object(desc_tbl[key]) : sol::object(sol::lua_nil));
+				bind_one(key, value_obj, has_desc ? sol::object(desc_tbl[key]) : nil_desc);
 			}
 		}
 	}
