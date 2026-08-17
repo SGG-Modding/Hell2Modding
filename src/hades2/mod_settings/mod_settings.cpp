@@ -303,6 +303,7 @@ namespace big::mod_settings
 	static constexpr float row_location_x        = 1560.0f; // component X (right pane), like OptionToggleButton
 	static constexpr float row_text_offset_x     = -900.0f; // left-justify the label to the option-name column
 	static constexpr float value_text_offset_x   = 15.0f; // right-justify the value, aligning it with the toggle column
+	static constexpr float row_center_offset_x   = (row_text_offset_x + value_text_offset_x) * 0.5f;
 	static constexpr float numbox_location_x     = 1365.0f; // native OptionNumBox X (box + arrows clear the scrollbar)
 	static constexpr float slider_location_x     = 1330.0f; // native OptionSlider X (bar + value clear the scrollbar)
 	static constexpr float button_center_x       = 1130.0f; // centered action button X (clear of the scrollbar)
@@ -908,7 +909,7 @@ namespace big::mod_settings
 		}
 	}
 
-	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true, bool no_hover_highlight = false)
+	static GUIComponent* make_text_row(MiscSettingsScreen* screen, const char* label, bool disabled = false, bool block_input = true, bool no_hover_highlight = false, bool centered = false)
 	{
 		auto* row = create_button(screen);
 		if (!row)
@@ -928,8 +929,8 @@ namespace big::mod_settings
 		*reinterpret_cast<std::uint32_t*>(def + def_alternate_graphic) = 0;
 		*reinterpret_cast<float*>(def + def_width)                     = 0.0f;
 		*reinterpret_cast<float*>(def + def_height)                    = 0.0f;
-		*reinterpret_cast<std::uint8_t*>(def + def_text_justification) = 0;
-		*reinterpret_cast<float*>(def + def_text_offset_x)             = row_text_offset_x;
+		*reinterpret_cast<std::uint8_t*>(def + def_text_justification) = centered ? 2 : 0; // sgg::Justification CENTER / LEFT
+		*reinterpret_cast<float*>(def + def_text_offset_x)             = centered ? row_center_offset_x : row_text_offset_x;
 		*reinterpret_cast<float*>(def + def_y)                         = row_base_y;
 		*reinterpret_cast<float*>(def + def_spacing)                   = row_pitch;
 
@@ -2664,6 +2665,19 @@ namespace big::mod_settings
 	{
 		const bool mod_enabled               = contents.mod_enabled;
 		toml_v2::config_file* const view_cfg = contents.view_cfg;
+
+		// Add the mod title as a centered read-only row to the main page of each mod
+		if (section == root_section)
+		{
+			const std::string title = escape_markup(display_name_from_stem(stem));
+			if (auto* row = make_text_row(screen, title.c_str(), /*disabled*/ false, /*block_input*/ false, /*no_hover_highlight*/ true, /*centered*/ true))
+			{
+				PanelRow pr{row, RowKind::info, stem, {}};
+				pr.disabled    = true;
+				pr.description = mod_description_from_stem(stem);
+				g_rows.push_back(std::move(pr));
+			}
+		}
 
 		for (const auto& it : contents.items)
 		{
