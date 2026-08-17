@@ -193,4 +193,4 @@
 --- Only keys with a `configDesc` entry are shown in the menu: a `config` key with no entry here is treated as
 --- internal state and hidden. The mod's master `enabled` toggle is always shown regardless, so the mod stays
 --- toggleable.
----@alias mod_settings.config_desc table<string, mod_settings.setting_description | mod_settings.action_description | mod_settings.virtual_description | string | table>
+---@alias mod_settings.config_desc table<string | integer, mod_settings.setting_description | mod_settings.action_description | mod_settings.virtual_description | string | table>
