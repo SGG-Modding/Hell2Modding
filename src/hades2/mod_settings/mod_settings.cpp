@@ -369,6 +369,8 @@ namespace big::mod_settings
 		std::vector<std::string> enum_values;
 		std::vector<std::string> enum_labels;
 
+		int enum_index = -1;
+
 		std::string target_section;
 
 		// Real config section for virtual-row Lua I/O, which may differ from the view path.
@@ -420,6 +422,9 @@ namespace big::mod_settings
 	// Native hover can resolve the stationary cursor a frame late after a rebuild.
 	static constexpr int keep_active_frame_count = 3;
 	static int g_keep_active_frames              = 0;
+
+	static constexpr int commit_guard_frame_count = 2;
+	static int g_commit_guard_frames              = 0;
 
 	static constexpr float dynamic_refresh_settle_seconds = 0.15f;
 
@@ -2946,6 +2951,7 @@ namespace big::mod_settings
 						pr.is_enum     = true;
 						pr.enum_values = std::move(enum_values);
 						pr.enum_labels = std::move(enum_labels);
+						pr.enum_index  = enum_index;
 					}
 					else if (is_stepper)
 					{
@@ -3157,6 +3163,7 @@ namespace big::mod_settings
 						pr.is_enum     = true;
 						pr.enum_values = enum_values;
 						pr.enum_labels = enum_labels;
+						pr.enum_index  = enum_index;
 					}
 					else if (ro_is_toggle)
 					{
@@ -3229,6 +3236,7 @@ namespace big::mod_settings
 					pr.is_enum     = true;
 					pr.enum_values = std::move(enum_values);
 					pr.enum_labels = std::move(enum_labels);
+					pr.enum_index  = enum_index;
 				}
 				else if (built_slider || built_stepper)
 				{
@@ -3896,6 +3904,8 @@ namespace big::mod_settings
 		{
 			g_has_pending_restore = false;
 		}
+
+		g_commit_guard_frames = commit_guard_frame_count;
 	}
 
 	static void apply_nav(MiscSettingsScreen* screen)
@@ -4347,12 +4357,30 @@ namespace big::mod_settings
 
 		if (row->is_enum)
 		{
-			int idx = static_cast<int>(*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + numbox_value_offset));
+			int idx = static_cast<int>(std::lroundf(*reinterpret_cast<float*>(reinterpret_cast<char*>(self) + numbox_value_offset)));
 			if (idx < 0 || idx >= static_cast<int>(row->enum_values.size()))
 			{
 				return;
 			}
 			set_numbox_value_text(reinterpret_cast<GUIComponent*>(self), row->enum_labels[idx].c_str());
+
+			if (idx == row->enum_index)
+			{
+				return;
+			}
+
+			// Within the guard window this move came from input resolved against the old layout, so put the box back.
+			if (g_commit_guard_frames > 0 && row->enum_index >= 0 && row->enum_index < static_cast<int>(row->enum_values.size()))
+			{
+				if (g_numbox_set_value)
+				{
+					g_numbox_set_value(self, static_cast<float>(row->enum_index), false);
+				}
+				set_numbox_value_text(reinterpret_cast<GUIComponent*>(self), row->enum_labels[row->enum_index].c_str());
+				return;
+			}
+
+			row->enum_index = idx;
 			commit_row_serialized(row, row->enum_values[idx], row->enum_labels[idx]);
 			return;
 		}
@@ -4791,6 +4819,11 @@ namespace big::mod_settings
 			{
 				g_keep_active_row.valid = false;
 			}
+		}
+
+		if (g_commit_guard_frames > 0)
+		{
+			--g_commit_guard_frames;
 		}
 
 		void* result = big::g_hooking->get_original<hook_MiscSettingsScreen_Update>()(self, dt, input);
