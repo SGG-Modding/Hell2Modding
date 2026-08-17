@@ -3439,7 +3439,7 @@ namespace big::mod_settings
 		std::string confirm;
 		if (g_editing)
 		{
-			confirm = "{SL} SUBMIT";
+			confirm = "{CF} SUBMIT";
 		}
 		else if (PanelRow* row = find_row(active_row_component(screen)))
 		{
