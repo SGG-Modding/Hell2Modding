@@ -276,7 +276,7 @@ namespace big::mod_settings
 	static std::uintptr_t g_button_vtable_patched                        = 0;
 	static teleport_cursor_fn g_teleport_cursor                          = nullptr;
 	static set_mouse_over_fn g_set_mouse_over                            = nullptr;
-	static const bool* g_use_mouse                                       = nullptr;
+	static bool* g_use_mouse                                             = nullptr;
 	static const char* g_config_language                                 = nullptr;
 
 	static component_focused_fn g_component_focused       = nullptr;
@@ -448,6 +448,8 @@ namespace big::mod_settings
 	static bool g_edit_numeric       = false;
 	static bool g_edit_confirm       = false;
 	static bool g_edit_cancel        = false;
+	// True while an edit began with the mouse pointer in use, so it can be kept visible while typing.
+	static bool g_edit_had_mouse     = false;
 
 	static std::string key_to_display(const std::string& key);
 
@@ -1859,6 +1861,9 @@ namespace big::mod_settings
 		g_edit_numeric   = entry && entry->type() != typeid(std::string);
 		g_edit_confirm   = false;
 		g_edit_cancel    = false;
+		// Typing W, A, S or D feeds MenuScreen's directional selection, which clears ConfigOptions::UseMouse and
+		// hides the pointer. Remember whether the pointer was in use so it can be held for the edit.
+		g_edit_had_mouse = g_use_mouse && *g_use_mouse;
 	}
 
 	static void exit_edit_mode()
@@ -1867,9 +1872,10 @@ namespace big::mod_settings
 		g_edit_component = nullptr;
 		g_edit_entry     = nullptr;
 		g_edit_buffer.clear();
-		g_edit_cursor  = 0;
-		g_edit_confirm = false;
-		g_edit_cancel  = false;
+		g_edit_cursor    = 0;
+		g_edit_confirm   = false;
+		g_edit_cancel    = false;
+		g_edit_had_mouse = false;
 	}
 
 	static std::string restart_change_key(toml_v2::config_file::config_entry_base* entry, const std::string& stem)
@@ -4813,6 +4819,12 @@ namespace big::mod_settings
 	{
 		if (g_editing)
 		{
+			// Directional selection clears UseMouse when a typed W/A/S/D reaches it, which hides the pointer and,
+			// if a confirming click's edge is missed, can leave it hidden. Reassert it for the whole edit.
+			if (g_use_mouse && g_edit_had_mouse)
+			{
+				*g_use_mouse = true;
+			}
 			if (g_was_key_pressed && input)
 			{
 				if (g_was_key_pressed(input, key_return) || g_was_key_pressed(input, key_kp_enter))
@@ -4990,7 +5002,7 @@ namespace big::mod_settings
 		g_active_profile = big::hades2_symbol_to_address["sgg::ProfileManager::ACTIVE_PROFILE"].as<void*>();
 
 		// Named PDB data symbols move with .data and .rdata, unlike anchor-relative RVAs.
-		g_use_mouse       = big::hades2_symbol_to_address["sgg::ConfigOptions::UseMouse"].as<const bool*>();
+		g_use_mouse       = big::hades2_symbol_to_address["sgg::ConfigOptions::UseMouse"].as<bool*>();
 		g_config_language = big::hades2_symbol_to_address["sgg::ConfigOptions::Language"].as<const char*>();
 		g_controls_cancel = big::hades2_symbol_to_address["sgg::Controls::Cancel"].as<const void*>();
 		g_controls_select = big::hades2_symbol_to_address["sgg::Controls::Select"].as<const void*>();
