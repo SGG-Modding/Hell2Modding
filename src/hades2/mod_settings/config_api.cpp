@@ -104,6 +104,29 @@ namespace big::mod_settings
 		return g_described_keys.contains(metadata_key(guid, section, key));
 	}
 
+	// True while the mod declared anything at all in its configDesc: a described key, an action, or a virtual row.
+	bool mod_has_described_content(const std::string& guid)
+	{
+		std::scoped_lock lock(g_metadata_mutex);
+		const std::string prefix = guid + '\0';
+		for (const auto& k : g_described_keys)
+		{
+			if (k.rfind(prefix, 0) == 0)
+			{
+				return true;
+			}
+		}
+		if (const auto it = g_actions.find(guid); it != g_actions.end() && !it->second.empty())
+		{
+			return true;
+		}
+		if (const auto it = g_virtual_rows.find(guid); it != g_virtual_rows.end() && !it->second.empty())
+		{
+			return true;
+		}
+		return false;
+	}
+
 	// True while the mod loaded its settings through mod_settings.load rather than Chalk.
 	bool mod_declares_settings(const std::string& guid)
 	{

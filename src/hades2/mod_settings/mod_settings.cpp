@@ -1522,6 +1522,45 @@ namespace big::mod_settings
 		g_rows.clear();
 	}
 
+	static std::string no_settings_note()
+	{
+		return "No config options found for this mod. If you expected there to be any, check with the mod author to ensure they are set up correctly, or check the .cfg file manually.";
+	}
+
+	static bool is_enabled_key(const std::string& key);
+	static bool entry_has_description(const toml_v2::config_file::config_entry_base* entry);
+
+	static bool mod_has_settings(const std::string& stem)
+	{
+		if (mod_has_described_content(stem))
+		{
+			return true;
+		}
+		auto* cfg = live_config_file(stem);
+		if (!cfg)
+		{
+			return false;
+		}
+		// Chalk mods keep their descriptions on the config entry rather than in a configDesc.
+		const bool declares = mod_declares_settings(stem);
+		for (auto& [key, entry] : cfg->m_entries)
+		{
+			if (!entry || key.m_key == section_empty_key)
+			{
+				continue;
+			}
+			if (entry_has_description(entry.get()))
+			{
+				return true;
+			}
+			if (declares && key.m_section == root_section && entry->type() == typeid(bool) && is_enabled_key(key.m_key))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	static void build_mod_list(MiscSettingsScreen* screen)
 	{
 		std::vector<std::string> stems;
@@ -1557,13 +1596,17 @@ namespace big::mod_settings
 
 		for (const auto& [display, stem] : mods)
 		{
-			// Opted-out mods stay listed but cannot be opened.
-			const bool opted_out = mod_opted_out(stem);
-			if (auto* row = make_text_row(screen, escape_markup(display).c_str(), opted_out, /*block_input*/ false))
+			// Opted-out mods and mods with nothing to show stay listed but cannot be opened.
+			const bool opted_out   = mod_opted_out(stem);
+			const bool no_settings = !opted_out && !mod_has_settings(stem);
+			const bool unopenable  = opted_out || no_settings;
+			if (auto* row = make_text_row(screen, escape_markup(display).c_str(), unopenable, /*block_input*/ false))
 			{
 				PanelRow pr{row, RowKind::mod_entry, stem, {}};
-				pr.disabled    = opted_out;
-				pr.description = opted_out ? opt_out_description(stem) : mod_description_from_stem(stem);
+				pr.disabled    = unopenable;
+				pr.description = opted_out    ? opt_out_description(stem)
+				               : no_settings  ? no_settings_note()
+				                              : mod_description_from_stem(stem);
 				g_rows.push_back(std::move(pr));
 			}
 		}

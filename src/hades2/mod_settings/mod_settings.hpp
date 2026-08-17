@@ -182,6 +182,9 @@ namespace big::mod_settings
 	// True while the mod loaded its settings through mod_settings.load rather than Chalk.
 	bool mod_declares_settings(const std::string& guid);
 
+	// True while the mod declared a described key, an action or a virtual row.
+	bool mod_has_described_content(const std::string& guid);
+
 	bool mod_opted_out(const std::string& guid);
 
 	localized_text mod_opt_out_description(const std::string& guid);
