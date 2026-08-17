@@ -65,6 +65,7 @@ namespace big::mod_settings
 	static constexpr std::size_t def_green              = 0xF0;   // mGreen button tint (float)
 	static constexpr std::size_t def_blue               = 0xF4;   // mBlue button tint (float)
 	static constexpr std::size_t def_text_justification = 0xEA;   // mTextJustification (sgg::Justification: LEFT=0)
+	static constexpr std::size_t def_parse_text_markup  = 0x16;
 	static constexpr std::size_t def_text_red           = 0x1'0C; // mTextRed (float)
 	static constexpr std::size_t def_text_green         = 0x1'10; // mTextGreen (float)
 	static constexpr std::size_t def_text_blue          = 0x1'14; // mTextBlue (float)
@@ -1109,6 +1110,18 @@ namespace big::mod_settings
 		return row;
 	}
 
+	static void disable_text_markup(GUIComponent* button)
+	{
+		if (!button)
+		{
+			return;
+		}
+		if (auto* label_box = *reinterpret_cast<char**>(reinterpret_cast<char*>(button) + button_label_offset))
+		{
+			*reinterpret_cast<std::uint8_t*>(label_box + component_def_offset + def_parse_text_markup) = 0;
+		}
+	}
+
 	static GUIComponent* make_value_display(MiscSettingsScreen* screen, const char* text, bool disabled)
 	{
 		auto* row = create_button(screen);
@@ -1159,6 +1172,7 @@ namespace big::mod_settings
 		{
 			g_set_animation(row, g_blank_graphic);
 		}
+		disable_text_markup(row);
 		if (g_set_label)
 		{
 			g_set_label(row, text);
