@@ -1524,7 +1524,7 @@ namespace big::mod_settings
 
 	static std::string no_settings_note()
 	{
-		return "No config options found for this mod. If you expected there to be any, check with the mod author to ensure they are set up correctly, or check the .cfg file manually.";
+		return "No described config options found for this mod. If you expected there to be any, check with the mod author to ensure they are set up correctly, or check the .cfg file manually.";
 	}
 
 	static bool is_enabled_key(const std::string& key);
