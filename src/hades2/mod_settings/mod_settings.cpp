@@ -2005,6 +2005,11 @@ namespace big::mod_settings
 		return !row->config_section.empty() ? row->config_section : g_view_section;
 	}
 
+	static bool commit_may_change_other_rows(const PanelRow* row)
+	{
+		return g_view_has_dynamic || row->is_virtual_input || (row->entry && static_cast<bool>(row->entry->m_setting_changed));
+	}
+
 	static bool commit_row_bool(PanelRow* row, bool v)
 	{
 		bool changed = false;
@@ -2030,7 +2035,7 @@ namespace big::mod_settings
 				changed = true;
 			}
 		}
-		if (changed && g_view_has_dynamic)
+		if (changed && commit_may_change_other_rows(row))
 		{
 			g_dynamic_refresh_settle = dynamic_refresh_settle_seconds;
 		}
@@ -2062,7 +2067,7 @@ namespace big::mod_settings
 				changed = true;
 			}
 		}
-		if (changed && g_view_has_dynamic)
+		if (changed && commit_may_change_other_rows(row))
 		{
 			g_dynamic_refresh_settle = dynamic_refresh_settle_seconds;
 		}
@@ -2095,7 +2100,7 @@ namespace big::mod_settings
 				changed = true;
 			}
 		}
-		if (changed && g_view_has_dynamic)
+		if (changed && commit_may_change_other_rows(row))
 		{
 			g_dynamic_refresh_settle = dynamic_refresh_settle_seconds;
 		}
@@ -2162,7 +2167,7 @@ namespace big::mod_settings
 				// Reflect the committed value in the right-hand display in place.
 				refresh_value_display(g_edit_component, g_edit_entry->get_serialized_value());
 
-				if (g_view_has_dynamic)
+				if (g_view_has_dynamic || static_cast<bool>(g_edit_entry->m_setting_changed))
 				{
 					g_dynamic_refresh_settle = dynamic_refresh_settle_seconds;
 				}
@@ -4622,7 +4627,7 @@ namespace big::mod_settings
 					note_change_if_restart_required(entry, new_value ? "on" : "off");
 
 					// Toggling bools can change greying or dynamic rows, so rebuild in place.
-					if (matched_row.is_enabled_toggle || g_view_has_dynamic)
+					if (matched_row.is_enabled_toggle || commit_may_change_other_rows(&matched_row))
 					{
 						g_pending_view    = View::mod_settings;
 						g_pending_stem    = matched_row.stem;
