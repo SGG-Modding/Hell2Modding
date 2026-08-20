@@ -20,7 +20,7 @@ namespace sjson_overlay
 		return root;
 	}
 
-	static bool shadows_vanilla_file(const std::string& normalized_relpath, std::filesystem::path& vanilla_path)
+	bool shadows_vanilla_file(const std::string& normalized_relpath, std::filesystem::path& vanilla_path)
 	{
 		const auto& root = vanilla_content_root();
 		if (root.empty())
@@ -37,6 +37,39 @@ namespace sjson_overlay
 
 		vanilla_path = candidate.make_preferred();
 		return true;
+	}
+
+	bool replaces_vanilla_content_file(const std::string& filename, std::filesystem::path& vanilla_path)
+	{
+		static const std::pair<const char*, std::vector<const char*>> content_directories[] = {
+		    {".map_text",     {"Maps"}                            },
+		    {".thing_bin",    {"Maps/bin"}                        },
+		    {".bik",          {"Movies/1080p", "Movies/720p"}     },
+		    {".bik_atlas",    {"Movies/1080p", "Movies/720p"}     },
+		    {".fsb",          {"Audio/Desktop/VO"}                },
+		    {".txt",          {"Audio/Desktop/VO"}                },
+		    {".pkg",          {"Packages/1080p", "Packages/720p"} },
+		    {".pkg_manifest", {"Packages/1080p", "Packages/720p"} },
+		    {".gpk",          {"GR2/_Optimized"}                  },
+		};
+
+		const std::string lower = big::string::to_lower(filename);
+		for (const auto& [extension, directories] : content_directories)
+		{
+			if (!lower.ends_with(extension))
+			{
+				continue;
+			}
+			for (const char* directory : directories)
+			{
+				if (shadows_vanilla_file(std::string(directory) + "/" + filename, vanilla_path))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	std::string owning_mod_name(const std::string& absolute_path)

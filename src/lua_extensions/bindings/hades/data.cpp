@@ -572,8 +572,18 @@ namespace lua::hades::data
 		// Registers a file redirect so the engine loads it from an external location instead of Content/.
 		// Unlike register_content_file (SJSON-only), this works for any file type that the engine loads via fsAppendPathComponent (maps, etc.).
 		// No directory convention is enforced - the caller provides both paths.
+		// Paths that match a vanilla file are rejected, since a redirect replaces that file instead of adding to it.
 		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
 			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
+
+			if (std::filesystem::path vanilla_path; sjson_overlay::shadows_vanilla_file(normalized, vanilla_path))
+			{
+				LOG(ERROR) << "Redirecting the vanilla file '" << (char*)vanilla_path.u8string().c_str() << "' to '"
+				           << absolute_path
+				           << "' would replace it when loaded. Skipping it to keep the vanilla content "
+				           << "intact. Use a unique path that does not exist yet, ideally including your AuthorName-ModName.";
+				return false;
+			}
 
 			std::unique_lock lock(sjson_overlay::g_overlay_mutex);
 			if (sjson_overlay::g_path_index.count(normalized))
@@ -623,6 +633,15 @@ namespace lua::hades::data
 			if (!target && !is_bik)
 			{
 				LOG(WARNING) << "register_plugin_file: unsupported extension for '" << filename << "'";
+				return false;
+			}
+
+			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_content_file(filename, vanilla_path))
+			{
+				LOG(ERROR) << "File '" << absolute_path << "' has the same name as the vanilla file '"
+				           << (char*)vanilla_path.u8string().c_str()
+				           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+				           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 				return false;
 			}
 
