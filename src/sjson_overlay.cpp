@@ -39,33 +39,31 @@ namespace sjson_overlay
 		return true;
 	}
 
-	bool replaces_vanilla_content_file(const std::string& filename, std::filesystem::path& vanilla_path)
+	bool replaces_vanilla_content_file(const std::string& absolute_path, std::filesystem::path& vanilla_path)
 	{
-		static const std::pair<const char*, std::vector<const char*>> content_directories[] = {
-		    {".map_text",     {"Maps"}                            },
-		    {".thing_bin",    {"Maps/bin"}                        },
-		    {".bik",          {"Movies/1080p", "Movies/720p"}     },
-		    {".bik_atlas",    {"Movies/1080p", "Movies/720p"}     },
-		    {".fsb",          {"Audio/Desktop/VO"}                },
-		    {".txt",          {"Audio/Desktop/VO"}                },
-		    {".pkg",          {"Packages/1080p", "Packages/720p"} },
-		    {".pkg_manifest", {"Packages/1080p", "Packages/720p"} },
-		    {".gpk",          {"GR2/_Optimized"}                  },
+		// Vanilla ships the same filenames in both resolutions, so one directory is enough.
+		static const std::pair<const char*, const char*> content_directories[] = {
+		    {".map_text",     "Maps"            },
+		    {".thing_bin",    "Maps/bin"        },
+		    {".bik",          "Movies/1080p"    },
+		    {".bik_atlas",    "Movies/1080p"    },
+		    {".fsb",          "Audio/Desktop/VO"},
+		    {".txt",          "Audio/Desktop/VO"},
+		    {".pkg",          "Packages/1080p"  },
+		    {".pkg_manifest", "Packages/1080p"  },
+		    {".gpk",          "GR2/_Optimized"  },
 		};
 
-		const std::string lower = big::string::to_lower(filename);
-		for (const auto& [extension, directories] : content_directories)
+		const std::string normalized = normalize_path(absolute_path);
+		const auto last_slash        = normalized.rfind('/');
+		const std::string filename   = last_slash != std::string::npos ? normalized.substr(last_slash + 1) : normalized;
+		const std::string lower      = big::string::to_lower(filename);
+
+		for (const auto& [extension, directory] : content_directories)
 		{
-			if (!lower.ends_with(extension))
+			if (lower.ends_with(extension) && shadows_vanilla_file(std::string(directory) + "/" + filename, vanilla_path))
 			{
-				continue;
-			}
-			for (const char* directory : directories)
-			{
-				if (shadows_vanilla_file(std::string(directory) + "/" + filename, vanilla_path))
-				{
-					return true;
-				}
+				return true;
 			}
 		}
 
@@ -202,7 +200,7 @@ namespace sjson_overlay
 			LOG(ERROR) << "[SJSON] File '" << absolute_path << "' has the same path as the vanilla file '"
 			           << (char*)vanilla_path.u8string().c_str()
 			           << "' and would replace it if loaded. Skipping it to keep the vanilla content intact. Give the file a unique name, such as '"
-			           << suggested_unique_filename(filename, absolute_path);
+			           << suggested_unique_filename(filename, absolute_path) << "'.";
 			return false;
 		}
 

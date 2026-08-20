@@ -3336,7 +3336,7 @@ extern "C" __declspec(dllexport) void my_main()
 	{
 		// Registering a file the engine already has replaces the vanilla one, since the redirect matches on filename.
 		if (std::filesystem::path vanilla_path;
-		    sjson_overlay::replaces_vanilla_content_file((char*)entry.path().filename().u8string().c_str(), vanilla_path))
+		    sjson_overlay::replaces_vanilla_content_file((char*)entry.path().u8string().c_str(), vanilla_path))
 		{
 			LOG(ERROR) << "File '" << (char*)entry.path().u8string().c_str() << "' has the same name as the vanilla file '"
 			           << (char*)vanilla_path.u8string().c_str()

@@ -43,7 +43,7 @@ namespace sjson_overlay
 	std::string owning_mod_name(const std::string& absolute_path);
 	std::string suggested_unique_filename(const std::string& filename, const std::string& absolute_path);
 	bool shadows_vanilla_file(const std::string& normalized_relpath, std::filesystem::path& vanilla_path);
-	bool replaces_vanilla_content_file(const std::string& filename, std::filesystem::path& vanilla_path);
+	bool replaces_vanilla_content_file(const std::string& absolute_path, std::filesystem::path& vanilla_path);
 	bool is_known_engine_directory(const std::string& normalized_subdir);
 	bool register_content_file(const std::string& logical_relpath, const std::string& absolute_path);
 	void scan_content_directory(const std::filesystem::path& content_base_path);

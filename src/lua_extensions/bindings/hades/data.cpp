@@ -636,7 +636,10 @@ namespace lua::hades::data
 				return false;
 			}
 
-			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_content_file(filename, vanilla_path))
+			const std::string located_as =
+			    (char*)(std::filesystem::path(absolute_path).parent_path() / filename).u8string().c_str();
+
+			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_content_file(located_as, vanilla_path))
 			{
 				LOG(ERROR) << "File '" << absolute_path << "' has the same name as the vanilla file '"
 				           << (char*)vanilla_path.u8string().c_str()
