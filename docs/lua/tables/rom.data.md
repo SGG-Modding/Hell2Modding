@@ -158,7 +158,7 @@ Use this function to dynamically register files created during the current sessi
   - `absolute_path` (string): The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
 
 - **Returns:**
-  - `boolean`: true if registered successfully, false if the file is a duplicate, shadows a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+  - `boolean`: true if registered successfully, false if the file is a duplicate, would replace a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 
 **Example Usage:**
 

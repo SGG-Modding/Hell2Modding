@@ -2289,9 +2289,9 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				}
 				else
 				{
-					LOG(ERROR) << "[SJSON] File '" << abspath << "' shadows the vanilla file '" << relpath
-					           << "' and replaces it instead of adding to it. Give the file a unique name, such as '"
-					           << sjson_overlay::suggested_unique_filename(filename, abspath) << "'.";
+					LOG(ERROR) << "[SJSON] File '" << abspath << "' would replace the vanilla file '" << relpath
+					           << "' instead of adding to it. "
+					           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 				}
 			}
 		}
@@ -3336,7 +3336,7 @@ extern "C" __declspec(dllexport) void my_main()
 	{
 		// Registering a file the engine already has replaces the vanilla one, since the redirect matches on filename.
 		if (std::filesystem::path vanilla_path;
-		    sjson_overlay::replaces_vanilla_content_file((char*)entry.path().u8string().c_str(), vanilla_path))
+		    sjson_overlay::replaces_vanilla_file((char*)entry.path().u8string().c_str(), vanilla_path))
 		{
 			LOG(ERROR) << "File '" << (char*)entry.path().u8string().c_str() << "' has the same name as the vanilla file '"
 			           << (char*)vanilla_path.u8string().c_str()

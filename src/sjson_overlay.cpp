@@ -20,7 +20,7 @@ namespace sjson_overlay
 		return root;
 	}
 
-	bool shadows_vanilla_file(const std::string& normalized_relpath, std::filesystem::path& vanilla_path)
+	bool vanilla_file_exists(const std::string& normalized_relpath, std::filesystem::path& vanilla_path)
 	{
 		const auto& root = vanilla_content_root();
 		if (root.empty())
@@ -39,7 +39,7 @@ namespace sjson_overlay
 		return true;
 	}
 
-	bool replaces_vanilla_content_file(const std::string& absolute_path, std::filesystem::path& vanilla_path)
+	bool replaces_vanilla_file(const std::string& absolute_path, std::filesystem::path& vanilla_path)
 	{
 		// Vanilla ships the same filenames in both resolutions, so one directory is enough.
 		static const std::pair<const char*, const char*> content_directories[] = {
@@ -61,36 +61,13 @@ namespace sjson_overlay
 
 		for (const auto& [extension, directory] : content_directories)
 		{
-			if (lower.ends_with(extension) && shadows_vanilla_file(std::string(directory) + "/" + filename, vanilla_path))
+			if (lower.ends_with(extension) && vanilla_file_exists(std::string(directory) + "/" + filename, vanilla_path))
 			{
 				return true;
 			}
 		}
 
 		return false;
-	}
-
-	std::string owning_mod_name(const std::string& absolute_path)
-	{
-		static constexpr const char* fallback = "AuthorName-ModName";
-
-		const std::string normalized = normalize_path(absolute_path);
-		const std::string marker     = "/" + std::string(SJSON_DATA_DIR_NAME) + "/";
-
-		const auto marker_pos = normalized.find(marker);
-		if (marker_pos == std::string::npos || marker_pos == 0)
-		{
-			return fallback;
-		}
-
-		const auto name_start = normalized.rfind('/', marker_pos - 1);
-		if (name_start == std::string::npos)
-		{
-			return fallback;
-		}
-
-		std::string name = normalized.substr(name_start + 1, marker_pos - name_start - 1);
-		return !name.empty() ? name : fallback;
 	}
 
 	std::string normalize_path(const std::string& path)
@@ -131,18 +108,6 @@ namespace sjson_overlay
 		}
 
 		return false;
-	}
-
-	std::string suggested_unique_filename(const std::string& filename, const std::string& absolute_path)
-	{
-		const std::string mod = owning_mod_name(absolute_path);
-
-		const auto dot_pos = filename.rfind('.');
-		if (dot_pos == std::string::npos)
-		{
-			return filename + "." + mod;
-		}
-		return filename.substr(0, dot_pos) + "." + mod + filename.substr(dot_pos);
 	}
 
 	bool register_content_file(const std::string& logical_relpath, const std::string& absolute_path)
@@ -195,12 +160,12 @@ namespace sjson_overlay
 			return false;
 		}
 
-		if (std::filesystem::path vanilla_path; shadows_vanilla_file(normalized, vanilla_path))
+		if (std::filesystem::path vanilla_path; vanilla_file_exists(normalized, vanilla_path))
 		{
 			LOG(ERROR) << "[SJSON] File '" << absolute_path << "' has the same path as the vanilla file '"
 			           << (char*)vanilla_path.u8string().c_str()
-			           << "' and would replace it if loaded. Skipping it to keep the vanilla content intact. Give the file a unique name, such as '"
-			           << suggested_unique_filename(filename, absolute_path) << "'.";
+			           << "' and would replace it if loaded. Skipping it to keep the vanilla content intact. "
+			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 			return false;
 		}
 

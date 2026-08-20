@@ -65,7 +65,7 @@ function data.reload_game_data() end
 --At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
 --Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
 ---@param absolute_path string The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
----@return boolean # true if registered successfully, false if the file is a duplicate, shadows a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+---@return boolean # true if registered successfully, false if the file is a duplicate, would replace a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 function data.register_sjson_file(absolute_path) end
 
 -- Scans the directory recursively and registers all .sjson files found. Each file's engine path is derived from its position in the directory tree.

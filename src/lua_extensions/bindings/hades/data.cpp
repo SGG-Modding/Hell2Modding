@@ -531,7 +531,7 @@ namespace lua::hades::data
 		// Table: data
 		// Name: register_sjson_file
 		// Param: absolute_path: string: The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
-		// Returns: boolean: true if registered successfully, false if the file is a duplicate, shadows a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+		// Returns: boolean: true if registered successfully, false if the file is a duplicate, would replace a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 		// Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
 		// The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
 		// For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
@@ -575,7 +575,7 @@ namespace lua::hades::data
 		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
 			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
 
-			if (std::filesystem::path vanilla_path; sjson_overlay::shadows_vanilla_file(normalized, vanilla_path))
+			if (std::filesystem::path vanilla_path; sjson_overlay::vanilla_file_exists(normalized, vanilla_path))
 			{
 				LOG(ERROR) << "Redirecting the vanilla file '" << (char*)vanilla_path.u8string().c_str() << "' to '"
 				           << absolute_path
@@ -638,7 +638,7 @@ namespace lua::hades::data
 			const std::string located_as =
 			    (char*)(std::filesystem::path(absolute_path).parent_path() / filename).u8string().c_str();
 
-			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_content_file(located_as, vanilla_path))
+			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_file(located_as, vanilla_path))
 			{
 				LOG(ERROR) << "File '" << absolute_path << "' has the same name as the vanilla file '"
 				           << (char*)vanilla_path.u8string().c_str()
