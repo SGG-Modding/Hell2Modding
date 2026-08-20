@@ -2241,6 +2241,12 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 					out->push_back(entry_to_inject.c_str());
 					existing.insert(entry_to_inject);
 				}
+				else
+				{
+					LOG(ERROR) << "[SJSON] File '" << abspath << "' shadows the vanilla file '" << relpath
+					           << "' and replaces it instead of adding to it. Give the file a unique name, such as '"
+					           << sjson_overlay::suggested_unique_filename(filename, abspath) << "'.";
+				}
 			}
 		}
 	}

@@ -8,6 +8,8 @@ Value: "Hell2Modding-SJSON"
 The canonical directory name for the SJSON data overlay.
 Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.
 Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
+Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to.
+Include the author and mod name after the base name to keep them unique, such as HelpText.en.AuthorName-ModName.sjson.
 
 - Type: `string`
 
@@ -22,6 +24,7 @@ Hell2Modding scans this directory at startup and injects discovered .sjson files
   - `string`: Returns the string corresponding to the provided hash value.
 
 **Example Usage:**
+
 ```lua
 string = rom.data.get_string_from_hash_guid(hash_guid)
 ```
@@ -35,6 +38,7 @@ string = rom.data.get_string_from_hash_guid(hash_guid)
   - `number`: Returns the hash guid corresponding to the provided string value.
 
 **Example Usage:**
+
 ```lua
 number = rom.data.get_hash_guid_from_string(str)
 ```
@@ -51,6 +55,7 @@ is called, each HashGuid in this list will be loaded instead.
   - `table<number>`: A table of HashGuid values that replace the input.
 
 **Example Usage:**
+
 ```lua
 table<number> = rom.data.load_package_overrides_get(hash_guid)
 ```
@@ -61,6 +66,7 @@ Defines an override list for a given HashGuid. When LoadPackage(hash_guid)
 is called, it will instead load each HashGuid listed in the override table.
 
 **Example Usage:**
+
 ```lua
 local gui_hash = rom.data.get_hash_guid_from_string("GUI")
 local some_custom_hash = rom.data.get_hash_guid_from_string("NikkelM-ColouredBiomeMap")
@@ -72,6 +78,7 @@ rom.rom.data.load_package_overrides_set(gui_hash, {gui_hash, some_custom_hash})
   - `hash_guid_table_override` (table<number>): List of HashGuid values that should be used instead.
 
 **Example Usage:**
+
 ```lua
 rom.data.load_package_overrides_set(hash_guid, hash_guid_table_override)
 ```
@@ -82,6 +89,7 @@ Registers a custom GPK file for file-redirection at runtime, allowing
 hot-loading of GPK assets that were not present during initial scan.
 
 **Example Usage:**
+
 ```lua
 rom.rom.data.add_granny_file("Melinoe.gpk", "C:/path/to/plugins_data/CG3HBuilder/Melinoe.gpk")
 ```
@@ -91,6 +99,7 @@ rom.rom.data.add_granny_file("Melinoe.gpk", "C:/path/to/plugins_data/CG3HBuilder
   - `full_path` (string): The full filesystem path to the GPK file.
 
 **Example Usage:**
+
 ```lua
 rom.data.add_granny_file(filename, full_path)
 ```
@@ -100,6 +109,7 @@ rom.data.add_granny_file(filename, full_path)
 Registers a custom PKG/PKG_MANIFEST file for file-redirection at runtime.
 
 **Example Usage:**
+
 ```lua
 rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.pkg")
 ```
@@ -109,6 +119,7 @@ rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.
   - `full_path` (string): The full filesystem path to the file.
 
 **Example Usage:**
+
 ```lua
 rom.data.add_package_file(filename, full_path)
 ```
@@ -120,6 +131,7 @@ rom.data.add_package_file(filename, full_path)
   - `file_path_being_read` (string): optional. Use only if you want your lua function to be called for a given file_path.
 
 **Example Usage:**
+
 ```lua
 rom.data.on_sjson_read_as_string(function, file_path_being_read)
 ```
@@ -127,6 +139,7 @@ rom.data.on_sjson_read_as_string(function, file_path_being_read)
 ### `reload_game_data()`
 
 **Example Usage:**
+
 ```lua
 rom.data.reload_game_data()
 ```
@@ -136,6 +149,8 @@ rom.data.reload_game_data()
 Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
 The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
 For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
+A file whose path matches a vanilla one replaces it, so those are rejected.
+Give every file a unique name by adding the author and mod name after the base name, such as `Foo.AuthorName-ModName.sjson`.
 At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
 Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
 
@@ -143,9 +158,10 @@ Use this function to dynamically register files created during the current sessi
   - `absolute_path` (string): The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
 
 - **Returns:**
-  - `boolean`: true if registered successfully, false if the file is a duplicate, not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+  - `boolean`: true if registered successfully, false if the file is a duplicate, shadows a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.register_sjson_file(absolute_path)
 ```
@@ -159,6 +175,7 @@ This is the same scan that Hell2Modding performs automatically at startup for `p
   - `absolute_base_path` (string): Absolute path to a directory whose structure mirrors `Content/Game/` (e.g. containing `Animations/`, `Text/en/`, etc.)
 
 **Example Usage:**
+
 ```lua
 rom.data.register_content_directory(absolute_base_path)
 ```
@@ -177,6 +194,7 @@ No directory convention is enforced - the caller provides both paths.
   - `boolean`: true if registered, false if duplicate
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.register_file_redirect(content_relative_path, absolute_path)
 ```
@@ -195,15 +213,17 @@ SJSON files should use `register_sjson_file` instead.
   - `boolean`: true if registered, false if already registered or unsupported extension
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.register_plugin_file(filename, absolute_path)
 ```
 
 ### `draw_set_visible(entry_name, visible)`
 
-Toggles visibility of a model entry.  Takes effect immediately.
+Toggles visibility of a model entry. Takes effect immediately.
 
 **Example Usage:**
+
 ```lua
 rom.rom.data.draw_set_visible("HecateBattle_Mesh", false)
 ```
@@ -213,6 +233,7 @@ rom.rom.data.draw_set_visible("HecateBattle_Mesh", false)
   - `visible` (boolean): true to show, false to hide.
 
 **Example Usage:**
+
 ```lua
 rom.data.draw_set_visible(entry_name, visible)
 ```
@@ -227,13 +248,14 @@ against a mod load-out.
   - `number`: number of per-shader vertex buffers dumped.
 
 **Example Usage:**
+
 ```lua
 number = rom.data.draw_dump_pool_stats()
 ```
 
 ### `draw_populate_entry_textures(entry_name)`
 
-Resolves the entry's mesh textures up-front.  Useful for
+Resolves the entry's mesh textures up-front. Useful for
 entries that aren't in the active scene (loaded-but-not-drawn
 variants) so their first drawn frame doesn't render white.
 
@@ -244,6 +266,7 @@ variants) so their first drawn frame doesn't render white.
   - `integer`: number of textures populated.
 
 **Example Usage:**
+
 ```lua
 integer = rom.data.draw_populate_entry_textures(entry_name)
 ```
@@ -262,6 +285,7 @@ mesh inside an entry instead of the whole entry.
   - `boolean`: true on success.
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.draw_set_mesh_visible(entry_name, mesh_name, visible)
 ```
@@ -274,6 +298,7 @@ from a safe window like the first ImGui frame): this call is a
 cheap map write and is not safe to call GetTexture from.
 
 **Example Usage:**
+
 ```lua
 rom.data.draw_populate_entry_textures("HecateHub_Variant_Mesh")
 rom.rom.data.draw_swap_to_variant("HecateHub_Mesh", "HecateHub_Variant_Mesh")
@@ -289,6 +314,7 @@ rom.data.draw_restore_stock("HecateHub_Mesh")
   - `boolean`: true on success.
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.draw_swap_to_variant(stock_entry, variant_entry)
 ```
@@ -304,8 +330,7 @@ Clears any active hash remap for the given stock entry.
   - `boolean`: true on success.
 
 **Example Usage:**
+
 ```lua
 boolean = rom.data.draw_restore_stock(stock_entry)
 ```
-
-

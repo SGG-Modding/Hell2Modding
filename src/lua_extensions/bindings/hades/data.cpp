@@ -523,16 +523,20 @@ namespace lua::hades::data
 		// The canonical directory name for the SJSON data overlay.
 		// Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.
 		// Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
+		// Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to.
+		// Include the author and mod name after the base name to keep them unique, such as HelpText.en.AuthorName-ModName.sjson.
 		ns["SJSON_DATA_DIR_NAME"] = sjson_overlay::SJSON_DATA_DIR_NAME;
 
 		// Lua API: Function
 		// Table: data
 		// Name: register_sjson_file
 		// Param: absolute_path: string: The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
-		// Returns: boolean: true if registered successfully, false if the file is a duplicate, not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+		// Returns: boolean: true if registered successfully, false if the file is a duplicate, shadows a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 		// Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
 		// The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
 		// For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
+		// A file whose path matches a vanilla one replaces it, so those are rejected.
+		// Give every file a unique name by adding the author and mod name after the base name, such as `Foo.AuthorName-ModName.sjson`.
 		// At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
 		// Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
 		ns.set_function("register_sjson_file", [](const std::string& absolute_path) -> bool {
