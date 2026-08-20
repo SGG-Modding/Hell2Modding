@@ -572,7 +572,6 @@ namespace lua::hades::data
 		// Registers a file redirect so the engine loads it from an external location instead of Content/.
 		// Unlike register_content_file (SJSON-only), this works for any file type that the engine loads via fsAppendPathComponent (maps, etc.).
 		// No directory convention is enforced - the caller provides both paths.
-		// Paths that match a vanilla file are rejected, since a redirect replaces that file instead of adding to it.
 		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
 			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
 
