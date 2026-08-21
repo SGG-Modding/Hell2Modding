@@ -1875,30 +1875,6 @@ static void* hook_BinkOpen(const char* filename, unsigned int flags)
 
 //static std::string g_current_custom_package_stem;
 
-// A redirect rewrites the path the engine is about to open, so pointing one at a path that already exists under
-// Content/ replaces that vanilla file instead of adding to it. Refuse those, and log each one once.
-static bool would_replace_vanilla_file(const char* resolved_path, const std::string& replacement)
-{
-	std::error_code ec;
-	if (!resolved_path || !std::filesystem::is_regular_file(std::filesystem::path(resolved_path), ec))
-	{
-		return false;
-	}
-
-	static std::mutex logged_mutex;
-	static std::set<std::string> logged;
-	{
-		std::scoped_lock lock(logged_mutex);
-		if (logged.insert(resolved_path).second)
-		{
-			LOG(ERROR) << "File '" << replacement << "' has the same name as the vanilla file '" << resolved_path
-			           << "' and would replace it when loaded. Skipping it to keep the vanilla content "
-				         << "intact. Use a unique path that does not exist yet, ideally including your AuthorName-ModName.";
-		}
-	}
-	return true;
-}
-
 static void hook_fsAppendPathComponent(const char *basePath, const char *pathComponent, char *output /*size: 512*/)
 {
 	//g_current_custom_package_stem = "";
@@ -1914,10 +1890,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 				{
 					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-					if (!would_replace_vanilla_file(output, full_file_path))
-					{
-						strcpy(output, full_file_path.c_str());
-					}
+					strcpy(output, full_file_path.c_str());
 					break;
 				}
 			}
@@ -1931,10 +1904,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				{
 					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
 
-					if (!would_replace_vanilla_file(output, full_file_path))
-					{
-						strcpy(output, full_file_path.c_str());
-					}
+					strcpy(output, full_file_path.c_str());
 					break;
 				}
 			}
@@ -1947,10 +1917,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 			{
 				LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
 
-				if (!would_replace_vanilla_file(output, it->second))
-				{
-					strcpy(output, it->second.c_str());
-				}
+				strcpy(output, it->second.c_str());
 			}
 		}
 
@@ -1965,10 +1932,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				if (it != additional_vo_files.fsb_files.end())
 				{
 					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
-					if (!would_replace_vanilla_file(output, it->second))
-					{
-						strcpy(output, it->second.c_str());
-					}
+					strcpy(output, it->second.c_str());
 				}
 			}
 			else if (ends_with(vo_filename.c_str(), ".txt"))
@@ -1977,10 +1941,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				if (it != additional_vo_files.txt_files.end())
 				{
 					LOG(DEBUG) << pathComponent << " | " << it->first << " | " << it->second;
-					if (!would_replace_vanilla_file(output, it->second))
-					{
-						strcpy(output, it->second.c_str());
-					}
+					strcpy(output, it->second.c_str());
 				}
 			}
 		}
@@ -1997,10 +1958,6 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 				const std::string& resolved = it->second.resolve(output);
 				if (!resolved.empty())
 				{
-					if (would_replace_vanilla_file(output, resolved))
-					{
-						return;
-					}
 					strcpy(output, resolved.c_str());
 					return;
 				}
@@ -2019,10 +1976,7 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 			{
 				LOG(DEBUG) << pathComponent << " | " << logical_path << " | " << redirect_abspath;
 
-				if (!would_replace_vanilla_file(output, redirect_abspath))
-				{
-					strcpy(output, redirect_abspath.c_str());
-				}
+				strcpy(output, redirect_abspath.c_str());
 			}
 		}
 	}
@@ -2289,8 +2243,8 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				}
 				else
 				{
-					LOG(ERROR) << "[SJSON] File '" << abspath << "' would replace the vanilla file '" << relpath
-					           << "' instead of adding to it. "
+					LOG(ERROR) << "[SJSON] File '" << abspath << "' has the same name as the vanilla file '" << relpath
+					           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
 					           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 				}
 			}

@@ -164,7 +164,7 @@ namespace sjson_overlay
 		{
 			LOG(ERROR) << "[SJSON] File '" << absolute_path << "' has the same path as the vanilla file '"
 			           << (char*)vanilla_path.u8string().c_str()
-			           << "' and would replace it if loaded. Skipping it to keep the vanilla content intact. "
+			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
 			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 			return false;
 		}
