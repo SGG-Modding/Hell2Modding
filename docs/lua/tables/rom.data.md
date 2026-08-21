@@ -5,11 +5,7 @@
 ### `SJSON_DATA_DIR_NAME`
 
 Value: "Hell2Modding-SJSON"
-The canonical directory name for the SJSON data overlay.
-Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.
-Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
-Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to.
-Include the author and mod name after the base name to keep them unique, such as HelpText.en.AuthorName-ModName.sjson.
+The canonical directory name for the SJSON data overlay, scanned at startup so discovered .sjson files are injected into the engine's loading pipeline. Mods place their files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/, mirroring Content/Game/, so Animations/, Text/{lang}/ and so on. Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to, so include the author and mod name after the base name, such as HelpText.en.AuthorName-ModName.sjson.
 
 - Type: `string`
 
