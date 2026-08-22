@@ -171,15 +171,17 @@ namespace lua::hades::data
 	// ```
 	static void add_granny_file(const std::string& filename, const std::string& full_path)
 	{
-		if (std::filesystem::path vanilla_path;
-		    sjson_overlay::replaces_vanilla_file((char*)(std::filesystem::path(full_path).parent_path() / filename).u8string().c_str(), vanilla_path))
-		{
-			LOG(ERROR) << "File '" << full_path << "' has the same name as the vanilla file '"
-			           << (char*)vanilla_path.u8string().c_str()
-			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
-			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
-			return;
-		}
+		// Explicitly not checking for duplicates/overrides as the only way mods currently work are by
+		// replacing vanilla .gpk files.
+		// if (std::filesystem::path vanilla_path;
+		//     sjson_overlay::replaces_vanilla_file((char*)(std::filesystem::path(full_path).parent_path() / filename).u8string().c_str(), vanilla_path))
+		// {
+		// 	LOG(ERROR) << "File '" << full_path << "' has the same name as the vanilla file '"
+		// 	           << (char*)vanilla_path.u8string().c_str()
+		// 	           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+		// 	           << "Give the file a unique name, ideally including your AuthorName-ModName.";
+		// 	return;
+		// }
 
 		additional_granny_files[filename] = full_path;
 		LOG(INFO) << "Adding to granny files (runtime): " << full_path;

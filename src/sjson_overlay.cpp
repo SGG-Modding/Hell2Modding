@@ -42,6 +42,8 @@ namespace sjson_overlay
 	bool replaces_vanilla_file(const std::string& absolute_path, std::filesystem::path& vanilla_path)
 	{
 		// Vanilla ships the same filenames in both resolutions, so one directory is enough.
+		// We explicitly do not check .gpk files as the only way mods currently are able to modify models
+		// is to replace the vanilla .gpk file.
 		static const std::pair<const char*, const char*> content_directories[] = {
 		    {".map_text",     "Maps"            },
 		    {".thing_bin",    "Maps/bin"        },
@@ -51,7 +53,7 @@ namespace sjson_overlay
 		    {".txt",          "Audio/Desktop/VO"},
 		    {".pkg",          "Packages/1080p"  },
 		    {".pkg_manifest", "Packages/1080p"  },
-		    {".gpk",          "GR2/_Optimized"  },
+		    // {".gpk",          "GR2/_Optimized"  },
 		};
 
 		const std::string normalized = normalize_path(absolute_path);
