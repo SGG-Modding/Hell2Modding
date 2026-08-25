@@ -1,22 +1,13 @@
 #include "sjson_overlay.hpp"
 
+#include <lua_extensions/bindings/paths_ext.hpp>
 #include <string/string.hpp>
 
 namespace sjson_overlay
 {
 	static const std::filesystem::path& vanilla_content_root()
 	{
-		static const std::filesystem::path root = []() -> std::filesystem::path
-		{
-			constexpr std::size_t max_path = MAX_PATH * 2;
-			wchar_t buffer[max_path];
-			const DWORD length = GetModuleFileNameW(nullptr, buffer, max_path);
-			if (length == 0 || length == max_path)
-			{
-				return {};
-			}
-			return std::filesystem::path(buffer).parent_path().parent_path() / "Content";
-		}();
+		static const std::filesystem::path root = lua::paths_ext::hades_Content();
 		return root;
 	}
 
@@ -53,7 +44,6 @@ namespace sjson_overlay
 		    {".txt",          "Audio/Desktop/VO"},
 		    {".pkg",          "Packages/1080p"  },
 		    {".pkg_manifest", "Packages/1080p"  },
-		    // {".gpk",          "GR2/_Optimized"  },
 		};
 
 		const std::string normalized = normalize_path(absolute_path);
