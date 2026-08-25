@@ -532,7 +532,7 @@ namespace lua::hades::data
 		// Table: data
 		// Field: SJSON_DATA_DIR_NAME: string
 		// Value: "Hell2Modding-SJSON"
-		// The canonical directory name for the SJSON data overlay, scanned at startup so discovered .sjson files are injected into the engine's loading pipeline. Mods place their files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/, mirroring Content/Game/, so Animations/, Text/{lang}/ and so on. Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to, so include the author and mod name after the base name, such as HelpText.en.AuthorName-ModName.sjson.
+		//  The canonical directory name for the SJSON data overlay, scanned at startup so discovered .sjson files are injected into the engine's loading pipeline. Mods place their files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/, mirroring Content/Game/, so Animations/, Text/{lang}/ and so on. Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to, so include the author and mod name after the base name, such as HelpText.en.AuthorName-ModName.sjson.
 		ns["SJSON_DATA_DIR_NAME"] = sjson_overlay::SJSON_DATA_DIR_NAME;
 
 		// Lua API: Function
