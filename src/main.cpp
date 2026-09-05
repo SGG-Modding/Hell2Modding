@@ -1784,7 +1784,7 @@ static void init_import_hooks()
 
 // Lua: Enforce AuthorName-ModName to be part of the std::filesystem::path.filename() of the file.
 // See the binding data.cpp file for the implementation.
-std::unordered_map<std::string, std::string> additional_package_files;
+std::unordered_map<std::string, resolution_file_paths> additional_package_files;
 
 std::unordered_map<std::string, std::string> additional_granny_files;
 
@@ -1792,7 +1792,7 @@ std::unordered_map<std::string, std::string> additional_map_files;
 
 vo_file_registry additional_vo_files;
 
-std::unordered_map<std::string, bik_file_paths> additional_bik_files;
+std::unordered_map<std::string, resolution_file_paths> additional_bik_files;
 
 // Guards runtime writes (register_plugin_file from Lua) against concurrent reads in hooks.
 std::shared_mutex g_plugin_files_mutex;
@@ -1885,12 +1885,19 @@ static void hook_fsAppendPathComponent(const char *basePath, const char *pathCom
 	{
 		{
 			std::shared_lock lock(g_plugin_files_mutex);
-			for (const auto &[filename, full_file_path] : additional_package_files)
+			for (const auto &[filename, paths] : additional_package_files)
 			{
 				if (strstr(pathComponent, filename.c_str()) && extension_matches(pathComponent, filename.c_str()))
 				{
-					LOG(DEBUG) << pathComponent << " | " << filename << " | " << full_file_path;
-					strcpy(output, full_file_path.c_str());
+					// The engine has already resolved which resolution it wants, so pick the matching copy.
+					const std::string& resolved = paths.resolve(output);
+					if (resolved.empty())
+					{
+						break;
+					}
+
+					LOG(DEBUG) << pathComponent << " | " << filename << " | " << resolved;
+					strcpy(output, resolved.c_str());
 					break;
 				}
 			}
@@ -2027,7 +2034,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 		std::shared_lock lock(g_plugin_files_mutex);
 		if (is_pkg_manifest_only)
 		{
-			for (const auto &[filename, full_file_path] : additional_package_files)
+			for (const auto &[filename, paths] : additional_package_files)
 			{
 				if (ends_with(filename.c_str(), ".pkg_manifest"))
 				{
@@ -2037,7 +2044,7 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 		}
 		else if (has_pkg && has_pkg_manifest)
 		{
-			for (const auto &[filename, full_file_path] : additional_package_files)
+			for (const auto &[filename, paths] : additional_package_files)
 			{
 				out->push_back(filename.c_str());
 			}
@@ -3284,10 +3291,13 @@ extern "C" __declspec(dllexport) void my_main()
 	{
 		if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
 		{
-			additional_package_files.emplace((char *)entry.path().filename().u8string().c_str(),
-			                                 (char *)entry.path().u8string().c_str());
+			auto package_filename = std::string((char *)entry.path().filename().u8string().c_str());
+			auto parent_dir       = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
+			auto full_path        = std::string((char *)entry.path().u8string().c_str());
 
-			LOG(INFO) << "Adding to package files: " << (char *)entry.path().u8string().c_str();
+			additional_package_files[package_filename].add(parent_dir, full_path);
+
+			LOG(INFO) << "Adding to package files: " << full_path;
 		}
 		else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
 		{
@@ -3328,19 +3338,7 @@ extern "C" __declspec(dllexport) void my_main()
 			auto full_path    = std::string((char *)entry.path().u8string().c_str());
 
 			auto& bik = additional_bik_files[bik_filename];
-			if (parent_dir == "1080p")
-			{
-				bik.path_1080p = full_path;
-			}
-			else if (parent_dir == "720p")
-			{
-				bik.path_720p = full_path;
-			}
-			else
-			{
-				// Files not in a resolution subdirectory (e.g. directly in Movies/) — store as 1080p
-				bik.path_1080p = full_path;
-			}
+			bik.add(parent_dir, full_path);
 
 			LOG(INFO) << "Adding to bik files: " << full_path;
 		}

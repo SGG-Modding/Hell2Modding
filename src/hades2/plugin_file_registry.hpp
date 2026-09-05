@@ -10,7 +10,7 @@ struct vo_file_registry
 	std::unordered_map<std::string, std::string> txt_files;
 };
 
-struct bik_file_paths
+struct resolution_file_paths
 {
 	std::string path_1080p;
 	std::string path_720p;
@@ -30,10 +30,24 @@ struct bik_file_paths
 		}
 		return path_720p;
 	}
+
+	// Records a path under the resolution its own directory implies, defaulting to 1080p.
+	void add(const std::string& parent_directory, const std::string& full_path)
+	{
+		if (parent_directory == "720p")
+		{
+			path_720p = full_path;
+		}
+		else
+		{
+			path_1080p = full_path;
+		}
+	}
 };
 
 extern vo_file_registry additional_vo_files;
-extern std::unordered_map<std::string, bik_file_paths> additional_bik_files;
+extern std::unordered_map<std::string, resolution_file_paths> additional_bik_files;
+extern std::unordered_map<std::string, resolution_file_paths> additional_package_files;
 extern std::shared_mutex g_plugin_files_mutex;
 
 // Validates that a voice bank stem name (e.g. "Authornamemodnamevoicebank") is compatible with

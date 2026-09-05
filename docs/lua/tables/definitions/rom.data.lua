@@ -42,10 +42,14 @@ function data.load_package_overrides_set(hash_guid, hash_guid_table_override) en
 function data.add_granny_file(filename, full_path) end
 
 -- Registers a custom PKG/PKG_MANIFEST file for file-redirection at runtime.
+--To register both a 720p and 1080p version of the same package, create a `720p` and `1080p` parent directory
+--and place the corresponding `.pkg` and `.pkg_manifest` files inside each.
+--If the parent folder is not named `1080p` or `720p`, the file is treated as the 1080p version by default.
 --
 --**Example Usage:**
 --```lua
---rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.pkg")
+--rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg")
+--rom.rom.data.add_package_file("MyMod.pkg_manifest", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg_manifest")
 --```
 ---@param filename string The PKG or PKG_MANIFEST filename.
 ---@param full_path string The full filesystem path to the file.

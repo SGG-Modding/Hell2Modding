@@ -30,7 +30,6 @@ extern int ends_with(const char* str, const char* suffix);
 
 // Defined in main.cpp: file redirect maps for custom GPK/PKG assets
 extern std::unordered_map<std::string, std::string> additional_granny_files;
-extern std::unordered_map<std::string, std::string> additional_package_files;
 
 namespace lua::hades::data
 {
@@ -181,14 +180,20 @@ namespace lua::hades::data
 	// Param: filename: string: The PKG or PKG_MANIFEST filename.
 	// Param: full_path: string: The full filesystem path to the file.
 	// Registers a custom PKG/PKG_MANIFEST file for file-redirection at runtime.
+	// To register both a 720p and 1080p version of the same package, create a `720p` and `1080p` parent directory
+	// and place the corresponding `.pkg` and `.pkg_manifest` files inside each.
+	// If the parent folder is not named `1080p` or `720p`, the file is treated as the 1080p version by default.
 	//
 	// **Example Usage:**
 	// ```lua
-	// rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.pkg")
+	// rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg")
+	// rom.data.add_package_file("MyMod.pkg_manifest", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg_manifest")
 	// ```
 	static void add_package_file(const std::string& filename, const std::string& full_path)
 	{
-		additional_package_files[filename] = full_path;
+		const std::string parent_dir = (char*)std::filesystem::path(full_path).parent_path().filename().u8string().c_str();
+
+		additional_package_files[filename].add(parent_dir, full_path);
 		LOG(INFO) << "Adding to package files (runtime): " << full_path;
 	}
 
