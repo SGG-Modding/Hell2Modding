@@ -8,6 +8,12 @@ namespace big
 
 	inline std::unordered_map<std::string, size_t> hades2_symbol_to_code_size;
 
+	// The Ship Hades2.pdb GUID (lowercase 8-4-4-16 hex, no braces), captured while the symbol map is built (see
+	// main.cpp). It uniquely identifies the exact game build, so features that rely on hardcoded engine RVAs / struct
+	// offsets (which are only valid for a validated build) can gate themselves on it and disable cleanly after a game
+	// update rather than reading stale addresses. Empty if the PDB was not parsed.
+	inline std::string hades2_pdb_guid;
+
 	// Function to insert symbols with unique names into the map
 	inline void hades2_insert_symbol_to_map(const std::string& name, uintptr_t address)
 	{
