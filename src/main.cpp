@@ -2248,6 +2248,12 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 					out->push_back(entry_to_inject.c_str());
 					existing.insert(entry_to_inject);
 				}
+				else
+				{
+					LOG(ERROR) << "[SJSON] File '" << abspath << "' has the same name as the vanilla file '" << relpath
+					           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+					           << "Give the file a unique name, ideally including your AuthorName-ModName.";
+				}
 			}
 		}
 	}
@@ -3289,6 +3295,17 @@ extern "C" __declspec(dllexport) void my_main()
 	for (const auto &entry :
 	     std::filesystem::recursive_directory_iterator(g_file_manager.get_project_folder("plugins_data").get_path(), std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
 	{
+		// Registering a file the engine already has replaces the vanilla one, since the redirect matches on filename.
+		if (std::filesystem::path vanilla_path;
+		    sjson_overlay::replaces_vanilla_file((char*)entry.path().u8string().c_str(), vanilla_path))
+		{
+			LOG(ERROR) << "File '" << (char*)entry.path().u8string().c_str() << "' has the same name as the vanilla file '"
+			           << (char*)vanilla_path.u8string().c_str()
+			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
+			continue;
+		}
+
 		if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
 		{
 			auto package_filename = std::string((char *)entry.path().filename().u8string().c_str());

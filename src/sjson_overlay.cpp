@@ -1,9 +1,67 @@
 #include "sjson_overlay.hpp"
 
+#include <lua_extensions/bindings/paths_ext.hpp>
 #include <string/string.hpp>
 
 namespace sjson_overlay
 {
+	static const std::filesystem::path& vanilla_content_root()
+	{
+		static const std::filesystem::path root = lua::paths_ext::hades_Content();
+		return root;
+	}
+
+	bool vanilla_file_exists(const std::string& normalized_relpath, std::filesystem::path& vanilla_path)
+	{
+		const auto& root = vanilla_content_root();
+		if (root.empty())
+		{
+			return false;
+		}
+
+		std::error_code ec;
+		std::filesystem::path candidate = root / std::filesystem::path(normalized_relpath);
+		if (!std::filesystem::is_regular_file(candidate, ec))
+		{
+			return false;
+		}
+
+		vanilla_path = candidate.make_preferred();
+		return true;
+	}
+
+	bool replaces_vanilla_file(const std::string& absolute_path, std::filesystem::path& vanilla_path)
+	{
+		// Vanilla ships the same filenames in both resolutions, so one directory is enough.
+		// We explicitly do not check .gpk files as the only way mods currently are able to modify models
+		// is to replace the vanilla .gpk file.
+		static const std::pair<const char*, const char*> content_directories[] = {
+		    {".map_text",     "Maps"            },
+		    {".thing_bin",    "Maps/bin"        },
+		    {".bik",          "Movies/1080p"    },
+		    {".bik_atlas",    "Movies/1080p"    },
+		    {".fsb",          "Audio/Desktop/VO"},
+		    {".txt",          "Audio/Desktop/VO"},
+		    {".pkg",          "Packages/1080p"  },
+		    {".pkg_manifest", "Packages/1080p"  },
+		};
+
+		const std::string normalized = normalize_path(absolute_path);
+		const auto last_slash        = normalized.rfind('/');
+		const std::string filename   = last_slash != std::string::npos ? normalized.substr(last_slash + 1) : normalized;
+		const std::string lower      = big::string::to_lower(filename);
+
+		for (const auto& [extension, directory] : content_directories)
+		{
+			if (lower.ends_with(extension) && vanilla_file_exists(std::string(directory) + "/" + filename, vanilla_path))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	std::string normalize_path(const std::string& path)
 	{
 		std::string result = path;
@@ -91,6 +149,15 @@ namespace sjson_overlay
 			{
 				LOG(WARNING) << "[SJSON] File '" << normalized << "' already registered from '" << g_path_index[normalized] << "', ignoring '" << absolute_path << "'";
 			}
+			return false;
+		}
+
+		if (std::filesystem::path vanilla_path; vanilla_file_exists(normalized, vanilla_path))
+		{
+			LOG(ERROR) << "[SJSON] File '" << absolute_path << "' has the same path as the vanilla file '"
+			           << (char*)vanilla_path.u8string().c_str()
+			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 			return false;
 		}
 

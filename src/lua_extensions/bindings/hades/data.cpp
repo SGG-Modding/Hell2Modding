@@ -170,6 +170,8 @@ namespace lua::hades::data
 	// ```
 	static void add_granny_file(const std::string& filename, const std::string& full_path)
 	{
+		// Explicitly not checking for duplicates/overrides as the only way mods currently work are by
+		// replacing vanilla .gpk files.
 		additional_granny_files[filename] = full_path;
 		LOG(INFO) << "Adding to granny files (runtime): " << full_path;
 	}
@@ -191,6 +193,16 @@ namespace lua::hades::data
 	// ```
 	static void add_package_file(const std::string& filename, const std::string& full_path)
 	{
+		if (std::filesystem::path vanilla_path;
+		    sjson_overlay::replaces_vanilla_file((char*)(std::filesystem::path(full_path).parent_path() / filename).u8string().c_str(), vanilla_path))
+		{
+			LOG(ERROR) << "File '" << full_path << "' has the same name as the vanilla file '"
+			           << (char*)vanilla_path.u8string().c_str()
+			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
+			return;
+		}
+
 		const std::string parent_dir = (char*)std::filesystem::path(full_path).parent_path().filename().u8string().c_str();
 
 		additional_package_files[filename].add(parent_dir, full_path);
@@ -525,19 +537,19 @@ namespace lua::hades::data
 		// Table: data
 		// Field: SJSON_DATA_DIR_NAME: string
 		// Value: "Hell2Modding-SJSON"
-		// The canonical directory name for the SJSON data overlay.
-		// Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.
-		// Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
+		//  The canonical directory name for the SJSON data overlay, scanned at startup so discovered .sjson files are injected into the engine's loading pipeline. Mods place their files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/, mirroring Content/Game/, so Animations/, Text/{lang}/ and so on. Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to, so include the author and mod name after the base name, such as HelpText.en.AuthorName-ModName.sjson.
 		ns["SJSON_DATA_DIR_NAME"] = sjson_overlay::SJSON_DATA_DIR_NAME;
 
 		// Lua API: Function
 		// Table: data
 		// Name: register_sjson_file
 		// Param: absolute_path: string: The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
-		// Returns: boolean: true if registered successfully, false if the file is a duplicate, not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+		// Returns: boolean: true if registered successfully, false if the file is a duplicate, would replace a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 		// Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
 		// The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
 		// For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
+		// A file whose path matches a vanilla one replaces it, so those are rejected.
+		// Give every file a unique name by adding the author and mod name after the base name, such as `Foo.AuthorName-ModName.sjson`.
 		// At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
 		// Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
 		ns.set_function("register_sjson_file", [](const std::string& absolute_path) -> bool {
@@ -575,6 +587,15 @@ namespace lua::hades::data
 		// No directory convention is enforced - the caller provides both paths.
 		ns.set_function("register_file_redirect", [](const std::string& content_relative_path, const std::string& absolute_path) -> bool {
 			std::string normalized = sjson_overlay::normalize_path(content_relative_path);
+
+			if (std::filesystem::path vanilla_path; sjson_overlay::vanilla_file_exists(normalized, vanilla_path))
+			{
+				LOG(ERROR) << "Redirecting the vanilla file '" << (char*)vanilla_path.u8string().c_str() << "' to '"
+				           << absolute_path
+				           << "' would replace it when loaded. Skipping it to keep the vanilla content "
+				           << "intact. Use a unique path that does not exist yet, ideally including your AuthorName-ModName.";
+				return false;
+			}
 
 			std::unique_lock lock(sjson_overlay::g_overlay_mutex);
 			if (sjson_overlay::g_path_index.count(normalized))
@@ -624,6 +645,18 @@ namespace lua::hades::data
 			if (!target && !is_bik)
 			{
 				LOG(WARNING) << "register_plugin_file: unsupported extension for '" << filename << "'";
+				return false;
+			}
+
+			const std::string located_as =
+			    (char*)(std::filesystem::path(absolute_path).parent_path() / filename).u8string().c_str();
+
+			if (std::filesystem::path vanilla_path; sjson_overlay::replaces_vanilla_file(located_as, vanilla_path))
+			{
+				LOG(ERROR) << "File '" << absolute_path << "' has the same name as the vanilla file '"
+				           << (char*)vanilla_path.u8string().c_str()
+				           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+				           << "Give the file a unique name, ideally including your AuthorName-ModName.";
 				return false;
 			}
 

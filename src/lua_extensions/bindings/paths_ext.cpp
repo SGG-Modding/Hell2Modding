@@ -23,7 +23,7 @@ namespace lua::paths_ext
 	// Table: paths
 	// Name: Content
 	// Returns: string: Returns the GameFolder/Content folder path
-	static std::string hades_Content()
+	std::string hades_Content()
 	{
 		auto folder  = get_game_executable_folder().parent_path();
 		folder      /= "Content";
