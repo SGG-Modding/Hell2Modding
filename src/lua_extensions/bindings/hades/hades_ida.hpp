@@ -2,6 +2,7 @@
 
 #include <EASTL/vector.h>
 #include <EASTL/optional.h>
+#include <EASTL/hash_set.h>
 
 namespace Vectormath
 {
@@ -468,6 +469,81 @@ namespace sgg
 
 	static_assert(offsetof(Obstacle_partial, mFlags) == 0x650);
 	static_assert(offsetof(Obstacle_partial, mGridSets) == 0x654);
+	static_assert(sizeof(Obstacle_partial) == 0x7C0);
+
+	struct Projectile : sgg::Thing_partial
+	{
+		bool mHitMaxRange;
+		bool mHasStarted;
+		bool mUseStartMarker;
+		bool mForceOwnerReturn;
+		bool mDetonated;
+		bool mBlockSpawns;
+		bool mRetargetDirty;
+		bool mBlinkWeaponActive;
+		bool mTriggerFireEndOnDeath;
+		bool mExcludeFromCap;
+		float mDamageMultiplier;
+		int mOwnerId;
+		int mFireIndex;
+		int mVolley;
+		int mWaveIndex;
+		bool mBonusWave;
+		int mWaveNumProjectiles;
+		int mOwnerSpawnedById;
+		int mNumJumps;
+		bool mArmed;
+		bool mWasFirePerfectCharge;
+		bool mFiredByTraitor;
+		float mRange;
+		float mSpeedMultiplier;
+		float mRangeSqrd;
+		float mBlastRadius;
+		float mBlastSpeed;
+		float mBlastTimeRemaining;
+		float mBlastRadiusModifier;
+		float mBlastRadiusModifierTarget;
+		float mBlastRadiusModifierChangeSpeed;
+		float mIgnoreObstacleImpactTimeRemaining;
+		float mReturnTimeRemaining;
+		float mPauseTimeRemaining;
+		float mSpawnAngle;
+		Vectormath::Vector2 mImpactLocation;
+		Vectormath::Vector2 mTargetLocation;
+		float mSpinRate;
+		float mArcStart;
+		float mArcEnd;
+		sgg::HashGuid mDeathGraphic;
+		//sgg::ProjectileData mData;
+		char mData[0x310];
+		//sgg::Weapon *pFiredBy;
+		void* pFiredBy;
+		eastl::vector<sgg::Entity> mThingsHit;
+		eastl::vector<sgg::Entity> mProjectilesHit;
+		eastl::hash_set<sgg::HashGuid> mHitByImpact;
+		eastl::hash_set<sgg::HashGuid> mHitByDetonation;
+		eastl::hash_set<sgg::HashGuid> mCollideWithGroups;
+		bool mFlipAllegiance;
+		bool mExpired;
+		bool mExpireSilently;
+		int mNumPenetrations;
+		int mDetonations;
+		int mDetonateSoundId;
+		float mCurrentDistanceSqrd;
+		float mSpeed;
+		float mMaxSpeed;
+		float mSpeedZ;
+		float mAcceleration;
+		float mLifeRemaining;
+		float mFuseRemaining;
+		float mMoveIntervalRemaining;
+		float mStartDelay;
+		int mLastReflectedByThingId;
+		Vectormath::Vector2 mPrevLocation;
+		sgg::HashGuid mCachedOwnerName;
+	};
+
+	static_assert(sizeof(Projectile) == 0xAF8);
 
 	// TODO: this is legit too time consuming.
 

@@ -106,13 +106,21 @@ namespace lua::hades::extent
         return g_draw_extents;
     }
 
+    static void hook_Projectile_UpdateDetonation(sgg::Projectile *projectile, float elapsedSeconds)
+    {
+        big::g_hooking->get_original<hook_Projectile_UpdateDetonation>()(projectile, elapsedSeconds);
+        LOG(DEBUG) << "hook_Projectile_UpdateDetonation" << "success" << "\n";
+    }
+
     void bind(sol::state_view &state, sol::table &lua_ext)
 	{
 		// Register Lua API
 
         auto submit_draw_addr = big::hades2_symbol_to_address["sgg::Thing::SubmitDraw"];
-
         big::hooking::detour_hook_helper::add<hook_Thing_SubmitDraw>("hook_Thing_SubmitDraw", submit_draw_addr);
+
+        auto projectile_update_detonation_addr = big::hades2_symbol_to_address["sgg::Projectile::UpdateDetonation"];
+        big::hooking::detour_hook_helper::add<hook_Projectile_UpdateDetonation>("hook_Projectile_UpdateDetonation", projectile_update_detonation_addr);
 
 		auto ns = lua_ext.create_named("extent");
 		ns.set_function("drawline", draw_line);
