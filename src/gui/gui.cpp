@@ -13,6 +13,7 @@
 #include <lua/lua_manager.hpp>
 #include <lua_extensions/bindings/hades/hades_ida.hpp>
 #include <lua_extensions/bindings/hades/inputs.hpp>
+#include <lua_extensions/bindings/hades/extent.hpp>
 #include <memory/gm_address.hpp>
 #include <misc/cpp/imgui_stdlib.h>
 #include <hades2/pdb_symbol_map.hpp>
@@ -359,6 +360,14 @@ namespace big
 						}
 					}
 
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Debug Draw"))
+				{
+					if (ImGui::Checkbox("Enable Draw Extents", &lua::hades::extent::g_draw_extents)){
+						lua::hades::extent::set_internal_debugdraw_config();
+					};
 					ImGui::EndMenu();
 				}
 
