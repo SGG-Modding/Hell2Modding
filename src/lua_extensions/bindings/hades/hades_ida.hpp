@@ -441,7 +441,11 @@ namespace sgg
 		void *pPhysics;                 			// 0xB8
 		char pad_4[0xC0];							// 0XC0..0x17F
 		eastl::optional<sgg::Polygon> mGeometry;	// 0x180
-		char pad_5[0x498];							// 0x1B8..0x64F
+		char pad_5[0x490];							// 0x1B8..0x647
+		bool mUseScreenLocation;					// 0x648
+		bool mFixGeometryWithZ;						// 0x649
+		bool mAllow3DShadow;						// 0x64A
+		char pad_6[0x5];							// 0x64B..0x64F
 	};
 
 	static_assert(offsetof(Thing_partial, mId) == 0x48);
@@ -449,6 +453,11 @@ namespace sgg
 	static_assert(offsetof(Thing_partial, mLocation) == 0x70);
 	static_assert(offsetof(Thing_partial, pPhysics) == 0xB8);
 	static_assert(offsetof(Thing_partial, mGeometry) == 0x180);
+	static_assert(sizeof(eastl::optional<sgg::Polygon>) == 0x38);
+	static_assert(offsetof(Thing_partial, mUseScreenLocation) == 0x648);
+	static_assert(offsetof(Thing_partial, mFixGeometryWithZ) == 0x649);
+	static_assert(offsetof(Thing_partial, mAllow3DShadow) == 0x64A);
+	static_assert(sizeof(Thing_partial) == 0x650);
 
 	struct Obstacle_partial : sgg::Thing_partial
 	{

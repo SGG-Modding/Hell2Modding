@@ -64,11 +64,7 @@ namespace lua::hades::extent
             *DebugDraw = true;
             *DebugDrawBounds = true;
 
-            eastl::optional<sgg::Polygon> polygon_optional = thing->mGeometry;
-            sgg::Polygon polygon;
-            if (polygon_optional.has_value()) {
-                polygon = *polygon_optional;
-            }
+            eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
             sgg::Rtti__Type type = thing->mType;
             unsigned int color = 0xff00ff00;
             bool draw_polygon = true;
@@ -83,13 +79,13 @@ namespace lua::hades::extent
                 draw_polygon = stops_projectile((sgg::Obstacle_partial *)thing) || stops_unit((sgg::Obstacle_partial *)thing);
             }
 
-            if (polygon_optional.has_value() && draw_polygon) {
-                auto count = polygon.mPoints.end() - polygon.mPoints.begin();
+            if (polygon.has_value() && draw_polygon) {
+                auto count = polygon->mPoints.end() - polygon->mPoints.begin();
                 if (count > 1) {
                     for (auto i = 0; i < count; i++){
-                        Vectormath::Vector2 first = polygon.mPoints[i];
-                        Vectormath::Vector2 second = polygon.mPoints[(i + 1) % count];
-                        big::hades2_symbol_to_address["sgg::DrawManager::DrawLine"].as<Drawmanager__DrawLine>()(first, second, 3.0, color, false, 1, 0);
+                        Vectormath::Vector2 first = polygon->mPoints[i];
+                        Vectormath::Vector2 second = polygon->mPoints[(i + 1) % count];
+                        big::hades2_symbol_to_address["sgg::DrawManager::DrawLine"].as<Drawmanager__DrawLine>()(first, second, 3.0, color, thing->mUseScreenLocation, 1, 0);
                     }
                 }
             }
