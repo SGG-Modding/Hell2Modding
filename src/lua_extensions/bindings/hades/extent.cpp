@@ -38,8 +38,8 @@ namespace lua::hades::extent
         big::hades2_symbol_to_address["sgg::DrawManager::DrawLine"].as<Drawmanager__DrawLine>()(start, end, width, raw_color, screenSpace, parallax, zShift);
     }
 
-    static bool type_check(sgg::Rtti__Type a, sgg::Rtti__Type b){
-        return (a & b) == b;
+    static bool type_check(sgg::Rtti__Type type, sgg::Rtti__Type type_enum){
+        return (type & type_enum) == type_enum;
     }
 
     static uint8_t stops_unit(sgg::Obstacle_partial *obstacle)
@@ -55,15 +55,8 @@ namespace lua::hades::extent
     static void hook_Thing_SubmitDraw(sgg::Thing_partial *thing, float w)
     {
         big::g_hooking->get_original<hook_Thing_SubmitDraw>()(thing, w);
-        auto DrawExtentsForPassable = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtentsForPassable"].as<bool *>();
-        if (*DrawExtentsForPassable) {
-            auto DrawExtents = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtents"].as<bool *>();
-            auto DebugDraw = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDraw"].as<bool *>();
-            auto DebugDrawBounds = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDrawBounds"].as<bool *>();
-            *DrawExtents = true;
-            *DebugDraw = true;
-            *DebugDrawBounds = true;
-
+        
+        if (g_draw_extents) {
             eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
             sgg::Rtti__Type type = thing->mType;
             unsigned int color = 0xff00ff00;
@@ -72,7 +65,7 @@ namespace lua::hades::extent
                 big::hades2_symbol_to_address["sgg::Projectile::DrawExtents"].as<Projectile__DrawExtents>()(thing);
                 color = 0xff0000ff;
             } else if (type_check(type, sgg::Rtti__Type::Unit_t)) {
-                big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Projectile__DrawExtents>()(thing);
+                big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Projectile__DrawExtents>()(thing);
                 color = 0xffffff00;
             } else{
                 big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Projectile__DrawExtents>()(thing);
@@ -92,6 +85,20 @@ namespace lua::hades::extent
         }
     }
 
+    static bool toggle_extents()
+    {
+        g_draw_extents = !g_draw_extents;
+        auto DrawExtentsForPassable = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtentsForPassable"].as<bool *>();
+        auto DrawExtents = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtents"].as<bool *>();
+        auto DebugDraw = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDraw"].as<bool *>();
+        auto DebugDrawBounds = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDrawBounds"].as<bool *>();
+        *DrawExtentsForPassable = g_draw_extents;
+        *DrawExtents = g_draw_extents;
+        *DebugDraw = g_draw_extents;
+        *DebugDrawBounds = g_draw_extents;
+        return g_draw_extents;
+    }
+
     void bind(sol::state_view &state, sol::table &lua_ext)
 	{
 		// Register Lua API
@@ -102,5 +109,6 @@ namespace lua::hades::extent
 
 		auto ns = lua_ext.create_named("extent");
 		ns.set_function("drawline", draw_line);
+        ns.set_function("toggle", toggle_extents);
 	}
 }
