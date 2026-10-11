@@ -431,19 +431,17 @@ namespace sgg
 
 	struct Thing_partial : sgg::IRenderComponent
 	{
-		char pad_0[0x8];				// 0x40
-		int mId;                        // 0x48
-		char pad_1[0x08];               // 0x4C..0x53
-		float mZLocation;               // 0x54
-		char pad_2[0x18];               // 0x58..0x6F
-		Vectormath::Vector2 mLocation;  // 0x70
-		char pad_3[0x40];               // 0x78..0xB7
-		void *pPhysics;                 // 0xB8
-		char pad_4[0xC0];				// 0XC0..0x17F
-		// 
-		sgg::Polygon mGeometry;			// 0x180
-		bool mGeometry_engaged;			// 0x1B0
-		char pad_5[0x498];				// 0x1B8..0x64F
+		char pad_0[0x8];							// 0x40
+		int mId;                        			// 0x48
+		char pad_1[0x08];               			// 0x4C..0x53
+		float mZLocation;               			// 0x54
+		char pad_2[0x18];               			// 0x58..0x6F
+		Vectormath::Vector2 mLocation;  			// 0x70
+		char pad_3[0x40];               			// 0x78..0xB7
+		void *pPhysics;                 			// 0xB8
+		char pad_4[0xC0];							// 0XC0..0x17F
+		eastl::optional<sgg::Polygon> mGeometry;	// 0x180
+		char pad_5[0x498];							// 0x1B8..0x64F
 	};
 
 	static_assert(offsetof(Thing_partial, mId) == 0x48);
@@ -451,7 +449,6 @@ namespace sgg
 	static_assert(offsetof(Thing_partial, mLocation) == 0x70);
 	static_assert(offsetof(Thing_partial, pPhysics) == 0xB8);
 	static_assert(offsetof(Thing_partial, mGeometry) == 0x180);
-	static_assert(offsetof(Thing_partial, mGeometry_engaged) == 0x1B0);
 
 	struct Obstacle_partial : sgg::Thing_partial
 	{
