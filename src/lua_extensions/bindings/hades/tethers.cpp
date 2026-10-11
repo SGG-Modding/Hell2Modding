@@ -1,6 +1,7 @@
 #include "tethers.hpp"
 
 #include "hades_ida.hpp"
+#include "tethers.hpp"
 
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
@@ -23,24 +24,6 @@ namespace lua::hades::tethers
 	constexpr float DEFAULT_RETRACT_SPEED  = 500.0f;
 	constexpr float MAX_TETHER_DT          = 1.0f / 30.0f;
 
-	// H2 sgg::Thing partial struct for field access via raw offsets.
-	struct Thing_H2
-	{
-		char pad_0[0x48];
-		int mId;                        // 0x48
-		char pad_1[0x08];               // 0x4C..0x53
-		float mZLocation;               // 0x54
-		char pad_2[0x18];               // 0x58..0x6F
-		Vectormath::Vector2 mLocation;  // 0x70
-		char pad_3[0x40];               // 0x78..0xB7
-		void *pPhysics;                 // 0xB8
-	};
-
-	static_assert(offsetof(Thing_H2, mId) == 0x48);
-	static_assert(offsetof(Thing_H2, mZLocation) == 0x54);
-	static_assert(offsetof(Thing_H2, mLocation) == 0x70);
-	static_assert(offsetof(Thing_H2, pPhysics) == 0xB8);
-
 	// H2 PhysicsComponent partial struct for velocity and gravity access.
 	struct PhysicsComponent_H2_Velocity
 	{
@@ -58,13 +41,13 @@ namespace lua::hades::tethers
 
 	static void **g_world_ptr = nullptr;
 
-	using GetActiveThingFn = Thing_H2 *(*)(void *world, int id);
+	using GetActiveThingFn = sgg::Thing_partial *(*)(void *world, int id);
 	static GetActiveThingFn g_get_active_thing = nullptr;
 
 	using ShiftLocationFn = void (*)(void *thing, Vectormath::Vector2 delta);
 	static ShiftLocationFn g_shift_location = nullptr;
 
-	static Thing_H2 *get_thing(int id)
+	static sgg::Thing_partial *get_thing(int id)
 	{
 		if (!g_world_ptr || !*g_world_ptr || !g_get_active_thing)
 		{
@@ -238,7 +221,7 @@ namespace lua::hades::tethers
 			}
 
 			// Cache predecessor (tethered_from) for Z tracking, predecessor pull, and straightening
-			Thing_H2 *predecessor = nullptr;
+			sgg::Thing_partial *predecessor = nullptr;
 			if (!data.tethered_from.empty())
 			{
 				predecessor = get_thing(data.tethered_from[0]);
@@ -315,7 +298,7 @@ namespace lua::hades::tethers
 			// Chain straightening: pull toward midpoint of two neighbors
 			if (predecessor && !data.links.empty() && g_shift_location)
 			{
-				Thing_H2 *chain_target = nullptr;
+				sgg::Thing_partial *chain_target = nullptr;
 				float max_retract = 0.0f;
 				for (auto &link : data.links)
 				{
@@ -353,7 +336,7 @@ namespace lua::hades::tethers
 
 	static void cleanup_stale_tethers();
 
-	static char hook_PhysicsSystem_UpdateThing(void *this_, Thing_H2 *thing, float elapsedSeconds)
+	static char hook_PhysicsSystem_UpdateThing(void *this_, sgg::Thing_partial *thing, float elapsedSeconds)
 	{
 		char result = big::g_hooking->get_original<hook_PhysicsSystem_UpdateThing>()(this_, thing, elapsedSeconds);
 
@@ -406,7 +389,7 @@ namespace lua::hades::tethers
 		{
 			std::scoped_lock l(g_tether_mutex);
 
-			auto *thing = reinterpret_cast<Thing_H2 *>(this_);
+			auto *thing = reinterpret_cast<sgg::Thing_partial *>(this_);
 			if (thing)
 			{
 				auto *data = get_tether_data(thing->mId);
@@ -639,7 +622,7 @@ namespace lua::hades::tethers
 		auto get_active_thing_addr = big::hades2_symbol_to_address["sgg::World::GetActiveThing"];
 		if (get_active_thing_addr)
 		{
-			g_get_active_thing = get_active_thing_addr.as_func<Thing_H2 *(void *, int)>();
+			g_get_active_thing = get_active_thing_addr.as_func<sgg::Thing_partial *(void *, int)>();
 		}
 		else
 		{

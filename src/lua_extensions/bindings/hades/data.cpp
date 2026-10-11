@@ -455,6 +455,11 @@ namespace lua::hades::data
 		}
 	}
 
+	static uint64_t get_address_from_symbol(std::string str)
+	{
+		return big::hades2_symbol_to_address[str];
+	}
+
 	static bool contains_byte_sequence(std::ifstream& file, std::span<const char> sequence)
 	{
 		if (!file.is_open())
@@ -532,6 +537,8 @@ namespace lua::hades::data
 		ns.set_function("load_package_overrides_set", load_package_overrides_set);
 		ns.set_function("add_granny_file", add_granny_file);
 		ns.set_function("add_package_file", add_package_file);
+
+		ns.set_function("get_address_from_symbol", get_address_from_symbol);
 
 		// Lua API: Field
 		// Table: data

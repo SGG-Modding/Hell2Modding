@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EASTL/vector.h>
+#include <EASTL/optional.h>
 
 namespace Vectormath
 {
@@ -353,8 +354,9 @@ namespace sgg
 
 	struct __declspec(align(8)) Rtti
 	{
-		//sgg::Rtti_vtbl *__vftable /*VFT*/;
-		//const sgg::Rtti__Type mType;
+		sgg::Rtti_vtbl *__vftable /*VFT*/;
+		sgg::Rtti__Type mType;
+		char pad_undefined[4];
 	};
 
 	struct SortScore
@@ -417,6 +419,49 @@ namespace sgg
 		int w;
 		int h;
 	};
+
+	struct Polygon
+	{
+		float mHighestSideYValue;
+		float mRadius;
+		Vectormath::Vector2 mCenter;
+		unsigned __int64 mMinXSideIndex;
+		eastl::vector<Vectormath::Vector2> mPoints;
+	};
+
+	struct Thing_partial : sgg::IRenderComponent
+	{
+		char pad_0[0x8];				// 0x40
+		int mId;                        // 0x48
+		char pad_1[0x08];               // 0x4C..0x53
+		float mZLocation;               // 0x54
+		char pad_2[0x18];               // 0x58..0x6F
+		Vectormath::Vector2 mLocation;  // 0x70
+		char pad_3[0x40];               // 0x78..0xB7
+		void *pPhysics;                 // 0xB8
+		char pad_4[0xC0];				// 0XC0..0x17F
+		// 
+		sgg::Polygon mGeometry;			// 0x180
+		bool mGeometry_engaged;			// 0x1B0
+		char pad_5[0x498];				// 0x1B8..0x64F
+	};
+
+	static_assert(offsetof(Thing_partial, mId) == 0x48);
+	static_assert(offsetof(Thing_partial, mZLocation) == 0x54);
+	static_assert(offsetof(Thing_partial, mLocation) == 0x70);
+	static_assert(offsetof(Thing_partial, pPhysics) == 0xB8);
+	static_assert(offsetof(Thing_partial, mGeometry) == 0x180);
+	static_assert(offsetof(Thing_partial, mGeometry_engaged) == 0x1B0);
+
+	struct Obstacle_partial : sgg::Thing_partial
+	{
+		unsigned __int32 mFlags;		// 0x650
+		unsigned __int32 mGridSets;		// 0x654
+		char pad_0[0x168];				// 0x658..0x7BF
+	};
+
+	static_assert(offsetof(Obstacle_partial, mFlags) == 0x650);
+	static_assert(offsetof(Obstacle_partial, mGridSets) == 0x654);
 
 	// TODO: this is legit too time consuming.
 
