@@ -118,6 +118,17 @@ namespace lua::hades::extent
     // Lua API: Function
 	// Table: extent
 	// Name: toggle
+    // Returns: boolean: Whether extents are being drawn or not after the toggle is triggered.
+    static bool toggle_extents()
+    {
+        g_draw_extents = !g_draw_extents;
+        set_internal_debugdraw_config();
+        return g_draw_extents;
+    }
+
+    // Lua API: Function
+	// Table: extent
+	// Name: are_drawn
     // Returns: boolean: Whether extents are being drawn or not.
     static bool toggle_extents()
     {
@@ -135,5 +146,6 @@ namespace lua::hades::extent
         // Register Lua API
 		auto ns = lua_ext.create_named("extent");
         ns.set_function("toggle", toggle_extents);
+        ns.set_function("are_drawn", are_extents_drawn);
 	}
 }
