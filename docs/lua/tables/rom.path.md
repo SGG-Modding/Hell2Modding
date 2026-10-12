@@ -2,7 +2,7 @@
 
 Table containing helpers for manipulating file or directory paths
 
-## Functions (9)
+## Functions (10)
 
 ### `combine(path)`
 
@@ -97,6 +97,20 @@ string = rom.path.stem(path)
 **Example Usage:**
 ```lua
 boolean = rom.path.create_directory(path)
+```
+
+### `copy_file(from, to)`
+
+- **Parameters:**
+  - `from` (string): The path of the file to copy.
+  - `to` (string): The path the file is copied to, including the file name. Existing files cannot be overwritten.
+
+- **Returns:**
+  - `string`: The reason the copy failed, empty when it succeeded.
+
+**Example Usage:**
+```lua
+string = rom.path.copy_file(from, to)
 ```
 
 ### `exists(path)`

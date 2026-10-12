@@ -33,6 +33,11 @@ function path.stem(path) end
 ---@return boolean # true if a directory was newly created for the directory p resolves to, false otherwise.
 function path.create_directory(path) end
 
+---@param from string The path of the file to copy.
+---@param to string The path the file is copied to, including the file name. Existing files cannot be overwritten.
+---@return string # The reason the copy failed, empty when it succeeded.
+function path.copy_file(from, to) end
+
 ---@param path string The path to check.
 ---@return boolean # true if the path exists, false otherwise.
 function path.exists(path) end

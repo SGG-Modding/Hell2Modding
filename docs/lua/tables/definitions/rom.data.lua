@@ -1,7 +1,7 @@
 ---@meta data
 
 ---@class (exact) rom.data
----@field SJSON_DATA_DIR_NAME string # Value: "Hell2Modding-SJSON"The canonical directory name for the SJSON data overlay.Mods must place .sjson files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/, Text/{lang}/, etc.Hell2Modding scans this directory at startup and injects discovered .sjson files into the engine's loading pipeline.
+---@field SJSON_DATA_DIR_NAME string # Value: "Hell2Modding-SJSON" The canonical directory name for the SJSON data overlay, scanned at startup so discovered .sjson files are injected into the engine's loading pipeline. Mods place their files in plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/, mirroring Content/Game/, so Animations/, Text/{lang}/ and so on. Filenames must be unique and must not match a vanilla file, otherwise the vanilla file is replaced instead of being added to, so include the author and mod name after the base name, such as HelpText.en.AuthorName-ModName.sjson.
 
 ---@param hash_guid integer Hash value.
 ---@return string # Returns the string corresponding to the provided hash value.
@@ -42,10 +42,14 @@ function data.load_package_overrides_set(hash_guid, hash_guid_table_override) en
 function data.add_granny_file(filename, full_path) end
 
 -- Registers a custom PKG/PKG_MANIFEST file for file-redirection at runtime.
+--To register both a 720p and 1080p version of the same package, create a `720p` and `1080p` parent directory
+--and place the corresponding `.pkg` and `.pkg_manifest` files inside each.
+--If the parent folder is not named `1080p` or `720p`, the file is treated as the 1080p version by default.
 --
 --**Example Usage:**
 --```lua
---rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/MyMod.pkg")
+--rom.rom.data.add_package_file("MyMod.pkg", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg")
+--rom.rom.data.add_package_file("MyMod.pkg_manifest", "C:/path/to/plugins_data/MyMod/Packages/1080p/MyMod.pkg_manifest")
 --```
 ---@param filename string The PKG or PKG_MANIFEST filename.
 ---@param full_path string The full filesystem path to the file.
@@ -60,10 +64,12 @@ function data.reload_game_data() end
 -- Registers a .sjson file so the engine discovers and loads it as if it were in the game's `Content/Game/` directory.
 --The engine-relative path is inferred automatically: files inside `plugins_data/<mod>/<SJSON_DATA_DIR_NAME>/` map to `Content/Game/`.
 --For example, `plugins_data/<mod-guid>/<SJSON_DATA_DIR_NAME>/Animations/Foo.sjson` is loaded as `Content/Game/Animations/Foo.sjson`.
+--A file whose path matches a vanilla one replaces it, so those are rejected.
+--Give every file a unique name by adding the author and mod name after the base name, such as `Foo.AuthorName-ModName.sjson`.
 --At startup, Hell2Modding automatically scans every mod's <SJSON_DATA_DIR_NAME> directory and registers any .sjson files found.
 --Use this function to dynamically register files created during the current session (e.g. a first-time install placing a file into plugins_data).
 ---@param absolute_path string The absolute filesystem path to a .sjson file inside a <SJSON_DATA_DIR_NAME> directory.
----@return boolean # true if registered successfully, false if the file is a duplicate, not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
+---@return boolean # true if registered successfully, false if the file is a duplicate, would replace a vanilla file, is not a .sjson, or the path does not contain <SJSON_DATA_DIR_NAME>.
 function data.register_sjson_file(absolute_path) end
 
 -- Scans the directory recursively and registers all .sjson files found. Each file's engine path is derived from its position in the directory tree.

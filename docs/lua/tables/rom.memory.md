@@ -2,7 +2,7 @@
 
 Table containing helper functions related to process memory.
 
-## Functions (12)
+## Functions (13)
 
 ### `get_module_base_address(module_name (optional))`
 
@@ -233,6 +233,19 @@ lua usertype. = rom.memory.resolve_pointer_to_type(target_address, target_type)
 **Example Usage:**
 ```lua
 number = rom.memory.get_usertype_pointer(usertype_object)
+```
+
+### `get_table_pointer(table)`
+
+- **Parameters:**
+  - `table` (table): A lua table instance.
+
+- **Returns:**
+  - `number`: The table address as a lua number.
+
+**Example Usage:**
+```lua
+number = rom.memory.get_table_pointer(table)
 ```
 
 

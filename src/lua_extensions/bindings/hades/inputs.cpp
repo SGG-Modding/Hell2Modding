@@ -328,7 +328,9 @@ namespace lua::hades::inputs
 				for (auto &cb : it_callback->second)
 				{
 					LOG(DEBUG) << cb.name << " (Vanilla)";
-					cb.cb();
+					sol::state_view lua(big::g_lua_manager->lua_state());
+					sol::function luaThread = lua["thread"];
+					luaThread(cb.cb);
 				}
 			}
 		}
@@ -345,7 +347,9 @@ namespace lua::hades::inputs
 				for (auto &cb : it_callback->second)
 				{
 					LOG(DEBUG) << cb.name;
-					cb.cb();
+					sol::state_view lua(big::g_lua_manager->lua_state());
+					sol::function luaThread = lua["thread"];
+					luaThread(cb.cb);
 				}
 			}
 		}

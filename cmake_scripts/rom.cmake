@@ -13,6 +13,6 @@ add_compile_definitions(
 FetchContent_Declare(
 	rom
 	GIT_REPOSITORY https://github.com/xiaoxiao921/ReturnOfModdingBase.git
-	GIT_TAG eecc021e09aaa3bed7529b37173bb0850123efbb
+	GIT_TAG 693360501a0b5309e302956fca1c5aaf528da441
 )
 FetchContent_MakeAvailable(rom)
