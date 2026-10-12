@@ -130,10 +130,8 @@ namespace lua::hades::extent
 	// Table: extent
 	// Name: are_drawn
     // Returns: boolean: Whether extents are being drawn or not.
-    static bool toggle_extents()
+    static bool are_toggle_extents()
     {
-        g_draw_extents = !g_draw_extents;
-        set_internal_debugdraw_config();
         return g_draw_extents;
     }
 
