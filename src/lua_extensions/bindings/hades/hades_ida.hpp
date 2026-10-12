@@ -434,7 +434,8 @@ namespace sgg
 	{
 		char pad_0[0x8];							// 0x40
 		int mId;                        			// 0x48
-		char pad_1[0x08];               			// 0x4C..0x53
+		sgg::HashGuid mName;						// 0x4C
+		char pad_1[0x04];               			// 0x50..0x53
 		float mZLocation;               			// 0x54
 		char pad_2[0x18];               			// 0x58..0x6F
 		Vectormath::Vector2 mLocation;  			// 0x70
