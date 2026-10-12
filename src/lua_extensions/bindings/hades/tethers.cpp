@@ -352,6 +352,14 @@ namespace lua::hades::tethers
 	}
 
 	static void cleanup_stale_tethers();
+	static void clear_all_tether_data();
+
+	// World::Reset runs on every map transition and resets the Thing ID counters, so all tether data becomes invalid
+	static void hook_World_Reset(void *this_, bool resetTime)
+	{
+		clear_all_tether_data();
+		big::g_hooking->get_original<hook_World_Reset>()(this_, resetTime);
+	}
 
 	static char hook_PhysicsSystem_UpdateThing(void *this_, Thing_H2 *thing, float elapsedSeconds)
 	{
@@ -680,6 +688,18 @@ namespace lua::hades::tethers
 		else
 		{
 			LOG(WARNING) << "Tethers: sgg::Unit::ApplyShift not found - position clamping for units unavailable";
+		}
+
+		// Hook World::Reset to drop all tether data when Thing IDs are about to be reused
+		auto world_reset_addr = big::hades2_symbol_to_address["sgg::World::Reset"];
+		if (world_reset_addr)
+		{
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_World_Reset>("hook_World_Reset", world_reset_addr);
+			LOG(INFO) << "Tethers: hooked World::Reset";
+		}
+		else
+		{
+			LOG(WARNING) << "Tethers: sgg::World::Reset not found - tether data will not be cleared on map change";
 		}
 
 		// Register Lua API
