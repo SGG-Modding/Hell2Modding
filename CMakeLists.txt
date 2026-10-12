@@ -75,7 +75,8 @@ target_link_libraries(Hell2Modding
         capstone 
         safetyhook 
         Zydis::Zydis 
-        ${LOVELY_LIB} 
+        ${LOVELY_LIB}
+        synchronization
         userenv 
         ntdll
 )
