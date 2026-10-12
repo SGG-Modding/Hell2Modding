@@ -117,29 +117,6 @@ namespace lua::hades::extent
 
     // Lua API: Function
 	// Table: extent
-	// Name: drawline
-	// Param: startX: number: X coordinate of the first point.
-	// Param: startY: number: Y coordinate of the first point.
-    // Param: endX: number: X coordinate of the second point.
-    // Param: startY: number: Y coordinate of the second point.
-    // Param: width: number: Line width. Default 3.0.
-    // Param: raw_color: integer: Line color, ABGR format. Default 0xFFFFFFFF.
-    // Param: screenSpace: boolean: Whether coordinate are for screen space. Default false.
-    // Param: parallax: number: Unknown. Default 1.0.
-    // Param: zShift: number: Z offset for the line. Default 0.
-	// Draws a line between two given points.
-    static void draw_line(float startX, float startY, float endX, float endY, sol::optional<float> width, sol::optional<unsigned int> raw_color, 
-        sol::optional<bool> screenSpace, sol::optional<float> parallax, sol::optional<float> zShift)
-    {
-        Vectormath::Vector2 start = { startX, startY };
-        Vectormath::Vector2 end = { endX, endY };
-
-        big::hades2_symbol_to_address["sgg::DrawManager::DrawLine"].as<Drawmanager__DrawLine>()(start, end, width.value_or(LINE_THICKNESS), raw_color.value_or(DEFAULT_LINE_COLOR), 
-            screenSpace.value_or(false), parallax.value_or(PARALLAX), zShift.value_or(Z_SHIFT));
-    }
-
-    // Lua API: Function
-	// Table: extent
 	// Name: toggle
     // Returns: boolean: Whether extents are being drawn or not.
     static bool toggle_extents()
@@ -157,7 +134,6 @@ namespace lua::hades::extent
 
         // Register Lua API
 		auto ns = lua_ext.create_named("extent");
-		ns.set_function("drawline", draw_line);
         ns.set_function("toggle", toggle_extents);
 	}
 }
