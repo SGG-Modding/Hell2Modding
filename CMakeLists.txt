@@ -78,6 +78,7 @@ target_link_libraries(Hell2Modding
         ${LOVELY_LIB} 
         userenv 
         ntdll
+        synchronization
 )
 set_target_properties(Hell2Modding
     PROPERTIES
