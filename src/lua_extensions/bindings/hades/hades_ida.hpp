@@ -714,6 +714,8 @@ namespace sgg
 		sgg::ProjectileDataDef mDef;
 	};
 
+	static_assert(sizeof(ProjectileData) == 0x310);
+
 	struct Projectile : sgg::Thing_partial
 	{
 		bool mHitMaxRange;
@@ -757,8 +759,7 @@ namespace sgg
 		float mArcStart;
 		float mArcEnd;
 		sgg::HashGuid mDeathGraphic;
-		//sgg::ProjectileData mData;
-		char mData[0x310];
+		sgg::ProjectileData mData;
 		//sgg::Weapon *pFiredBy;
 		void* pFiredBy;
 		eastl::vector<sgg::Entity> mThingsHit;
