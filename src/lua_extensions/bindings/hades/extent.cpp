@@ -107,12 +107,8 @@ namespace lua::hades::extent
     {
         auto DrawExtentsForPassable = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtentsForPassable"].as<bool *>();
         auto DrawExtents = big::hades2_symbol_to_address["sgg::ConfigOptions::DrawExtents"].as<bool *>();
-        auto DebugDraw = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDraw"].as<bool *>();
-        auto DebugDrawBounds = big::hades2_symbol_to_address["sgg::ConfigOptions::DebugDrawBounds"].as<bool *>();
         *DrawExtentsForPassable = g_draw_extents;
         *DrawExtents = g_draw_extents;
-        *DebugDraw = g_draw_extents;
-        *DebugDrawBounds = g_draw_extents;
     }
 
     // Lua API: Function
@@ -130,7 +126,7 @@ namespace lua::hades::extent
 	// Table: extent
 	// Name: are_drawn
     // Returns: boolean: Whether extents are being drawn or not.
-    static bool are_toggle_extents()
+    static bool are_extents_drawn()
     {
         return g_draw_extents;
     }
