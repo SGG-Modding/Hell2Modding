@@ -15,6 +15,10 @@ namespace lua::hades::extent
     constexpr float Z_SHIFT = 0;
     constexpr float PARALLAX = 1;
     constexpr unsigned int DEFAULT_LINE_COLOR = 0XFFFFFFFF;
+    
+    unsigned int thing_color = 0xFF00FF00; // green
+    unsigned int projectile_color = 0xFF0000FF; // red
+    unsigned int unit_color = 0xFFFFFF00; // cyan
 
     using Drawmanager__DrawLine = void(*)(
         Vectormath::Vector2 start,
@@ -61,7 +65,7 @@ namespace lua::hades::extent
         return (obstacle->mGridSets & 4) != 0;
     }
 
-    static void draw_polygon_extent(sgg::Polygon polygon, unsigned int color, bool screenSpace)
+    static void polygon_draw_extent(sgg::Polygon polygon, unsigned int color, bool screenSpace)
     {
         auto count = polygon.mPoints.end() - polygon.mPoints.begin();
         if (count > 1) {
@@ -77,21 +81,21 @@ namespace lua::hades::extent
     {
         eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
         sgg::Rtti__Type type = thing->mType;
-        unsigned int color = 0xff00ff00;
+        unsigned int color = thing_color;
         bool draw_polygon = true;
         if (type_check(type, sgg::Rtti__Type::Projectile_t)) {
             big::hades2_symbol_to_address["sgg::Projectile::DrawExtents"].as<Projectile__DrawExtents>()(thing);
-            color = 0xff0000ff;
+            color = projectile_color;
         } else if (type_check(type, sgg::Rtti__Type::Unit_t)) {
             big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Projectile__DrawExtents>()(thing);
-            color = 0xffffff00;
+            color = unit_color;
         } else{
             big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Projectile__DrawExtents>()(thing);
             draw_polygon = stops_projectile((sgg::Obstacle_partial *)thing) || stops_unit((sgg::Obstacle_partial *)thing);
         }
 
         if (polygon.has_value() && draw_polygon) {
-            draw_polygon_extent(*polygon, color, thing->mUseScreenLocation);
+            polygon_draw_extent(*polygon, color, thing->mUseScreenLocation);
         }
     }
 
