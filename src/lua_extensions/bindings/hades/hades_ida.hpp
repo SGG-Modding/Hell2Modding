@@ -171,6 +171,16 @@ namespace sgg
 		FMOD::Studio::EventInstance *pSound;
 	};
 
+	struct __declspec(align(8)) GameData
+	{
+		void *vfptr;
+		sgg::HashGuid mName;
+		sgg::HashGuid mOrganization;
+		sgg::HashGuid mInheritFrom;
+	};
+
+	static_assert(sizeof(GameData) == 0x18);
+
 	struct __declspec(align(8)) InteractDataDef
 	{
 		float mDistance;
@@ -471,6 +481,238 @@ namespace sgg
 	static_assert(offsetof(Obstacle_partial, mFlags) == 0x650);
 	static_assert(offsetof(Obstacle_partial, mGridSets) == 0x654);
 	static_assert(sizeof(Obstacle_partial) == 0x7C0);
+
+	struct __declspec(align(8)) ProjectileDataDef
+	{
+		sgg::ThingData *mThingData;
+		sgg::HashGuid mGroupName;
+		bool mDrawAsBeam;
+		bool mBeamDieOnTargetLost;
+		bool mBeamStartAnimSkipsImpact;
+		sgg::HashGuid mTipFx;
+		sgg::HashGuid mArmedGraphic;
+		sgg::HashGuid mDetonateFx;
+		sgg::HashGuid mPreDetonateFx;
+		float mPreDetonateFxDuration;
+		sgg::HashGuid mDetonateAnimation;
+		bool mHideGraphicOnDetonate;
+		sgg::HashGuid mPauseAnimation;
+		sgg::HashGuid mStartFx;
+		bool mRepeatStartFx;
+		bool mDrawDuringPause;
+		bool mUnpauseResetLocation;
+		sgg::HashGuid mReflectFx;
+		sgg::SoundCue mSimpleImpactSound;
+		sgg::SoundCue mInflictedDamageSound;
+		// unimplemented enum sgg::ProjectileDataDef::Allegiance
+		int mHomingAllegiance;
+		float mSpeedVariance;
+		float mSpinRateVariance;
+		bool mInheritOwnerElapsedTimeMultiplier;
+		bool mUseAttachedToTimeMultiplier;
+		float mTimeModifierFraction;
+		float mMinVictimZ;
+		float mMaxVictimZ;
+		sgg::HashGuid mImmunityKey;
+		float mImmunityDuration;
+		bool mRetainDetonationHitRecord;
+		bool mCanHitWithoutDamage;
+		bool mCheckUnitImpact;
+		bool mCheckObstacleImpact;
+		bool mCheckObstacleImpactOnDetonation;
+		float mIgnoreObstacleImpactDuration;
+		bool mCheckProjectileImpact;
+		sgg::SoundCue mProjectileImpactSound;
+		int mSoundManagerCap;
+		bool mUnlimitedUnitPenetration;
+		bool mUnlimitedObstaclePenetration;
+		bool mDetonateOnImpact;
+		bool mMultiDetonate;
+		int mMaxDetonations;
+		bool mDetonateOnTouchdown;
+		sgg::SoundCue mDetonateSound;
+		float mStopSoundOnFinishFade;
+		//unimplemented enum sgg::ProjectileDataDef::ProjectileType
+		int mType;
+		float mDamage;
+		float mDamageMultiplier;
+		float mDamagePerConsecutiveHit;
+		float mDamagePerConsecutiveHitFloor;
+		bool mRoundDamageDown;
+		float mArmedExpirationDamage;
+		bool mDetonateWhenArmed;
+		float mConsecutiveHitWindow;
+		float mDamageRadius;
+		float mDamageRadiusScaleX;
+		float mDamageRadiusScaleY;
+		float mHollowBlastRadiusBand;
+		bool mDetonateLineOfSight;
+		bool mDetonateLineOfSightFromOwner;
+		bool mImpactLineOfSight;
+		bool mImpactLineOfSightFromOwner;
+		//unimplemented enum sgg::CollisionCheckType
+		int mUnitCollisionCheck;
+		//unimplemented enum sgg::CollisionCheckType
+		int mObstacleCollisionCheck;
+		bool mRequireHitCenter;
+		bool mUseArmor;
+		bool mUseVulnerability;
+		float mDamageFalloff;
+		sgg::HashGuid mIgnoreTargetsWithGroup;
+		sgg::HashGuid mRequireTargetsHaveEffect;
+		bool mAffectsFriends;
+		bool mAffectsEnemies;
+		bool mAffectsSelf;
+		sgg::HashGuid mDoesNotAffectName;
+		float mRange;
+		float mMinRange;
+		float mMaxRange;
+		float mSpeed;
+		float mMaxSpeed;
+		float mSpeedScaleY;
+		float mSpeedZ;
+		float mAccelerationZ;
+		float mAcceleration;
+		float mActiveBlinkSpeedMultiplier;
+		float mActiveBlinkRangeMultiplier;
+		float mInheritOwnerVelocityMultiplier;
+		float mSpinFromOwnerVelocityMultiplier;
+		bool mExpandBlastDuringDetonation;
+		float mBlastStartRadius;
+		float mBlastSpeed;
+		float mBlastSpeedAcceleration;
+		float mBlastDuration;
+		float mSpeedMultiplierOfEnemyProjectilesInside;
+		float mMaxSize;
+		float mSizeDuration;
+		float mMaxBlastModifier;
+		float mBlastModifierDuration;
+		float mMaxAdjustRate;
+		float mAdjustRateAcceleration;
+		float mSpinRate;
+		bool mAllowTargetInvulnerable;
+		bool mManuallySetTarget;
+		bool mTargetOwnerWithoutTarget;
+		//unimplemented enum sgg::ProjectileDataDef::JumpType
+		int mJumpType;
+		int mNumJumps;
+		float mNoJumpTargetRandomSpread;
+		bool mFinalJumpToOwner;
+		float mReturnToOwnerSpeed;
+		float mReturnToOwnerAfterInactiveSeconds;
+		float mReverseAfterDuration;
+		bool mReturnToOwnerRecallOnly;
+		bool mReturnToOwnerBlockReset;
+		int mNumPenetrations;
+		bool mExcludeLastHitThing;
+		bool mRepeatHitOnReturn;
+		bool mMultipleUnitCollisions;
+		bool mMultipleObstacleCollisions;
+		bool mResetCollisionOutsideDetonation;
+		bool mResetCollisionOutsideImpact;
+		float mJumpRange;
+		float mJumpSpeedMultiplier;
+		bool mAllowRepeatedJumpHit;
+		bool mAllowRepeatedOwnerJumpHit;
+		bool mIgnoreDodge;
+		bool mIgnoreCoverageAngles;
+		bool mIgnoreCoverageAngleAdjustment;
+		bool mIgnoreProjectilesNeverJump;
+		bool mCanBeReflected;
+		bool mCanBeProjectileDefenseDestroyed;
+		sgg::HashGuid mCanBeProjectileDefenseDestroyedByName;
+		sgg::HashGuid mCanBeProjectileDefenseDestroyedByName2;
+		sgg::HashGuid mCanBeProjectileDefenseDestroyedByLayer;
+		float mStartDelay;
+		float mArcStart;
+		float mArcEnd;
+		float mArcScaleY;
+		float mArcSize;
+		float mBlastTimeBlockVfxThreshold;
+		float mFuse;
+		float mFuseStart;
+		float mTotalFuse;
+		float mMoveInterval;
+		bool mStartFuseOnTouchdown;
+		float mFlashBeforeExpireDuration;
+		sgg::HashGuid mDissipateFx;
+		sgg::HashGuid mDeathFx;
+		sgg::HashGuid mArmedDeathFx;
+		bool mDetonatesProjectilesOnLayer;
+		sgg::HashGuid mCollisionLayer;
+		sgg::HashGuid mSpawnOnDetonate;
+		sgg::HashGuid mSpawnOnDeath;
+		sgg::HashGuid mSpawnOnDissipate;
+		bool mSilentImpactOnInvulnerable;
+		bool mSilentImpactOnProjectileAlwaysPenetrate;
+		bool mSkipSpawnsIfBlocked;
+		float mSkipSpawnsIfAwayFromPlayer;
+		bool mSpawnsInheritAttach;
+		uint8_t mSpawnType;
+		sgg::HashGuid mSpawnGroup;
+		bool mSpawnsInheritGroups;
+		int mSpawnCount;
+		int mSpawnCap;
+		bool mFizzleOldSpawnsOnDetonate;
+		bool mSpawnsEvenlySpaced;
+		float mSpawnArc;
+		float mSpawnsSpeedModifierScaleY;
+		bool mAttachToOwner;
+		bool mIgnoreCancelAttachedProjectiles;
+		bool mRotateWithOwner;
+		bool mSkipFireCancelIfFiring;
+		bool mMatchOwnerBody;
+		bool mUseOwnerAngle;
+		bool mUseDirectionAngle;
+		sgg::HashGuid mAttachToMarker;
+		bool mSpawnAtVictimLocation;
+		bool mDetonateAtVictimLocation;
+		float mSelfImpactVelocityMultiplier;
+		float mImpactVelocity;
+		float mImpactVelocityFalloff;
+		float mImpactVelocitySpawnProximityExclusion;
+		float mImpactVelocityAngleOffset;
+		bool mUseRadialImpact;
+		float mInvulnerableImpactOwnerVelocity;
+		float mProjectileDefenseRadius;
+		bool mUseDetonationForProjectileDefense;
+		bool mProjectileDefenseBlockSpawns;
+		float mProjectileDefenseAngle;
+		bool mDeflectProjectiles;
+		bool mUseStartLocation;
+		float mSpawnRadius;
+		bool mGaussianSpawnDistribution;
+		float mGravity;
+		bool mAutoAdjustForTarget;
+		bool mEndBeamAtTarget;
+		float mLaunchAngle;
+		float mLaunchDistanceFraction;
+		float mDescentTime;
+		float mHangTime;
+		sgg::HashGuid mReticleGraphic;
+		bool mClearOnAttackEffects;
+		bool mDetonateAtTarget;
+		sgg::HashGuid mStartAtMarker;
+		bool mSetAnimRadialOffset;
+		bool mAnimIgnoreBlastRadius;
+		sgg::HashGuid mAddControlOnDeath;
+		sgg::HashGuid mImpactFx;
+		sgg::HashGuid mArmedImpactFx;
+		sgg::HashGuid mBounceFx;
+		bool mRestartAnimOnBounce;
+		sgg::HashGuid mDescentStartFx;
+		sgg::HashGuid mInflictedDamageFx;
+		bool mDieWithOwner;
+		//undefined type eastl::vector<sgg::EffectData>
+		eastl::vector<char> mEffects;
+	};
+
+	static_assert(sizeof(ProjectileDataDef) == 0x2F8);
+
+	struct ProjectileData : sgg::GameData
+	{
+		sgg::ProjectileDataDef mDef;
+	};
 
 	struct Projectile : sgg::Thing_partial
 	{
