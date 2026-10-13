@@ -4,6 +4,7 @@
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/data.hpp"
 #include "bindings/hades/draw.hpp"
+#include "bindings/hades/extent.hpp"
 #include "bindings/hades/inputs.hpp"
 #include "bindings/hades/gpk.hpp"
 #include "bindings/hades/tethers.hpp"
@@ -433,6 +434,7 @@ namespace big::lua_manager_extension
 		lua::hades::audio::bind(lua_ext);
 		lua::hades::data::bind(state, lua_ext);
 		lua::hades::draw::bind(state, lua_ext);
+		lua::hades::extent::bind(state, lua_ext);
 		lua::hades::inputs::bind(state, lua_ext);
 		lua::hades::gpk::bind(lua_ext);
 		lua::hades::tethers::bind(state, lua_ext);
