@@ -67,6 +67,9 @@ namespace lua::hades::extent
     );
 
     bool g_draw_extents = false;
+    bool g_draw_unit_extents = true;
+    bool g_draw_projectile_extents = true;
+    bool g_draw_obstacle_extents = true;
 
     static bool type_check(sgg::Rtti__Type type, sgg::Rtti__Type type_enum){
         return (type & type_enum) == type_enum;
@@ -99,14 +102,16 @@ namespace lua::hades::extent
         eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
         sgg::Rtti__Type type = thing->mType;
         unsigned int color = thing_color;
-        bool draw_polygon = true;
-        if (type_check(type, sgg::Rtti__Type::Projectile_t)) {
+        bool draw_polygon = false;
+        if (type_check(type, sgg::Rtti__Type::Projectile_t) && g_draw_projectile_extents) {
             big::hades2_symbol_to_address["sgg::Projectile::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = projectile_polygon_color;
-        } else if (type_check(type, sgg::Rtti__Type::Unit_t)) {
+            draw_polygon = true;
+        } else if (type_check(type, sgg::Rtti__Type::Unit_t) && g_draw_unit_extents) {
             big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = unit_color;
-        } else{
+            draw_polygon = true;
+        } else if (g_draw_obstacle_extents){
             big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Thing__DrawExtents>()(thing);
             draw_polygon = stops_projectile((sgg::Obstacle_partial *)thing) || stops_unit((sgg::Obstacle_partial *)thing);
         }
@@ -116,7 +121,7 @@ namespace lua::hades::extent
         }
 
         // draw the custom ellipse once every player unit draw,
-        if (type_check(type, sgg::Rtti__Type::PlayerUnit)) {
+        if (type_check(type, sgg::Rtti__Type::PlayerUnit) && g_draw_projectile_extents) {
             EllipseDrawParams params;
             bool has_ellipse = false;
 
