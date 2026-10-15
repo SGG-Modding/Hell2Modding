@@ -186,6 +186,20 @@ namespace big
 		}
 	}
 
+	static void copy_sgg_color_to_imgui_color3(sgg::Color sgg_color, float imgui_color[])
+	{
+		imgui_color[0] = static_cast<float>(sgg_color.__s1.r) / 255.0f;
+		imgui_color[1] = static_cast<float>(sgg_color.__s1.g) / 255.0f;
+		imgui_color[2] = static_cast<float>(sgg_color.__s1.b) / 255.0f;
+	}
+
+	static void copy_imgui_color3_to_sgg_color(float imgui_color[], sgg::Color *sgg_color)
+	{
+		sgg_color->__s1.r = static_cast<uint8_t>(imgui_color[0] * 255);
+		sgg_color->__s1.g = static_cast<uint8_t>(imgui_color[1] * 255);
+		sgg_color->__s1.b = static_cast<uint8_t>(imgui_color[2] * 255);
+	}
+
 	void gui::dx_on_tick()
 	{
 		if (!g_lua_manager)
@@ -365,9 +379,53 @@ namespace big
 
 				if (ImGui::BeginMenu("Debug Draw"))
 				{
-					if (ImGui::Checkbox("Enable Draw Extents", &lua::hades::extent::g_draw_extents)){
+					if (ImGui::Checkbox("Draw Extents", &lua::hades::extent::g_draw_extents)){
 						lua::hades::extent::set_internal_debugdraw_config();
-					};
+					}
+
+					sgg::Color current_color;
+					float color[3];
+
+					current_color.v = lua::hades::extent::thing_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+
+					ImGui::Checkbox("Draw Obstacle Extents", &lua::hades::extent::g_draw_obstacle_extents);
+					ImGui::SameLine();
+
+					if (ImGui::ColorEdit3("Obstacle extent color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::thing_color = current_color.v;
+					}
+
+					ImGui::Checkbox("Draw Projectile Extents", &lua::hades::extent::g_draw_projectile_extents);
+
+					ImGui::SameLine();
+					current_color.v = lua::hades::extent::projectile_polygon_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+
+					if (ImGui::ColorEdit3("Projectile polygonal extent color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::projectile_polygon_color = current_color.v;
+					}
+
+					ImGui::SameLine();
+					current_color.v = lua::hades::extent::projectile_ellipse_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+					if (ImGui::ColorEdit3("Projectile elliptical extent color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::projectile_ellipse_color = current_color.v;
+					}
+
+					ImGui::Checkbox("Draw Unit Extents", &lua::hades::extent::g_draw_unit_extents);
+
+					ImGui::SameLine();
+					current_color.v = lua::hades::extent::unit_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+					if (ImGui::ColorEdit3("Unit extent color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::unit_color = current_color.v;
+					}
+
 					ImGui::EndMenu();
 				}
 

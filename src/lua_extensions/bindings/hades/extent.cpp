@@ -17,6 +17,8 @@ namespace lua::hades::extent
     constexpr float PARALLAX = 1;
     constexpr unsigned int DEFAULT_LINE_COLOR = 0XFFFFFFFF;
     
+    constexpr int MAX_CUSTOM_ELLIPSES = 10;
+
     unsigned int thing_color = 0xFF00FF00; // green
     unsigned int projectile_polygon_color = 0xFF0000FF; // red
     unsigned int projectile_ellipse_color = 0xFF00EEFF; //yellow
@@ -30,8 +32,9 @@ namespace lua::hades::extent
 		unsigned int color;
 	};
 
-    std::mutex ellipse_queue_mutex;
-    std::optional<EllipseDrawParams> active_ellipse_params;
+    std::array<std::mutex, MAX_CUSTOM_ELLIPSES> ellipse_queue_mutex;
+    std::array<std::optional<EllipseDrawParams>, MAX_CUSTOM_ELLIPSES> ellipse_params_array;
+    int active_ellipse_param_index = 0;
 
     using Drawmanager__DrawLine = void(*)(
         Vectormath::Vector2 start,
@@ -67,6 +70,9 @@ namespace lua::hades::extent
     );
 
     bool g_draw_extents = false;
+    bool g_draw_unit_extents = true;
+    bool g_draw_projectile_extents = true;
+    bool g_draw_obstacle_extents = true;
 
     static bool type_check(sgg::Rtti__Type type, sgg::Rtti__Type type_enum){
         return (type & type_enum) == type_enum;
@@ -99,14 +105,16 @@ namespace lua::hades::extent
         eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
         sgg::Rtti__Type type = thing->mType;
         unsigned int color = thing_color;
-        bool draw_polygon = true;
-        if (type_check(type, sgg::Rtti__Type::Projectile_t)) {
+        bool draw_polygon = false;
+        if (type_check(type, sgg::Rtti__Type::Projectile_t) && g_draw_projectile_extents) {
             big::hades2_symbol_to_address["sgg::Projectile::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = projectile_polygon_color;
-        } else if (type_check(type, sgg::Rtti__Type::Unit_t)) {
+            draw_polygon = true;
+        } else if (type_check(type, sgg::Rtti__Type::Unit_t) && g_draw_unit_extents) {
             big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = unit_color;
-        } else{
+            draw_polygon = true;
+        } else if (g_draw_obstacle_extents){
             big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Thing__DrawExtents>()(thing);
             draw_polygon = stops_projectile((sgg::Obstacle_partial *)thing) || stops_unit((sgg::Obstacle_partial *)thing);
         }
@@ -115,24 +123,26 @@ namespace lua::hades::extent
             polygon_draw_extent(*polygon, color, thing->mUseScreenLocation);
         }
 
-        // draw the custom ellipse once every player unit draw,
-        if (type_check(type, sgg::Rtti__Type::PlayerUnit)) {
-            EllipseDrawParams params;
-            bool has_ellipse = false;
+        // draw every available custom ellipse once every player unit draw,
+        if (type_check(type, sgg::Rtti__Type::PlayerUnit) && g_draw_projectile_extents) {
+            for (int i = 0; i < ellipse_params_array.size(); i++) {
+                EllipseDrawParams params;
+                bool has_ellipse = false;
 
-            {
-                std::lock_guard<std::mutex> lock(ellipse_queue_mutex);
+                {
+                    std::lock_guard<std::mutex> lock(ellipse_queue_mutex[i]);
 
-                if (active_ellipse_params.has_value()) {
-                    params = active_ellipse_params.value();
-                    active_ellipse_params.reset();
-                    has_ellipse = true;
+                    if (ellipse_params_array[i].has_value()) {
+                        params = ellipse_params_array[i].value();
+                        ellipse_params_array[i].reset();
+                        has_ellipse = true;
+                    }
                 }
-            }
 
-            if (has_ellipse) {
-                big::hades2_symbol_to_address["sgg::DrawManager::DrawEllipse"].as<DrawManager__DrawEllipse>()(params.center, params.radius, params.scaleX,
-                    params.scaleY, 64.0f, params.color, false);
+                if (has_ellipse) {
+                    big::hades2_symbol_to_address["sgg::DrawManager::DrawEllipse"].as<DrawManager__DrawEllipse>()(params.center, params.radius, params.scaleX,
+                        params.scaleY, 64.0f, params.color, false);
+                }
             }
         }
     }
@@ -160,8 +170,9 @@ namespace lua::hades::extent
             location_copy.mY = location.mY;
             if (blast_radius > 0) {
                 {
-                    std::lock_guard<std::mutex> lock(ellipse_queue_mutex);
-                    active_ellipse_params.emplace(location_copy, blast_radius, scaleX, scaleY, projectile_ellipse_color);
+                    std::lock_guard<std::mutex> lock(ellipse_queue_mutex[active_ellipse_param_index]);
+                    ellipse_params_array[active_ellipse_param_index].emplace(location_copy, blast_radius, scaleX, scaleY, projectile_ellipse_color);
+                    active_ellipse_param_index = (active_ellipse_param_index + 1) % ellipse_params_array.size();
                 }
 
                 auto thing_String = big::hades2_symbol_to_address["sgg::Thing::ToString"].as<Thing__ToString>()(projectile);
