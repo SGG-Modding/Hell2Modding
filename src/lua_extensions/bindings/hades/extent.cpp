@@ -165,13 +165,10 @@ namespace lua::hades::extent
             float scaleY = projectile->mData.mDef.mDamageRadiusScaleY;
             Vectormath::Vector2 location;
             big::hades2_symbol_to_address["sgg::Thing::GetLocation"].as<Thing__GetLocation>()(projectile, &location);
-            Vectormath::Vector2 location_copy;
-            location_copy.mX = location.mX;
-            location_copy.mY = location.mY;
             if (blast_radius > 0) {
                 {
                     std::lock_guard<std::mutex> lock(ellipse_queue_mutex[active_ellipse_param_index]);
-                    ellipse_params_array[active_ellipse_param_index].emplace(location_copy, blast_radius, scaleX, scaleY, projectile_ellipse_color);
+                    ellipse_params_array[active_ellipse_param_index].emplace(location, blast_radius, scaleX, scaleY, projectile_ellipse_color);
                     active_ellipse_param_index = (active_ellipse_param_index + 1) % ellipse_params_array.size();
                 }
 
