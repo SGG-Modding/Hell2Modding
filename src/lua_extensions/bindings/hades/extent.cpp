@@ -161,11 +161,20 @@ namespace lua::hades::extent
 
         if (g_draw_extents) {
             float blast_radius = projectile->mBlastRadius;
-            float scaleX = projectile->mData.mDef.mDamageRadiusScaleX;
-            float scaleY = projectile->mData.mDef.mDamageRadiusScaleY;
-            Vectormath::Vector2 location;
-            big::hades2_symbol_to_address["sgg::Thing::GetLocation"].as<Thing__GetLocation>()(projectile, &location);
-            if (blast_radius > 0) {
+            float blast_speed = projectile->mBlastSpeed;
+            float blast_acceleration = projectile->mData.mDef.mBlastSpeedAcceleration;
+            float blast_duration = projectile->mData.mDef.mBlastDuration;
+            bool multi_detonate = projectile->mData.mDef.mMultiDetonate;
+            sgg::ProjectileDataDef__ProjectileType projectile_type = projectile->mData.mDef.mType;
+
+            bool is_instant_detonation = blast_speed <= 0.0 && blast_acceleration == 0 && blast_duration <= 0 && projectile_type != sgg::BEAM;
+
+            if ( blast_radius > 0 && !(is_instant_detonation && multi_detonate) ) {
+                float scaleX = projectile->mData.mDef.mDamageRadiusScaleX;
+                float scaleY = projectile->mData.mDef.mDamageRadiusScaleY;
+                Vectormath::Vector2 location;
+                big::hades2_symbol_to_address["sgg::Thing::GetLocation"].as<Thing__GetLocation>()(projectile, &location);
+
                 {
                     std::lock_guard<std::mutex> lock(ellipse_queue_mutex[active_ellipse_param_index]);
                     ellipse_params_array[active_ellipse_param_index].emplace(location, blast_radius, scaleX, scaleY, projectile_ellipse_color);

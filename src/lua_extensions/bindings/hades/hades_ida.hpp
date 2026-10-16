@@ -482,6 +482,16 @@ namespace sgg
 	static_assert(offsetof(Obstacle_partial, mGridSets) == 0x654);
 	static_assert(sizeof(Obstacle_partial) == 0x7C0);
 
+	enum ProjectileDataDef__ProjectileType
+	{
+		STRAIGHT = 0x0,
+		HOMING = 0x1,
+		BEAM = 0x2,
+		LOB = 0x3,
+		ARC = 0x4,
+		INSTANT = 0x5,
+	};
+
 	struct __declspec(align(8)) ProjectileDataDef
 	{
 		sgg::ThingData *mThingData;
@@ -532,8 +542,7 @@ namespace sgg
 		bool mDetonateOnTouchdown;
 		sgg::SoundCue mDetonateSound;
 		float mStopSoundOnFinishFade;
-		//unimplemented enum sgg::ProjectileDataDef::ProjectileType
-		int mType;
+		ProjectileDataDef__ProjectileType mType;
 		float mDamage;
 		float mDamageMultiplier;
 		float mDamagePerConsecutiveHit;
@@ -551,9 +560,9 @@ namespace sgg
 		bool mImpactLineOfSight;
 		bool mImpactLineOfSightFromOwner;
 		//unimplemented enum sgg::CollisionCheckType
-		int mUnitCollisionCheck;
+		uint8_t mUnitCollisionCheck;
 		//unimplemented enum sgg::CollisionCheckType
-		int mObstacleCollisionCheck;
+		uint8_t mObstacleCollisionCheck;
 		bool mRequireHitCenter;
 		bool mUseArmor;
 		bool mUseVulnerability;
@@ -707,14 +716,14 @@ namespace sgg
 		eastl::vector<char> mEffects;
 	};
 
-	static_assert(sizeof(ProjectileDataDef) == 0x2F8);
+	static_assert(sizeof(ProjectileDataDef) == 0x2F0);
 
 	struct ProjectileData : sgg::GameData
 	{
 		sgg::ProjectileDataDef mDef;
 	};
 
-	static_assert(sizeof(ProjectileData) == 0x310);
+	static_assert(sizeof(ProjectileData) == 0x308);
 
 	struct Projectile : sgg::Thing_partial
 	{
@@ -787,7 +796,7 @@ namespace sgg
 		sgg::HashGuid mCachedOwnerName;
 	};
 
-	static_assert(sizeof(Projectile) == 0xAF8);
+	static_assert(sizeof(Projectile) == 0xAF0);
 
 	// TODO: this is legit too time consuming.
 
