@@ -56,7 +56,7 @@ namespace lua::hades::data
 	// Name: get_hash_guid_from_string
 	// Param: str: string: String value.
 	// Returns: number: Returns the hash guid corresponding to the provided string value.
-	static HashGuidIdType get_hash_guid_from_string(std::string str)
+	HashGuidIdType get_hash_guid_from_string(std::string str)
 	{
 		static auto Lookup = *big::hades2_symbol_to_address["sgg::HashGuid::Lookup"].as_func<sgg::HashGuid*(sgg::HashGuid*, const char*, size_t)>();
 		sgg::HashGuid res{};
