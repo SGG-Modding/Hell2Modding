@@ -798,6 +798,59 @@ namespace sgg
 
 	static_assert(sizeof(Projectile) == 0xAF0);
 
+	struct Unit_partial;
+
+	struct UnitAI
+	{
+		// unimplemented type sgg::MoveAI
+		char *pActiveMoveAI;
+		Unit_partial *pOwner;
+	};
+
+	struct __declspec(align(0x10)) Unit_partial : Thing_partial
+	{
+		bool mAllowDodge;
+		char pad_0[7];
+		// unimplmented type sgg::Player
+		void *pPlayer;
+		bool mAllowInput;
+		bool mIsMoving;
+		bool mIsMovingTo;
+		bool mHasActivated;
+		bool mAllowAnyFire;
+		char pad_1[3];
+		// unimplemented type sgg::UnitData
+		void *pData;
+		int mSpawnedBy;
+		float mUnappliedSpeed;
+		float mCosmeticAngle;
+		float mCosmeticAngleTarget;
+		float mGoalAngle;
+		char pad_3[4];
+		// unimplemented type sgg::TransitionHelper<float>
+		char mGoalAngleTransition[0x50];
+		float mDamageOutputModifier;
+		float mWeaponChargeMultiplier;
+		float mCosmeticRotationSpeed;
+		float mLastSpeedFraction;
+		Vectormath::Vector2 mPrevLocation;
+		Vectormath::Vector2 mLastMoveStartLocation;
+		UnitAI mAI;
+		// unimplemented type sgg::WeaponArsenal
+		void *pArsenal;
+		//unimplemented type sgg::UnitStatus
+		char mStatus[0xA8];
+		// unimplmented type eastl::hash_set<sgg::Handle<sgg::Obstacle>
+		eastl::hash_set<void*> mPrevColliding;
+		eastl::hash_set<void*> mCurrentlyColliding;
+		char pad_4[8];
+	};
+
+	static_assert(sizeof(Unit_partial) == 0x820);
+	static_assert(offsetof(Unit_partial, mStatus) == 0x710);
+	static_assert(offsetof(Unit_partial, mDamageOutputModifier) == 0x6D8);
+	static_assert(offsetof(Unit_partial, mAI) == 0x6F8);
+
 	// TODO: this is legit too time consuming.
 
 	/*
