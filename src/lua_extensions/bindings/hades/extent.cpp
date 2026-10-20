@@ -205,7 +205,7 @@ namespace lua::hades::extent
             polygon_draw_extent(*polygon, color, thing->mUseScreenLocation);
         }
 
-        // draw every available custom ellipse once every player unit draw,
+        // draw every available custom ellipse once every player unit draw
         if (type_check(type, sgg::Rtti__Type::PlayerUnit) && g_draw_projectile_extents) {
             for (int i = 0; i < ellipse_params_array.size(); i++) {
                 EllipseDrawParams params;

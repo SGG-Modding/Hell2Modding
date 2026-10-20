@@ -426,6 +426,24 @@ namespace big
 						lua::hades::extent::unit_color = current_color.v;
 					}
 
+					ImGui::Checkbox("Draw Unit AI Extents", &lua::hades::extent::g_draw_unit_ai_extent);
+
+					ImGui::SameLine();
+					current_color.v = lua::hades::extent::unit_ai_vector_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+					if (ImGui::ColorEdit3("Unit AI target vector color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::unit_ai_vector_color = current_color.v;
+					}
+
+					ImGui::SameLine();
+					current_color.v = lua::hades::extent::unit_ai_target_color;
+					copy_sgg_color_to_imgui_color3(current_color, color);
+					if (ImGui::ColorEdit3("Unit AI target marker color", color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)){
+						copy_imgui_color3_to_sgg_color(color, &current_color);
+						lua::hades::extent::unit_ai_target_color = current_color.v;
+					}
+
 					ImGui::EndMenu();
 				}
 
