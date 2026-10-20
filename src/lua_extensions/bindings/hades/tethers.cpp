@@ -2,6 +2,7 @@
 
 #include "hades_ida.hpp"
 #include "tethers.hpp"
+#include "extent.hpp"
 
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
@@ -341,6 +342,7 @@ namespace lua::hades::tethers
 	static void hook_World_Reset(void *this_, bool resetTime)
 	{
 		clear_all_tether_data();
+		lua::hades::extent::clear_unit_move_data();
 		big::g_hooking->get_original<hook_World_Reset>()(this_, resetTime);
 	}
 

@@ -1,6 +1,7 @@
 #include "tethers.hpp"
 
 #include "hades_ida.hpp"
+#include "data.hpp"
 
 #include <EASTL/string.h>
 #include <hades2/pdb_symbol_map.hpp>
@@ -16,13 +17,30 @@ namespace lua::hades::extent
     constexpr float Z_SHIFT = 0;
     constexpr float PARALLAX = 1;
     constexpr unsigned int DEFAULT_LINE_COLOR = 0XFFFFFFFF;
+    constexpr std::string INSTANT_ANIMATION = "FadingCircle";
+    constexpr unsigned int CIRCLE_COLOR = 0X770000FF; // red, 0.5 opacity
     
     constexpr int MAX_CUSTOM_ELLIPSES = 10;
 
     unsigned int thing_color = 0xFF00FF00; // green
     unsigned int projectile_polygon_color = 0xFF0000FF; // red
-    unsigned int projectile_ellipse_color = 0xFF00EEFF; //yellow
+    unsigned int projectile_ellipse_color = 0xFF0000FF; // red
     unsigned int unit_color = 0xFFFFFF00; // cyan
+    unsigned int unit_ai_vector_color = 0xFF00FFFF; // yellow
+    unsigned int unit_ai_target_color = 0xFFFF0000; // blue
+
+    // using pattern matching for overloaded functions.
+    auto create_aniamtion_pattern = "48 89 5C 24 08 57 48 83 EC 40 8B C2 C6 44 24 28 "
+                                    "00 66 49 0F 6E C0 48 8B F9 4C 8B C1 66 48 0F 7E";
+    gmAddress create_animation_addr;
+
+    auto set_scale_vector_pattern = "48 83 EC 28 48 8B 51 08 F3 0F 11 49 54 F3 0F 11 "
+                                    "51 58 48 85 D2 74 3A 4C 8B 82 38 06 00 00 48 8B";
+    gmAddress set_scale_vector_addr;
+
+    auto unit_moveinput_pattern = "48 89 5C 24 18 57 48 83 EC 60 48 89 54 24 30 41 "
+                                  "0F B6 F9 F3 0F 10 4C 24 30 48 8B D9 F3 0F 10 44";
+    gmAddress unit_moveinput_addr;
 
     struct EllipseDrawParams{
 		Vectormath::Vector2 center;
@@ -35,6 +53,8 @@ namespace lua::hades::extent
     std::array<std::mutex, MAX_CUSTOM_ELLIPSES> ellipse_queue_mutex;
     std::array<std::optional<EllipseDrawParams>, MAX_CUSTOM_ELLIPSES> ellipse_params_array;
     int active_ellipse_param_index = 0;
+
+    std::unordered_map<int, Vectormath::Vector2> g_last_move_input;
 
     using Drawmanager__DrawLine = void(*)(
         Vectormath::Vector2 start,
@@ -69,10 +89,47 @@ namespace lua::hades::extent
         sgg::Thing_partial *thing
     );
 
+    // sgg::Animation* sgg::AnimationManager::Create(sgg::AnimationManager *this, sgg::HashGuid name, Vectormath::Vector2 location)
+    using Animation__Create = uint8_t*(*)(
+        void* animation_manager, 
+        sgg::HashGuid name,
+        Vectormath::Vector2 location
+    );
+
+    // void sgg::Animation::SetColor(sgg::Animation *this, sgg::Color color, sgg::HashGuid applyToName, bool ignoreOpacity, bool applyToChildren)
+    using Animation_SetColor = void(*)(
+        uint8_t* animation,
+        uint32_t color,
+        sgg::HashGuid applyToName,
+        bool ignoreOpacity,
+        bool applyToChildren
+    );
+
+    // void sgg::Animation::SetRadius(sgg::Animation *this, float radius)
+    using Animation__SetRadius = void(*)(
+        uint8_t* animation,
+        float radius
+    );
+
+    // void sgg::BodyComponent::SetScaleVector(sgg::BodyComponent *this, float scaleX, float scaleY)
+    using BodyComponent__SetScaleVector = void(*)(
+        uint8_t* body_component,
+        float scaleX,
+        float scaleY
+    );
+
+    // Vectormath::Vector2* sgg::MoveAI::CalcGoalLocation(sgg::MoveAI *this, Vectormath::Vector2 *result, sgg::Target *target)
+    using MoveAI__CalcGoalLocation = Vectormath::Vector2* (*)(
+        char* moveai,
+        Vectormath::Vector2 *result,
+        char* target
+    );
+
     bool g_draw_extents = false;
     bool g_draw_unit_extents = true;
     bool g_draw_projectile_extents = true;
     bool g_draw_obstacle_extents = true;
+    bool g_draw_unit_ai_extent = true;
 
     static bool type_check(sgg::Rtti__Type type, sgg::Rtti__Type type_enum){
         return (type & type_enum) == type_enum;
@@ -100,6 +157,28 @@ namespace lua::hades::extent
         }
     }
 
+    static void draw_unit_ai(sgg::Unit_partial *unit)
+    {
+        if ( g_last_move_input.find(unit->mId) != g_last_move_input.end() ) {
+            auto last_move_input = g_last_move_input[unit->mId];
+            if (!(last_move_input.mX == 0.0 && last_move_input.mY == 0.0)) {
+                Vectormath::Vector2 location;
+                big::hades2_symbol_to_address["sgg::Thing::GetLocation"].as<Thing__GetLocation>()(unit, &location);
+                big::hades2_symbol_to_address["sgg::DrawManager::DrawLine"].as<Drawmanager__DrawLine>()(location, last_move_input, LINE_THICKNESS, unit_ai_vector_color, 0, PARALLAX, Z_SHIFT);
+            }
+        }
+
+        auto move_ai = unit->mAI.pActiveMoveAI;
+        if ( move_ai ) {
+            Vectormath::Vector2 center;
+            big::hades2_symbol_to_address["sgg::MoveAI::CalcGoalLocation"].as<MoveAI__CalcGoalLocation>()(move_ai, &center, move_ai + 0x8);
+            if (!(center.mX == 0.0 && center.mY == 0.0)) {
+                big::hades2_symbol_to_address["sgg::DrawManager::DrawEllipse"].as<DrawManager__DrawEllipse>()(center, 32.0, 1,
+                    1, 64.0f, unit_ai_target_color, false);
+            }
+        }
+    }
+
     static void thing_draw_extent(sgg::Thing_partial *thing)
     {
         eastl::optional<sgg::Polygon> polygon = thing->mGeometry;
@@ -114,6 +193,9 @@ namespace lua::hades::extent
             big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = unit_color;
             draw_polygon = true;
+            if (g_draw_unit_ai_extent) {
+                draw_unit_ai((sgg::Unit_partial *)thing);
+            }
         } else if (g_draw_obstacle_extents){
             big::hades2_symbol_to_address["sgg::Thing::DrawExtents"].as<Thing__DrawExtents>()(thing);
             draw_polygon = stops_projectile((sgg::Obstacle_partial *)thing) || stops_unit((sgg::Obstacle_partial *)thing);
@@ -123,7 +205,7 @@ namespace lua::hades::extent
             polygon_draw_extent(*polygon, color, thing->mUseScreenLocation);
         }
 
-        // draw every available custom ellipse once every player unit draw,
+        // draw every available custom ellipse once every player unit draw
         if (type_check(type, sgg::Rtti__Type::PlayerUnit) && g_draw_projectile_extents) {
             for (int i = 0; i < ellipse_params_array.size(); i++) {
                 EllipseDrawParams params;
@@ -161,28 +243,76 @@ namespace lua::hades::extent
 
         if (g_draw_extents) {
             float blast_radius = projectile->mBlastRadius;
+            float blast_speed = projectile->mBlastSpeed;
+            float blast_acceleration = projectile->mData.mDef.mBlastSpeedAcceleration;
+            float blast_duration = projectile->mData.mDef.mBlastDuration;
+            bool multi_detonate = projectile->mData.mDef.mMultiDetonate;
+            sgg::ProjectileDataDef__ProjectileType projectile_type = projectile->mData.mDef.mType;
             float scaleX = projectile->mData.mDef.mDamageRadiusScaleX;
             float scaleY = projectile->mData.mDef.mDamageRadiusScaleY;
             Vectormath::Vector2 location;
             big::hades2_symbol_to_address["sgg::Thing::GetLocation"].as<Thing__GetLocation>()(projectile, &location);
-            Vectormath::Vector2 location_copy;
-            location_copy.mX = location.mX;
-            location_copy.mY = location.mY;
-            if (blast_radius > 0) {
+
+            bool is_instant_detonation = blast_speed <= 0.0 && blast_acceleration == 0 && blast_duration <= 0 && projectile_type != sgg::BEAM;
+
+            if ( blast_radius > 0 && !(is_instant_detonation && multi_detonate) ) {
                 {
                     std::lock_guard<std::mutex> lock(ellipse_queue_mutex[active_ellipse_param_index]);
-                    ellipse_params_array[active_ellipse_param_index].emplace(location_copy, blast_radius, scaleX, scaleY, projectile_ellipse_color);
+                    ellipse_params_array[active_ellipse_param_index].emplace(location, blast_radius, scaleX, scaleY, projectile_ellipse_color);
                     active_ellipse_param_index = (active_ellipse_param_index + 1) % ellipse_params_array.size();
                 }
-
-                auto thing_String = big::hades2_symbol_to_address["sgg::Thing::ToString"].as<Thing__ToString>()(projectile);
-                LOG(DEBUG) << thing_String->c_str();
-                LOG(DEBUG) << "Location: " << location.mX << ", " << location.mY;
-                LOG(DEBUG) << "Radius: " << blast_radius;
             }
+
+            if ( blast_radius > 0 && is_instant_detonation && !multi_detonate && create_animation_addr ) {
+                sgg::HashGuid name{.mId = lua::hades::data::get_hash_guid_from_string(INSTANT_ANIMATION)};
+                auto anim_manager = big::hades2_symbol_to_address["sgg::AnimationManager::MANAGERS"].as<void**>()[0];
+                auto anim = create_animation_addr.as<Animation__Create>()(anim_manager, name, location);
+                big::hades2_symbol_to_address["sgg::Animation::SetColor"].as<Animation_SetColor>()(anim, CIRCLE_COLOR, name, 0, 1);
+                big::hades2_symbol_to_address["sgg::Animation::SetRadius"].as<Animation__SetRadius>()(anim, blast_radius);
+                auto own_body = anim + 0xD0; // Animation.mOwnBody offset
+                if (set_scale_vector_addr) {
+                    set_scale_vector_addr.as<BodyComponent__SetScaleVector>()(own_body, scaleX, scaleY);
+                }
+            }
+
+            auto thing_String = big::hades2_symbol_to_address["sgg::Thing::ToString"].as<Thing__ToString>()(projectile);
+            LOG(DEBUG) << thing_String->c_str();
+            LOG(DEBUG) << "Location: " << location.mX << ", " << location.mY;
+            LOG(DEBUG) << "Radius: " << blast_radius;
+            LOG(DEBUG) << "Instant: " << is_instant_detonation;
+            LOG(DEBUG) << "Multi: " << multi_detonate;
         }
 
         return result;
+    }
+
+    static void hook_Unit_MoveInput(sgg::Unit_partial* unit, Vectormath::Vector2 location, float speedFraction, bool strafe, float elapsedSeconds)
+    {
+        big::g_hooking->get_original<hook_Unit_MoveInput>()(unit, location, speedFraction, strafe, elapsedSeconds);
+
+        float x_delta = location.mX - unit->mLocation.mX;
+        float y_delta = location.mY - unit->mLocation.mY;
+
+        if ( ((x_delta * x_delta + y_delta * y_delta) >= 0.000099999997f) && unit->mId )
+        {
+            g_last_move_input[unit->mId] = location;
+        } else {
+            g_last_move_input[unit->mId] = {0.0, 0.0};
+        }
+    }
+
+    static void hook_Unit_Stop(sgg::Unit_partial *unit, bool cancelWeapons, bool stopRotation)
+    {
+        big::g_hooking->get_original<hook_Unit_Stop>()(unit, cancelWeapons, stopRotation);
+
+        if (unit->mAI.pActiveMoveAI) {
+            g_last_move_input[unit->mId] = {0.0, 0.0};
+        }
+    }
+
+    void clear_unit_move_data()
+    {
+        g_last_move_input.clear();
     }
 
     void set_internal_debugdraw_config()
@@ -221,6 +351,31 @@ namespace lua::hades::extent
 
         auto projectile_update_blast_radius_addr = big::hades2_symbol_to_address["sgg::Projectile::UpdateDetonation"];
         big::hooking::detour_hook_helper::add<hook_Projectile_UpdateDetonation>("hook_Projectile_UpdateDetonation", projectile_update_blast_radius_addr);
+
+        create_animation_addr = gmAddress::scan(create_aniamtion_pattern, "sgg::Animation *sgg::AnimationManager::Create(sgg::AnimationManager *this, sgg::HashGuid name, Vectormath::Vector2 location)");
+        if (!create_animation_addr) {
+            LOG(WARNING) << "Unable to find sgg::AnimationManager::Create address. Instant blast extents will not be drawn.";
+        }
+
+        set_scale_vector_addr = gmAddress::scan(set_scale_vector_pattern, "void sgg::BodyComponent::SetScaleVector(sgg::BodyComponent *this, float scaleX, float scaleY)");
+        if (!set_scale_vector_addr) {
+            LOG(WARNING) << "Unable to find sgg::BodyComponent::SetScaleVector address. Instant blast extents will scale improperly.";
+        }
+
+        if (!unit_moveinput_addr){
+            unit_moveinput_addr = gmAddress::scan(unit_moveinput_pattern, "void sgg::Unit::MoveInput(sgg::Unit *this, Vectormath::Vector2 location, float speedFraction, bool strafe, float elapsedSeconds)");
+            if (unit_moveinput_addr) {
+                big::hooking::detour_hook_helper::add<hook_Unit_MoveInput>("hook_Unit_MoveInput", unit_moveinput_addr);
+                LOG(DEBUG) << "Hooked sgg::Unit::MoveInput";
+            } else {
+                LOG(WARNING) << "Unable to find sgg::Unit::MoveInput address. Unit AI extent will not have movement vector.";
+            }
+        } else {
+            LOG(DEBUG) << "Skipping hook for sgg::Unit::MoveInput.";
+        }
+
+        auto unit_stop_addr = big::hades2_symbol_to_address["sgg::Unit::Stop"];
+        big::hooking::detour_hook_helper::add<hook_Unit_Stop>("hook_Unit_Stop", unit_stop_addr);
 
         // Register Lua API
 		auto ns = lua_ext.create_named("extent");
