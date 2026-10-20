@@ -29,6 +29,7 @@ namespace lua::hades::extent
     unsigned int unit_ai_vector_color = 0xFF00FFFF; // yellow
     unsigned int unit_ai_target_color = 0xFFFF0000; // blue
 
+    // using pattern matching for overloaded functions.
     auto create_aniamtion_pattern = "48 89 5C 24 08 57 48 83 EC 40 8B C2 C6 44 24 28 "
                                     "00 66 49 0F 6E C0 48 8B F9 4C 8B C1 66 48 0F 7E";
     gmAddress create_animation_addr;
@@ -192,7 +193,7 @@ namespace lua::hades::extent
             big::hades2_symbol_to_address["sgg::Unit::DrawExtents"].as<Thing__DrawExtents>()(thing);
             color = unit_color;
             draw_polygon = true;
-            if (g_draw_unit_ai_extent && !type_check(type, sgg::Rtti__Type::PlayerUnit)) {
+            if (g_draw_unit_ai_extent) {
                 draw_unit_ai((sgg::Unit_partial *)thing);
             }
         } else if (g_draw_obstacle_extents){
@@ -300,6 +301,15 @@ namespace lua::hades::extent
         }
     }
 
+    static void hook_Unit_Stop(sgg::Unit_partial *unit, bool cancelWeapons, bool stopRotation)
+    {
+        big::g_hooking->get_original<hook_Unit_Stop>()(unit, cancelWeapons, stopRotation);
+
+        if (unit->mAI.pActiveMoveAI) {
+            g_last_move_input[unit->mId] = {0.0, 0.0};
+        }
+    }
+
     void clear_unit_move_data()
     {
         g_last_move_input.clear();
@@ -344,21 +354,28 @@ namespace lua::hades::extent
 
         create_animation_addr = gmAddress::scan(create_aniamtion_pattern, "sgg::Animation *sgg::AnimationManager::Create(sgg::AnimationManager *this, sgg::HashGuid name, Vectormath::Vector2 location)");
         if (!create_animation_addr) {
-            LOG(WARNING) << "Unable to find sgg::AnimationManager::Create address. Instant blast extents will not be drawn.\n";
+            LOG(WARNING) << "Unable to find sgg::AnimationManager::Create address. Instant blast extents will not be drawn.";
         }
 
         set_scale_vector_addr = gmAddress::scan(set_scale_vector_pattern, "void sgg::BodyComponent::SetScaleVector(sgg::BodyComponent *this, float scaleX, float scaleY)");
         if (!set_scale_vector_addr) {
-            LOG(WARNING) << "Unable to find sgg::BodyComponent::SetScaleVector address. Instant blast extents will be scaled improperly.\n";
+            LOG(WARNING) << "Unable to find sgg::BodyComponent::SetScaleVector address. Instant blast extents will scale improperly.";
         }
 
-        unit_moveinput_addr = gmAddress::scan(unit_moveinput_pattern, "void sgg::Unit::MoveInput(sgg::Unit *this, Vectormath::Vector2 location, float speedFraction, bool strafe, float elapsedSeconds)");
-        if (unit_moveinput_addr){
-            big::hooking::detour_hook_helper::add<hook_Unit_MoveInput>("hook_Unit_MoveInput", unit_moveinput_addr);
+        if (!unit_moveinput_addr){
+            unit_moveinput_addr = gmAddress::scan(unit_moveinput_pattern, "void sgg::Unit::MoveInput(sgg::Unit *this, Vectormath::Vector2 location, float speedFraction, bool strafe, float elapsedSeconds)");
+            if (unit_moveinput_addr) {
+                big::hooking::detour_hook_helper::add<hook_Unit_MoveInput>("hook_Unit_MoveInput", unit_moveinput_addr);
+                LOG(DEBUG) << "Hooked sgg::Unit::MoveInput";
+            } else {
+                LOG(WARNING) << "Unable to find sgg::Unit::MoveInput address. Unit AI extent will not have movement vector.";
+            }
         } else {
-            LOG(WARNING) << "Unable to find sgg::Unit::MoveInput address. Unit AI extent will not have movement vector.\n";
+            LOG(DEBUG) << "Skipping hook for sgg::Unit::MoveInput.";
         }
 
+        auto unit_stop_addr = big::hades2_symbol_to_address["sgg::Unit::Stop"];
+        big::hooking::detour_hook_helper::add<hook_Unit_Stop>("hook_Unit_Stop", unit_stop_addr);
 
         // Register Lua API
 		auto ns = lua_ext.create_named("extent");
