@@ -1,10 +1,11 @@
 #pragma once
 
-#include "hades2/bink_flash/bink_flash.hpp"
+#include "hades2/bink_rendering/bink_rendering.hpp"
 #include "hades2/disable_sgg_analytics/disable_sgg_analytics.hpp"
 #include "hades2/hades_lua.hpp"
 #include "hades2/log_write.hpp"
 #include "hades2/sgg_exception_handler/disable_sgg_handler.hpp"
+#include "hades2/sprite_outline/sprite_outline.hpp"
 #include "memory/gm_address.hpp"
 
 #include <config/config.hpp>
@@ -27,7 +28,8 @@ namespace big::hades
 		    "sgg_ForgeRenderer_PrintErrorMessageAndAssert",
 		    big::hades2_symbol_to_address["sgg::ForgeRenderer::PrintErrorMessageAndAssert"]);
 
-		bink_flash::init_hooks();
+		sprite_outline::init_hooks();
+		bink_rendering::init_hooks();
 		big::hades::lua::init_hooks();
 	}
 } // namespace big::hades
