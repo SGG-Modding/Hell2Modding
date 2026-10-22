@@ -1,6 +1,6 @@
 #pragma once
 
-namespace big::hades::bink_flash
+namespace big::hades::sprite_outline
 {
 	void init_hooks();
 }
