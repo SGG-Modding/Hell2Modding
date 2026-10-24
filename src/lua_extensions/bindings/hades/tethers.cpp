@@ -15,7 +15,9 @@ namespace lua::hades::tethers
 {
 	// Constants
 	constexpr float MIN_DISTANCE_THRESHOLD = 0.001f;
-	constexpr float DEG_TO_RAD             = 0.0174533f;
+	constexpr float ELASTIC_DEADBAND_RATIO = 0.5f;
+	constexpr float ELASTIC_SIBLING_RATIO  = 0.3f;
+	constexpr float ELASTIC_FORCE_SCALE    = 2.0f;
 	constexpr float RESTING_DISTANCE_RATIO = 0.65f;
 	constexpr float CASCADE_BASE           = 0.5f;
 	constexpr float CASCADE_SCALE          = 0.45f;
@@ -23,7 +25,7 @@ namespace lua::hades::tethers
 	constexpr float REDUCED_GRAVITY        = 200.0f;
 	constexpr float STRAIGHTEN_SPEED_SCALE = 0.5f;
 	constexpr float DEFAULT_RETRACT_SPEED  = 500.0f;
-	constexpr float MAX_TETHER_DT          = 1.0f / 30.0f;
+	constexpr float MAX_CHAIN_TETHER_DT    = 1.0f / 30.0f;
 
 	// H2 PhysicsComponent partial struct for velocity and gravity access.
 	struct PhysicsComponent_H2_Velocity
@@ -48,6 +50,9 @@ namespace lua::hades::tethers
 	using ShiftLocationFn = void (*)(void *thing, Vectormath::Vector2 delta);
 	static ShiftLocationFn g_shift_location = nullptr;
 
+	using AddComponentFn = void (*)(void *thing, void *component);
+	static AddComponentFn g_add_component = nullptr;
+
 	static sgg::Thing_partial *get_thing(int id)
 	{
 		if (!g_world_ptr || !*g_world_ptr || !g_get_active_thing)
@@ -67,7 +72,6 @@ namespace lua::hades::tethers
 		float elasticity     = 0.0f;
 		float retract_speed  = 0.0f;
 		float track_z_ratio  = 0.0f;
-		float rest_angle     = 0.0f;
 	};
 
 	struct TetherData
@@ -90,9 +94,10 @@ namespace lua::hades::tethers
 	}
 
 	// Global tether update
-	static void update_all_tethers(float dt, bool chain_only = false)
+	static void update_all_tethers(float dt, bool chain_only = false, int elastic_source_id = 0)
 	{
-		dt = std::min(dt, MAX_TETHER_DT);
+		float elastic_dt = dt;
+		dt = std::min(dt, MAX_CHAIN_TETHER_DT);
 
 		for (auto &[id, data] : g_tether_data)
 		{
@@ -127,12 +132,12 @@ namespace lua::hades::tethers
 
 				if (link.elasticity > 0.0f)
 				{
-					if (chain_only)
+					if (chain_only || id != elastic_source_id)
 					{
 						continue;
 					}
 
-					// Elastic tether: critically damped spring
+					// Elastic tether: Hades 1 constant-force solver
 					if (!thing->pPhysics)
 					{
 						continue;
@@ -140,31 +145,77 @@ namespace lua::hades::tethers
 
 					auto *pc = static_cast<PhysicsComponent_H2_Velocity *>(thing->pPhysics);
 
-					if (dist < MIN_DISTANCE_THRESHOLD)
+					float ideal_x = target->mLocation.mX;
+					float ideal_y = target->mLocation.mY;
+					if (dist >= MIN_DISTANCE_THRESHOLD)
 					{
-						float angle = (float)(id % 360) * DEG_TO_RAD;
-						pc->mVelocity.mX = cosf(angle) * link.distance * 2.0f;
-						pc->mVelocity.mY = sinf(angle) * link.distance * 2.0f;
-						continue;
+						ideal_x += (thing->mLocation.mX - target->mLocation.mX) / dist * link.distance;
+						ideal_y += (thing->mLocation.mY - target->mLocation.mY) / dist * link.distance;
 					}
 
-					float ideal_x = target->mLocation.mX + cosf(link.rest_angle) * link.distance;
-					float ideal_y = target->mLocation.mY + sinf(link.rest_angle) * link.distance;
+					auto *target_data = get_tether_data(link.target_id);
+					if (target_data)
+					{
+						for (int sibling_id : target_data->tethered_from)
+						{
+							if (sibling_id == id)
+							{
+								continue;
+							}
 
-					float diff_x = ideal_x - thing->mLocation.mX;
-					float diff_y = ideal_y - thing->mLocation.mY;
+							auto *sibling = get_thing(sibling_id);
+							if (!sibling)
+							{
+								continue;
+							}
 
-					float omega = sqrtf(link.elasticity) * 0.1f;
-					float damping_coeff = 2.0f * omega;
+							float sibling_dx   = thing->mLocation.mX - sibling->mLocation.mX;
+							float sibling_dy   = thing->mLocation.mY - sibling->mLocation.mY;
+							float sibling_dist = sqrtf(sibling_dx * sibling_dx + sibling_dy * sibling_dy);
+							if (sibling_dist >= MIN_DISTANCE_THRESHOLD)
+							{
+								float separation  = link.distance * ELASTIC_SIBLING_RATIO;
+								ideal_x += sibling_dx / sibling_dist * separation;
+								ideal_y += sibling_dy / sibling_dist * separation;
+							}
+						}
+					}
 
-					float ax = omega * omega * diff_x - damping_coeff * pc->mVelocity.mX;
-					float ay = omega * omega * diff_y - damping_coeff * pc->mVelocity.mY;
+					float diff_x    = ideal_x - thing->mLocation.mX;
+					float diff_y    = ideal_y - thing->mLocation.mY;
+					float diff_dist = sqrtf(diff_x * diff_x + diff_y * diff_y);
+					if (diff_dist > link.distance * ELASTIC_DEADBAND_RATIO)
+					{
+						float delta_speed                  = link.elasticity * ELASTIC_FORCE_SCALE * elastic_dt;
+						Vectormath::Vector2 delta_velocity = {
+						    diff_x / diff_dist * delta_speed,
+						    diff_y / diff_dist * delta_speed,
+						};
 
-					pc->mVelocity.mX += ax * dt;
-					pc->mVelocity.mY += ay * dt;
+						Vectormath::Vector2 h1_velocity = {
+						    pc->mVelocity.mX + delta_velocity.mX,
+						    pc->mVelocity.mY + delta_velocity.mY,
+						};
+						float old_speed = sqrtf(pc->mVelocity.mX * pc->mVelocity.mX + pc->mVelocity.mY * pc->mVelocity.mY);
+						float velocity_cap = std::max(link.elasticity, std::max(delta_speed, old_speed));
+						float velocity_sq  = h1_velocity.mX * h1_velocity.mX + h1_velocity.mY * h1_velocity.mY;
+						if (velocity_sq > velocity_cap * velocity_cap)
+						{
+							float velocity_scale  = velocity_cap / sqrtf(velocity_sq);
+							h1_velocity.mX       *= velocity_scale;
+							h1_velocity.mY       *= velocity_scale;
+						}
+
+						pc->mVelocity = h1_velocity;
+					}
 				}
 				else
 				{
+					if (!chain_only)
+					{
+						continue;
+					}
+
 					// Non-elastic (chain) tether
 					if (link.retract_speed <= 0.0f && link.track_z_ratio <= 0.0f)
 					{
@@ -219,6 +270,11 @@ namespace lua::hades::tethers
 						}
 					}
 				}
+			}
+
+			if (!chain_only)
+			{
+				continue;
 			}
 
 			// Cache predecessor (tethered_from) for Z tracking, predecessor pull, and straightening
@@ -346,6 +402,30 @@ namespace lua::hades::tethers
 		big::g_hooking->get_original<hook_World_Reset>()(this_, resetTime);
 	}
 
+	static bool hook_PhysicsSystem_OfInterest(void *this_, sgg::Thing_partial *thing)
+	{
+		bool result = big::g_hooking->get_original<hook_PhysicsSystem_OfInterest>()(this_, thing);
+		if (result || !thing)
+		{
+			return result;
+		}
+
+		std::scoped_lock l(g_tether_mutex);
+		auto *data = get_tether_data(thing->mId);
+		if (data)
+		{
+			for (auto &link : data->links)
+			{
+				if (link.elasticity > 0.0f)
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	static char hook_PhysicsSystem_UpdateThing(void *this_, sgg::Thing_partial *thing, float elapsedSeconds)
 	{
 		char result = big::g_hooking->get_original<hook_PhysicsSystem_UpdateThing>()(this_, thing, elapsedSeconds);
@@ -374,15 +454,37 @@ namespace lua::hades::tethers
 			if (new_tick)
 			{
 				cleanup_stale_tethers();
-				update_all_tethers(elapsedSeconds);
+				update_all_tethers(elapsedSeconds, true);
+			}
+
+			bool has_elastic_link = false;
+			bool has_chain_link = false;
+			auto *data = get_tether_data(thing->mId);
+			if (data)
+			{
+				for (auto &link : data->links)
+				{
+					if (link.elasticity > 0.0f)
+					{
+						has_elastic_link = true;
+					}
+					else
+					{
+						has_chain_link = true;
+					}
+				}
+			}
+
+			if (has_elastic_link)
+			{
+				update_all_tethers(elapsedSeconds, false, thing->mId);
 			}
 
 			// The engine calls UpdateThing once per Thing per tick. At low FPS, the per-tick displacement is large enough that units with chain
 			// tethers (e.g. Hydra heads) visibly overshoot their tether distance before the next tick's constraint pass corrects them, causing a
 			// one-frame snap-away-then-snap-back. Re-running the chain-only constraint solver after each tethered unit is moved eliminates
 			// this without double-applying elastic (spring) physics.
-			auto *data = get_tether_data(thing->mId);
-			if (data && !data->links.empty())
+			if (has_chain_link)
 			{
 				update_all_tethers(elapsedSeconds, true);
 			}
@@ -512,6 +614,13 @@ namespace lua::hades::tethers
 			return false;
 		}
 
+		float elasticity_value = elasticity.value_or(0.0f);
+		if (elasticity_value > 0.0f && !source->pPhysics)
+		{
+			LOG(WARNING) << "tethers.add: elastic source thing " << source_id << " has no physics component";
+			return false;
+		}
+
 		std::scoped_lock l(g_tether_mutex);
 
 		auto &src_data = g_tether_data[source_id];
@@ -527,19 +636,16 @@ namespace lua::hades::tethers
 			src_data.links.push_back({});
 			link = &src_data.links.back();
 			link->target_id = target_id;
-
-			float dx = source->mLocation.mX - target->mLocation.mX;
-			float dy = source->mLocation.mY - target->mLocation.mY;
-			if (dx * dx + dy * dy > 0.01f)
-				link->rest_angle = atan2f(dy, dx);
-			else
-				link->rest_angle = (float)(source_id % 360) * DEG_TO_RAD;
 		}
 
 		link->distance      = distance;
 		link->retract_speed = retract_speed.value_or(0.0f);
-		link->elasticity    = elasticity.value_or(0.0f);
+		link->elasticity    = elasticity_value;
 		link->track_z_ratio = track_z_ratio.value_or(0.0f);
+		if (link->elasticity > 0.0f)
+		{
+			g_add_component(source, source->pPhysics);
+		}
 
 		auto &tgt_data = g_tether_data[target_id];
 		if (std::find(tgt_data.tethered_from.begin(), tgt_data.tethered_from.end(), source_id) == tgt_data.tethered_from.end())
@@ -649,6 +755,30 @@ namespace lua::hades::tethers
 		else
 		{
 			LOG(WARNING) << "Tethers: failed to resolve sgg::Thing::ShiftLocation - direct position updates disabled";
+		}
+
+		auto add_component_addr = big::hades2_symbol_to_address["sgg::Thing::AddComponent"];
+		if (add_component_addr)
+		{
+			g_add_component = add_component_addr.as_func<void(void *, void *)>();
+			LOG(INFO) << "Tethers: resolved Thing::AddComponent";
+		}
+		else
+		{
+			LOG(ERROR) << "Tethers: failed to resolve sgg::Thing::AddComponent";
+			return;
+		}
+
+		auto of_interest_addr = big::hades2_symbol_to_address["sgg::PhysicsSystem::OfInterest"];
+		if (of_interest_addr)
+		{
+			static auto hook_ = big::hooking::detour_hook_helper::add<hook_PhysicsSystem_OfInterest>("hook_PhysicsSystem_OfInterest", of_interest_addr);
+			LOG(INFO) << "Tethers: hooked PhysicsSystem::OfInterest";
+		}
+		else
+		{
+			LOG(ERROR) << "Tethers: sgg::PhysicsSystem::OfInterest not found in PDB";
+			return;
 		}
 
 		// Try hooking PhysicsSystem::UpdateThing for per-frame tether updates
