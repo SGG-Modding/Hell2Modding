@@ -25,19 +25,33 @@ namespace big::hades::sprite_outline
 		static_assert(offsetof(AnimationView, pVtable) == 0x00);
 		static_assert(offsetof(AnimationView, pChildAnimation) == 0xA8);
 
+		struct ThingDataView
+		{
+			std::byte pad_000[0x4C];
+			std::uint32_t mGrannyModel;
+		};
+
+		static_assert(offsetof(ThingDataView, mGrannyModel) == 0x4C);
+
 		struct ThingView
 		{
 			std::byte pad_000[0x20];
 			bool mHasOutline;
-			std::byte pad_021[0xEF];
+			std::byte pad_021[0x7F];
+			ThingDataView* pThingData;
+			std::byte pad_0A8[0x68];
 			AnimationView* pAnim;
 			std::byte pad_118[0xB4];
 			std::uint32_t mOutlineColor;
+			std::byte pad_1D0[0x60];
+			std::uint32_t mGrannyModelFileName;
 		};
 
 		static_assert(offsetof(ThingView, mHasOutline) == 0x20);
+		static_assert(offsetof(ThingView, pThingData) == 0xA0);
 		static_assert(offsetof(ThingView, pAnim) == 0x1'10);
 		static_assert(offsetof(ThingView, mOutlineColor) == 0x1'CC);
+		static_assert(offsetof(ThingView, mGrannyModelFileName) == 0x2'30);
 
 		struct ColorView
 		{
@@ -187,7 +201,9 @@ namespace big::hades::sprite_outline
 				}
 
 				thing->mOutlineColor = color.value;
-				if (g_has_model_animation(thing))
+				if (thing->mGrannyModelFileName != 0
+				    || (thing->pThingData != nullptr && thing->pThingData->mGrannyModel != 0)
+				    || g_has_model_animation(thing))
 				{
 					set_highlight_top_animation_only(thing, false);
 					continue;
