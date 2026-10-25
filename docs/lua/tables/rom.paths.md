@@ -2,7 +2,7 @@
 
 Table containing helpers for retrieving project related IO file/folder paths.
 
-## Functions (5)
+## Functions (6)
 
 ### `config()`
 
@@ -58,6 +58,16 @@ string = rom.paths.Content()
 **Example Usage:**
 ```lua
 string = rom.paths.Ship()
+```
+
+### `GameInstall()`
+
+- **Returns:**
+  - `string`: Returns the physical folder containing the game executable on disk
+
+**Example Usage:**
+```lua
+string = rom.paths.GameInstall()
 ```
 
 

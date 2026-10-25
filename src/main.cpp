@@ -5,6 +5,7 @@
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
 #include "hades2/hooks.hpp"
+#include "hades2/microsoft_store_symbols.hpp"
 #include "hooks/hooking.hpp"
 #include "logger/exception_handler.hpp"
 #include "lua/lua_manager.hpp"
@@ -2757,6 +2758,8 @@ extern "C" __declspec(dllexport) void my_main()
 
 	dll_proxy::init();
 
+	const bool is_microsoft_store = lua::paths_ext::is_microsoft_store_game();
+
 	if (!rom::is_rom_enabled())
 	{
 		return;
@@ -2769,7 +2772,14 @@ extern "C" __declspec(dllexport) void my_main()
 	// Purposely leak it, we are not unloading this module in any case.
 	const auto exception_handling = new exception_handler(true, nullptr);
 
-	read_game_pdb();
+	if (is_microsoft_store)
+	{
+		hades2::load_microsoft_store_symbols();
+	}
+	else
+	{
+		read_game_pdb();
+	}
 
 	{
 		// ensure_early_entrypoint();

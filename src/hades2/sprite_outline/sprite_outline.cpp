@@ -2,6 +2,7 @@
 
 #include "hades2/pdb_symbol_map.hpp"
 #include "hooks/hooking.hpp"
+#include "lua_extensions/bindings/paths_ext.hpp"
 
 #include <array>
 #include <cstddef>
@@ -128,9 +129,11 @@ namespace big::hades::sprite_outline
 
 		static_assert(offsetof(WorldView, pOutlineSystem) == 0x50);
 
-		constexpr std::uintptr_t kPushOutlineRequestRva = 0x29'5F'B0;
+		constexpr std::uintptr_t kPcPushOutlineRequestRva             = 0x29'5F'B0;
+		constexpr std::uintptr_t kMicrosoftStorePushOutlineRequestRva = 0x28'62'10;
 		constexpr std::array<std::uint8_t, 12> kExpectedPushOutlineRequestBytes = {0x40, 0x53, 0x55, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x59, 0x08};
-		constexpr std::uintptr_t kEraseInlineOutlineRva = 0x29'61'70;
+		constexpr std::uintptr_t kPcEraseInlineOutlineRva             = 0x29'61'70;
+		constexpr std::uintptr_t kMicrosoftStoreEraseInlineOutlineRva = 0x28'63'D0;
 		constexpr std::array<std::uint8_t, 16> kExpectedEraseInlineOutlineBytes = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x4C};
 
 		using GetColorFn             = void (*)(ScriptArgsView*, ColorView*);
@@ -329,8 +332,15 @@ namespace big::hades::sprite_outline
 		const auto thing_draw_outline   = hades2_symbol_to_address["sgg::Thing::DrawOutline"];
 		const auto world                = hades2_symbol_to_address["sgg::world"];
 		const auto module_base          = reinterpret_cast<std::uintptr_t>(GetModuleHandleA(nullptr));
-		const auto push_outline_request = reinterpret_cast<void*>(module_base + kPushOutlineRequestRva);
-		const auto erase_inline_outline = reinterpret_cast<void*>(module_base + kEraseInlineOutlineRva);
+		std::uintptr_t push_outline_request_rva = kPcPushOutlineRequestRva;
+		std::uintptr_t erase_inline_outline_rva = kPcEraseInlineOutlineRva;
+		if (lua::paths_ext::is_microsoft_store_game())
+		{
+			push_outline_request_rva = kMicrosoftStorePushOutlineRequestRva;
+			erase_inline_outline_rva = kMicrosoftStoreEraseInlineOutlineRva;
+		}
+		const auto push_outline_request = reinterpret_cast<void*>(module_base + push_outline_request_rva);
+		const auto erase_inline_outline = reinterpret_cast<void*>(module_base + erase_inline_outline_rva);
 
 		const bool has_outline_action_symbols = add_outline && remove_outline && get_color && get_float && get_bool && get_ids && get_active_thing && has_model_animation && fast_remove_outline && world_on_disposed && thing_draw_outline && world;
 		const bool has_outline_helper_layouts =

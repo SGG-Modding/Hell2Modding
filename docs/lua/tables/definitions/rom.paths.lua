@@ -21,4 +21,7 @@ function paths.Content() end
 ---@return string # Returns the GameFolder/Ship folder path
 function paths.Ship() end
 
+---@return string # Returns the physical folder containing the game executable on disk
+function paths.GameInstall() end
+
 
