@@ -2029,10 +2029,9 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 		}
 	}
 
-	bool is_pkg_manifest_only = has_pkg_manifest && !has_pkg;
 	{
 		std::shared_lock lock(g_plugin_files_mutex);
-		if (is_pkg_manifest_only)
+		if (has_pkg_manifest)
 		{
 			for (const auto &[filename, paths] : additional_package_files)
 			{
@@ -2042,14 +2041,19 @@ static void hook_fsGetFilesWithExtension(PVOID resourceDir, const char *subDirec
 				}
 			}
 		}
-		else if (has_pkg && has_pkg_manifest)
+
+		if (has_pkg)
 		{
 			for (const auto &[filename, paths] : additional_package_files)
 			{
-				out->push_back(filename.c_str());
+				if (ends_with(filename.c_str(), ".pkg"))
+				{
+					out->push_back(filename.c_str());
+				}
 			}
 		}
-		else if (has_gpk)
+
+		if (has_gpk)
 		{
 			for (const auto &[filename, full_file_path] : additional_granny_files)
 			{
