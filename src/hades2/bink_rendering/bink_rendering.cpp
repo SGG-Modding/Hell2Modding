@@ -113,10 +113,8 @@ namespace big::hades::bink_rendering
 		else
 		{
 			const auto hook_site = do_draw.offset(kDoDrawDispatchOffset);
-			const bool has_expected_layout =
-			    std::memcmp(hook_site.as<void*>(), kExpectedDispatchPrefix.data(), kExpectedDispatchPrefix.size()) == 0
-			    && std::memcmp(hook_site.offset(7).as<void*>(), kExpectedDispatchSuffix.data(), kExpectedDispatchSuffix.size()) == 0;
-			if (!has_expected_layout)
+			if (std::memcmp(hook_site.as<void*>(), kExpectedDispatchPrefix.data(), kExpectedDispatchPrefix.size()) != 0
+			    || std::memcmp(hook_site.offset(7).as<void*>(), kExpectedDispatchSuffix.data(), kExpectedDispatchSuffix.size()) != 0)
 			{
 				LOG(WARNING)
 				    << "Bink shader dispatch hook disabled because DrawManager::DoDraw has an unexpected layout";
