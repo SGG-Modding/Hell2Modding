@@ -15,13 +15,13 @@ function paths.plugins_data() end
 ---@return string # Returns the plugins folder path
 function paths.plugins() end
 
----@return string # Returns the GameFolder/Content folder path
+---@return string # Returns the engine-visible Content directory used for game assets and SJSON hook paths, resolving on Microsoft Store to the virtual WindowsApps package Content directory reported by the engine, while rom.paths.GameInstall() should be used for physical filesystem access or the physical executable directory
 function paths.Content() end
 
----@return string # Returns the GameFolder/Ship folder path
+---@return string # Returns the engine-visible directory containing Hades2.exe, including the virtual WindowsApps package directory on Microsoft Store, while rom.paths.GameInstall() returns the physical directory
 function paths.Ship() end
 
----@return string # Returns the physical folder containing the game executable on disk
+---@return string # Returns the physical directory containing Hades2.exe, including the mutable Xbox/Gaming Services install directory on Microsoft Store, and matches rom.paths.Ship() on Steam and Epic
 function paths.GameInstall() end
 
 

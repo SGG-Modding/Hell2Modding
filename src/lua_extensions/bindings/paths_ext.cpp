@@ -12,21 +12,6 @@ namespace lua::paths_ext
 	namespace
 	{
 		constexpr std::array<uint8_t, 8> gaming_root_header = {0x52, 0x47, 0x42, 0x58, 0x01, 0x00, 0x00, 0x00};
-		constexpr std::string_view microsoft_store_identity = R"(Name="SupergiantGamesLLC.HadesII")";
-
-		std::filesystem::path get_module_folder(HMODULE module)
-		{
-			constexpr size_t max_path = MAX_PATH * 2;
-			wchar_t buffer[max_path];
-			const DWORD length = GetModuleFileNameW(module, buffer, max_path);
-			if (length == 0 || length == max_path)
-			{
-				return {};
-			}
-
-			std::filesystem::path module_path(buffer);
-			return module_path.parent_path();
-		}
 
 		std::optional<std::filesystem::path> read_gaming_library(const std::filesystem::path& drive)
 		{
@@ -56,18 +41,6 @@ namespace lua::paths_ext
 			}
 
 			return drive / folder_name;
-		}
-
-		bool is_microsoft_store_install(const std::filesystem::path& install_folder)
-		{
-			std::ifstream config(install_folder / "MicrosoftGame.Config", std::ios::binary);
-			if (!config.is_open())
-			{
-				return false;
-			}
-
-			const std::string contents{std::istreambuf_iterator<char>(config), std::istreambuf_iterator<char>()};
-			return contents.find(microsoft_store_identity) != std::string::npos;
 		}
 
 		std::filesystem::path find_microsoft_store_install()
@@ -107,6 +80,18 @@ namespace lua::paths_ext
 		}
 	} // namespace
 
+	bool is_microsoft_store_install(const std::filesystem::path& install_folder)
+	{
+		std::ifstream config(install_folder / "MicrosoftGame.Config", std::ios::binary);
+		if (!config.is_open())
+		{
+			return false;
+		}
+
+		const std::string contents{std::istreambuf_iterator<char>(config), std::istreambuf_iterator<char>()};
+		return contents.find(R"(Name="SupergiantGamesLLC.HadesII")") != std::string::npos;
+	}
+
 	std::filesystem::path get_game_executable_folder()
 	{
 		constexpr size_t max_path = MAX_PATH * 2;
@@ -125,7 +110,16 @@ namespace lua::paths_ext
 	{
 		static const std::filesystem::path install_folder = []
 		{
-			const auto module_folder            = get_module_folder(big::g_hmodule);
+			std::filesystem::path module_folder;
+			constexpr size_t max_path = MAX_PATH * 2;
+			wchar_t buffer[max_path];
+			const DWORD length = GetModuleFileNameW(big::g_hmodule, buffer, max_path);
+			if (length != 0 && length != max_path)
+			{
+				std::filesystem::path module_path(buffer);
+				module_folder = module_path.parent_path();
+			}
+
 			const auto normalized_module_folder = big::string::to_lower(module_folder.string());
 			if (!module_folder.empty() && normalized_module_folder.find("\\program files\\windowsapps\\") == std::string::npos && std::filesystem::is_regular_file(module_folder / "Hades2.exe"))
 			{
@@ -143,16 +137,10 @@ namespace lua::paths_ext
 		return install_folder;
 	}
 
-	bool is_microsoft_store_game()
-	{
-		const auto executable_folder = big::string::to_lower(get_game_executable_folder().string());
-		return executable_folder.find("\\program files\\windowsapps\\") != std::string::npos || is_microsoft_store_install(get_game_install_folder());
-	}
-
 	// Lua API: Function
 	// Table: paths
 	// Name: Content
-	// Returns: string: Returns the GameFolder/Content folder path
+	// Returns: string: Returns the engine-visible Content directory used for game assets and SJSON hook paths, resolving on Microsoft Store to the virtual WindowsApps package Content directory reported by the engine, while rom.paths.GameInstall() should be used for getting the physical executable directory
 	std::string hades_Content()
 	{
 		const auto executable_folder = get_game_executable_folder();
@@ -169,7 +157,7 @@ namespace lua::paths_ext
 	// Lua API: Function
 	// Table: paths
 	// Name: Ship
-	// Returns: string: Returns the GameFolder/Ship folder path
+	// Returns: string: Returns the engine-visible directory containing Hades2.exe, including the virtual WindowsApps package directory on Microsoft Store, while rom.paths.GameInstall() returns the physical directory
 	static std::string hades_Ship()
 	{
 		return (char*)get_game_executable_folder().u8string().c_str();
@@ -178,7 +166,7 @@ namespace lua::paths_ext
 	// Lua API: Function
 	// Table: paths
 	// Name: GameInstall
-	// Returns: string: Returns the physical folder containing the game executable
+	// Returns: string: Returns the physical directory containing Hades2.exe, including the mutable Xbox/Gaming Services install directory on Microsoft Store, and matches rom.paths.Ship() on Steam and Epic
 	static std::string hades_GameInstall()
 	{
 		return (char*)get_game_install_folder().u8string().c_str();

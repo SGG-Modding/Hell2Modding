@@ -334,7 +334,7 @@ namespace big::hades::sprite_outline
 		const auto module_base          = reinterpret_cast<std::uintptr_t>(GetModuleHandleA(nullptr));
 		std::uintptr_t push_outline_request_rva = kPcPushOutlineRequestRva;
 		std::uintptr_t erase_inline_outline_rva = kPcEraseInlineOutlineRva;
-		if (lua::paths_ext::is_microsoft_store_game())
+		if (lua::paths_ext::is_microsoft_store_install(lua::paths_ext::get_game_install_folder()))
 		{
 			push_outline_request_rva = kMicrosoftStorePushOutlineRequestRva;
 			erase_inline_outline_rva = kMicrosoftStoreEraseInlineOutlineRva;

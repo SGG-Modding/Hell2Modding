@@ -2758,8 +2758,6 @@ extern "C" __declspec(dllexport) void my_main()
 
 	dll_proxy::init();
 
-	const bool is_microsoft_store = lua::paths_ext::is_microsoft_store_game();
-
 	if (!rom::is_rom_enabled())
 	{
 		return;
@@ -2772,7 +2770,7 @@ extern "C" __declspec(dllexport) void my_main()
 	// Purposely leak it, we are not unloading this module in any case.
 	const auto exception_handling = new exception_handler(true, nullptr);
 
-	if (is_microsoft_store)
+	if (lua::paths_ext::is_microsoft_store_install(lua::paths_ext::get_game_install_folder()))
 	{
 		hades2::load_microsoft_store_symbols();
 	}
