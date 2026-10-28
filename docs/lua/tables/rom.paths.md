@@ -2,7 +2,7 @@
 
 Table containing helpers for retrieving project related IO file/folder paths.
 
-## Functions (5)
+## Functions (6)
 
 ### `config()`
 
@@ -43,7 +43,7 @@ string = rom.paths.plugins()
 ### `Content()`
 
 - **Returns:**
-  - `string`: Returns the GameFolder/Content folder path
+  - `string`: Returns the engine-visible Content directory used for game assets and SJSON hook paths, resolving on Microsoft Store to the virtual WindowsApps package Content directory reported by the engine, while rom.paths.GameInstall() should be used for physical filesystem access or the physical executable directory
 
 **Example Usage:**
 ```lua
@@ -53,11 +53,21 @@ string = rom.paths.Content()
 ### `Ship()`
 
 - **Returns:**
-  - `string`: Returns the GameFolder/Ship folder path
+  - `string`: Returns the engine-visible directory containing Hades2.exe, including the virtual WindowsApps package directory on Microsoft Store, while rom.paths.GameInstall() returns the physical directory
 
 **Example Usage:**
 ```lua
 string = rom.paths.Ship()
+```
+
+### `GameInstall()`
+
+- **Returns:**
+  - `string`: Returns the physical directory containing Hades2.exe, including the mutable Xbox/Gaming Services install directory on Microsoft Store, and matches rom.paths.Ship() on Steam and Epic
+
+**Example Usage:**
+```lua
+string = rom.paths.GameInstall()
 ```
 
 

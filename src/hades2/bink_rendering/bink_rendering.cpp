@@ -51,8 +51,9 @@ namespace big::hades::bink_rendering
 			FlasherAddColor = 6,
 		};
 
-		constexpr std::int32_t kDoDrawDispatchOffset = 0x3'0A;
-		constexpr std::array<std::uint8_t, 12> kExpectedDispatchBytes = {0x8B, 0x8C, 0x82, 0x48, 0x83, 0x1E, 0x00, 0x48, 0x03, 0xCA, 0xFF, 0xE1};
+		constexpr std::int32_t kDoDrawDispatchOffset                  = 0x3'0A;
+		constexpr std::array<std::uint8_t, 3> kExpectedDispatchPrefix = {0x8B, 0x8C, 0x82};
+		constexpr std::array<std::uint8_t, 5> kExpectedDispatchSuffix = {0x48, 0x03, 0xCA, 0xFF, 0xE1};
 
 		constexpr std::int32_t kAddTextureComponentMappingOffset = 0x7'E8;
 		constexpr std::array<std::uint8_t, 13> kExpectedComponentMappingBytes = {0xC7, 0x45, 0xF0, 0x88, 0x16, 0x00, 0x00, 0x8D, 0x42, 0xED, 0x83, 0xF8, 0x25};
@@ -112,7 +113,8 @@ namespace big::hades::bink_rendering
 		else
 		{
 			const auto hook_site = do_draw.offset(kDoDrawDispatchOffset);
-			if (std::memcmp(hook_site.as<void*>(), kExpectedDispatchBytes.data(), kExpectedDispatchBytes.size()) != 0)
+			if (std::memcmp(hook_site.as<void*>(), kExpectedDispatchPrefix.data(), kExpectedDispatchPrefix.size()) != 0
+			    || std::memcmp(hook_site.offset(7).as<void*>(), kExpectedDispatchSuffix.data(), kExpectedDispatchSuffix.size()) != 0)
 			{
 				LOG(WARNING)
 				    << "Bink shader dispatch hook disabled because DrawManager::DoDraw has an unexpected layout";
