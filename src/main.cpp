@@ -20,6 +20,7 @@
 #include "sjson_overlay.hpp"
 
 #include <DbgHelp.h>
+#include <cstdlib>
 #include <hades2/pdb_symbol_map.hpp>
 #include <lua_extensions/bindings/hades/data.hpp>
 #include "hades2/plugin_file_registry.hpp"
@@ -36,6 +37,7 @@
 #include <PDB_InfoStream.h>
 #include <PDB_RawFile.h>
 #include <PDB_TPIStream.h>
+#include <string/string_conversions.hpp>
 
 // TODO: Make Debug builds work.
 static_assert(sizeof(eastl::string) == 0x18, "eastl::string size is not matching the game eastl::basic_string<char, eastl::allocator_forge> size. Are you trying to compile as debug?");
@@ -3302,75 +3304,101 @@ extern "C" __declspec(dllexport) void my_main()
 
 	LOG(INFO) << rom::g_project_name;
 	LOGF(INFO, "Build v{} (Commit {})", big::version::VERSION_NUMBER, version::GIT_SHA1);
+	Logger::FlushQueue();
 
 	// TODO: move this to own file, make sure it's called early enough so that it happens before the initial GameReadData call.
-	for (const auto &entry :
-	     std::filesystem::recursive_directory_iterator(g_file_manager.get_project_folder("plugins_data").get_path(), std::filesystem::directory_options::skip_permission_denied | std::filesystem::directory_options::follow_directory_symlink))
+	auto scan_path = g_file_manager.get_project_folder("plugins_data").get_path();
+	try
 	{
-		// Registering a file the engine already has replaces the vanilla one, since the redirect matches on filename.
-		if (std::filesystem::path vanilla_path;
-		    sjson_overlay::replaces_vanilla_file((char*)entry.path().u8string().c_str(), vanilla_path))
+		for (const auto& entry : std::filesystem::recursive_directory_iterator(scan_path, std::filesystem::directory_options::follow_directory_symlink))
 		{
-			LOG(ERROR) << "File '" << (char*)entry.path().u8string().c_str() << "' has the same name as the vanilla file '"
-			           << (char*)vanilla_path.u8string().c_str()
-			           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
-			           << "Give the file a unique name, ideally including your AuthorName-ModName.";
-			continue;
-		}
-
-		if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
-		{
-			auto package_filename = std::string((char *)entry.path().filename().u8string().c_str());
-			auto parent_dir       = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
-			auto full_path        = std::string((char *)entry.path().u8string().c_str());
-
-			additional_package_files[package_filename].add(parent_dir, full_path);
-
-			LOG(INFO) << "Adding to package files: " << full_path;
-		}
-		else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
-		{
-			additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
-			                                (char *)entry.path().u8string().c_str());
-
-			LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
-		}
-		else if (entry.path().extension() == ".map_text" || entry.path().extension() == ".thing_bin")
-		{
-			additional_map_files.emplace((char *)entry.path().filename().u8string().c_str(),
-			                             (char *)entry.path().u8string().c_str());
-
-			LOG(INFO) << "Adding to map files: " << (char *)entry.path().u8string().c_str();
-		}
-		else if (entry.path().extension() == ".fsb")
-		{
-			const auto stem = std::string((char*)entry.path().stem().u8string().c_str());
-			if (!validate_vo_bank_name(stem))
+			scan_path = entry.path();
+			// Registering a file the engine already has replaces the vanilla one, since the redirect matches on filename.
+			if (std::filesystem::path vanilla_path;
+			    sjson_overlay::replaces_vanilla_file((char*)entry.path().u8string().c_str(), vanilla_path))
 			{
-				LOG(WARNING) << "Custom voice banks may only have the first letter capitalized, "
-				                "except when containing \"Field\" or \"Keepsake\" which must always be capitalized. "
-				                "Otherwise the engine will not be able to resolve your cues. "
-				                "The voice bank that failed validation and will not be added: \"" << stem << "\"";
+				LOG(ERROR) << "File '" << (char*)entry.path().u8string().c_str() << "' has the same name as the vanilla file '"
+				           << (char*)vanilla_path.u8string().c_str()
+				           << "' and would replace it when loaded. Skipping it to keep the vanilla content intact. "
+				           << "Give the file a unique name, ideally including your AuthorName-ModName.";
+				continue;
 			}
-			else
+
+			if (entry.path().extension() == ".pkg" || entry.path().extension() == ".pkg_manifest")
 			{
-				additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
-				                                      (char *)entry.path().u8string().c_str());
+				auto package_filename = std::string((char *)entry.path().filename().u8string().c_str());
+				auto parent_dir       = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
+				auto full_path        = std::string((char *)entry.path().u8string().c_str());
 
-				LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+				additional_package_files[package_filename].add(parent_dir, full_path);
+
+				LOG(INFO) << "Adding to package files: " << full_path;
+			}
+			else if (ends_with((char *)entry.path().u8string().c_str(), ".gpk"))
+			{
+				additional_granny_files.emplace((char *)entry.path().filename().u8string().c_str(),
+				                                (char *)entry.path().u8string().c_str());
+
+				LOG(INFO) << "Adding to granny files: " << (char *)entry.path().u8string().c_str();
+			}
+			else if (entry.path().extension() == ".map_text" || entry.path().extension() == ".thing_bin")
+			{
+				additional_map_files.emplace((char *)entry.path().filename().u8string().c_str(),
+				                             (char *)entry.path().u8string().c_str());
+
+				LOG(INFO) << "Adding to map files: " << (char *)entry.path().u8string().c_str();
+			}
+			else if (entry.path().extension() == ".fsb")
+			{
+				const auto stem = std::string((char*)entry.path().stem().u8string().c_str());
+				if (!validate_vo_bank_name(stem))
+				{
+					LOG(WARNING) << "Custom voice banks may only have the first letter capitalized, "
+					                "except when containing \"Field\" or \"Keepsake\" which must always be capitalized. "
+					                "Otherwise the engine will not be able to resolve your cues. "
+					                "The voice bank that failed validation and will not be added: \"" << stem << "\"";
+				}
+				else
+				{
+					additional_vo_files.fsb_files.emplace((char *)entry.path().filename().u8string().c_str(),
+					                                      (char *)entry.path().u8string().c_str());
+
+					LOG(INFO) << "Adding to VO files: " << (char *)entry.path().u8string().c_str();
+				}
+			}
+			else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
+			{
+				auto bik_filename = std::string((char *)entry.path().filename().u8string().c_str());
+				auto parent_dir   = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
+				auto full_path    = std::string((char *)entry.path().u8string().c_str());
+
+				auto& bik = additional_bik_files[bik_filename];
+				bik.add(parent_dir, full_path);
+
+				LOG(INFO) << "Adding to bik files: " << full_path;
 			}
 		}
-		else if (entry.path().extension() == ".bik" || entry.path().extension() == ".bik_atlas")
-		{
-			auto bik_filename = std::string((char *)entry.path().filename().u8string().c_str());
-			auto parent_dir   = std::string((char *)entry.path().parent_path().filename().u8string().c_str());
-			auto full_path    = std::string((char *)entry.path().u8string().c_str());
+	}
+	catch (const std::filesystem::filesystem_error& exception)
+	{
+		const auto& path = exception.path1().empty() ? scan_path : exception.path1();
+		const auto& error = exception.code();
+		const auto message = std::format(
+		    "Hell2Modding could not scan mod files at:\n{}\n\n{} ({}:{}){}"
+		    "\n\nSee ReturnOfModding\\LogOutput.log for details.",
+		    (const char*)path.u8string().c_str(),
+		    error.message(),
+		    error.category().name(),
+		    error.value(),
+		    path.native().size() >= MAX_PATH ? "\n\nThe path may be too long. Try moving your profile folder elsewhere." : "");
 
-			auto& bik = additional_bik_files[bik_filename];
-			bik.add(parent_dir, full_path);
+		LOG(ERROR) << message;
+		Logger::FlushQueue();
 
-			LOG(INFO) << "Adding to bik files: " << full_path;
-		}
+		const auto wide_message = string_conversions::utf8_to_utf16(message);
+		MessageBoxW(nullptr, wide_message.c_str(), L"Hell2Modding", MB_ICONERROR | MB_OK);
+		TerminateProcess(GetCurrentProcess(), 1);
+		std::abort();
 	}
 
 	// Register .txt companions for each discovered .fsb.
