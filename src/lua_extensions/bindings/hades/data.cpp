@@ -3,6 +3,7 @@
 #include "hades_ida.hpp"
 #include "sjson_overlay.hpp"
 
+#include <cstdlib>
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
@@ -333,16 +334,17 @@ namespace lua::hades::data
 	{
 		std::unique_lock l(big::lua_manager_extension::g_manager_mutex, std::defer_lock);
 
-		std::unordered_map<void*, std::filesystem::path>::iterator it;
+		std::filesystem::path file_path;
 
 		bool is_game_data = false;
 		if (bufferSizeInBytes > 4)
 		{
 			l.lock();
 
-			it = g_sjson_FileStream_to_filepath.find(file_stream);
+			const auto it = g_sjson_FileStream_to_filepath.find(file_stream);
 			if (it != g_sjson_FileStream_to_filepath.end())
 			{
+				file_path = it->second;
 				// The actual size of the buffer in this case is half.
 				bufferSizeInBytes /= g_sjson_size_multiplier_for_patches;
 				is_game_data       = true;
@@ -364,9 +366,10 @@ namespace lua::hades::data
 			for (const auto& mod_ : big::g_lua_manager->m_modules)
 			{
 				auto mod = (big::lua_module_ext*)mod_.get();
-				for (const auto& info : mod->m_data_ext.m_on_sjson_game_data_read)
+				const auto callbacks = mod->m_data_ext.m_on_sjson_game_data_read;
+				for (const auto& info : callbacks)
 				{
-					if (info.m_file_path.empty() || (info.m_file_path.size() && check_path(it->second, info.m_file_path)))
+					if (info.m_file_path.empty() || (info.m_file_path.size() && check_path(file_path, info.m_file_path)))
 					{
 						if (info.m_is_string_read)
 						{
@@ -376,14 +379,14 @@ namespace lua::hades::data
 								assigned_new_string = true;
 							}
 
-							const auto res = info.m_callback((char*)it->second.u8string().c_str(), new_string.data());
+							const auto res = info.m_callback((char*)file_path.u8string().c_str(), new_string.data());
 							if (res.valid() && res.get_type() == sol::type::string)
 							{
 								new_string = res.get<std::string>();
 
-								//LOG(INFO) << (char*)it->second.u8string().c_str() << " | " << new_string.size() << " | orig: " << bufferSizeInBytes << " | " << new_string;
+								//LOG(INFO) << (char*)file_path.u8string().c_str() << " | " << new_string.size() << " | orig: " << bufferSizeInBytes << " | " << new_string;
 
-								LOG(DEBUG) << "Applying SJSON on read callback for file: " << (char*)it->second.u8string().c_str() << " from mod: " << mod->guid();
+								LOG(DEBUG) << "Applying SJSON on read callback for file: " << (char*)file_path.u8string().c_str() << " from mod: " << mod->guid();
 
 								if (bufferSizeInBytes * g_sjson_size_multiplier_for_patches < new_string.size())
 								{
@@ -394,8 +397,13 @@ namespace lua::hades::data
 									      "size "
 									   << bufferSizeInBytes << " | New size: " << bufferSizeInBytes * g_sjson_size_multiplier_for_patches
 									   << " | Needed size for patch: " << new_string.size()
-									   << " | filename: " << (char*)it->second.u8string().c_str();
-									MessageBoxA(0, ss.str().c_str(), "Hell2Modding", 0);
+									   << " | filename: " << (char*)file_path.u8string().c_str();
+									const auto message = ss.str();
+									LOG(ERROR) << message;
+									Logger::FlushQueue();
+									MessageBoxA(0, message.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
+									TerminateProcess(GetCurrentProcess(), 1);
+									std::abort();
 								}
 
 								any_modif_happened = true;
