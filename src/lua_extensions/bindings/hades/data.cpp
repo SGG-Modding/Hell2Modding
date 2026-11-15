@@ -3,6 +3,7 @@
 #include "hades_ida.hpp"
 #include "sjson_overlay.hpp"
 
+#include <cstdlib>
 #include <hades2/pdb_symbol_map.hpp>
 #include <hooks/hooking.hpp>
 #include <lua/lua_manager.hpp>
@@ -395,7 +396,12 @@ namespace lua::hades::data
 									   << bufferSizeInBytes << " | New size: " << bufferSizeInBytes * g_sjson_size_multiplier_for_patches
 									   << " | Needed size for patch: " << new_string.size()
 									   << " | filename: " << (char*)it->second.u8string().c_str();
-									MessageBoxA(0, ss.str().c_str(), "Hell2Modding", 0);
+									const auto message = ss.str();
+									LOG(ERROR) << message;
+									Logger::FlushQueue();
+									MessageBoxA(0, message.c_str(), "Hell2Modding", MB_ICONERROR | MB_OK);
+									TerminateProcess(GetCurrentProcess(), 1);
+									std::abort();
 								}
 
 								any_modif_happened = true;
