@@ -11,7 +11,7 @@ namespace big::hades2
 	};
 
 	// Current Microsoft Store address library for build 1.14.296
-	inline constexpr std::array<microsoft_store_symbol_rva, 130> microsoft_store_symbols{
+	inline constexpr std::array<microsoft_store_symbol_rva, 131> microsoft_store_symbols{
 	    microsoft_store_symbol_rva{"FileStreamRead", 0x00'01'8C'20},
 	    microsoft_store_symbol_rva{"LZ4_decompress_safe", 0x00'36'7F'90},
 	    microsoft_store_symbol_rva{"Log::Write", 0x00'01'A6'D0},
@@ -95,6 +95,7 @@ namespace big::hades2
 	    microsoft_store_symbol_rva{"sgg::Localization::Lang", 0x00'59'DB'10},
 	    microsoft_store_symbol_rva{"sgg::Localization::TraditionalChinese", 0x00'A4'FE'78},
 	    microsoft_store_symbol_rva{"sgg::LuaTableExtensions::Float", 0x00'1F'9B'50},
+	    microsoft_store_symbol_rva{"sgg::MainMenuScreen::MainMenuScreen", 0x00'15'D4'40},
 	    microsoft_store_symbol_rva{"sgg::MoveAI::CalcGoalLocation", 0x00'29'54'D0},
 	    microsoft_store_symbol_rva{"sgg::Obstacle::IsObscuring", 0x00'27'49'50},
 	    microsoft_store_symbol_rva{"sgg::OutlineSystem::FastRemove", 0x00'28'58'B0},

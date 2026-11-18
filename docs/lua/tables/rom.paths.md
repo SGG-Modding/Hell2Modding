@@ -43,7 +43,7 @@ string = rom.paths.plugins()
 ### `Content()`
 
 - **Returns:**
-  - `string`: Returns the engine-visible Content directory used for game assets and SJSON hook paths, resolving on Microsoft Store to the virtual WindowsApps package Content directory reported by the engine, while rom.paths.GameInstall() should be used for physical filesystem access or the physical executable directory
+  - `string`: Returns the engine-visible Content directory used for game assets and SJSON hook paths, resolving on Microsoft Store to the virtual WindowsApps package Content directory reported by the engine, while rom.paths.GameInstall() should be used for getting the physical executable directory
 
 **Example Usage:**
 ```lua

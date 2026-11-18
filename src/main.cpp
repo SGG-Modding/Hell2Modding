@@ -1,6 +1,7 @@
 #include "asi_loader/asi_loader.hpp"
 #include "capstone/capstone.h"
 #include "config/config.hpp"
+#include "discord/discord_presence.hpp"
 #include "dll_proxy/dll_proxy.hpp"
 #include "gui/gui.hpp"
 #include "gui/renderer.hpp"
@@ -1470,6 +1471,7 @@ static void ForceWrite(T &dst, const T &src)
 
 static void hook_sgg_IrisMainApp_Exit(void* this_)
 {
+	big::discord::service().stop();
 	// hack for speeding up process termination
 	TerminateProcess(GetCurrentProcess(), 0);
 }

@@ -1,6 +1,7 @@
 #include "lua_manager_extension.hpp"
 
 #include "bindings/gui_ext.hpp"
+#include "bindings/discord.hpp"
 #include "bindings/hades/audio.hpp"
 #include "bindings/hades/data.hpp"
 #include "bindings/hades/draw.hpp"
@@ -432,6 +433,7 @@ namespace big::lua_manager_extension
 
 		// Let's keep that list sorted the same as the solution file explorer
 		lua::hades::audio::bind(lua_ext);
+		lua::discord::bind(lua_ext);
 		lua::hades::data::bind(state, lua_ext);
 		lua::hades::draw::bind(state, lua_ext);
 		lua::hades::extent::bind(state, lua_ext);

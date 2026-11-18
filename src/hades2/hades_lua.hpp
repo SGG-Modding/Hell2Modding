@@ -1,5 +1,6 @@
 #pragma once
 
+#include "discord/discord_presence.hpp"
 #include "hooks/hooking.hpp"
 #include "lua_extensions/lua_manager_extension.hpp"
 
@@ -218,10 +219,19 @@ namespace big::hades::lua
 		return res;
 	}
 
+	inline void* hook_sgg_MainMenuScreen_MainMenuScreen(void* self, void* manager, const void* name)
+	{
+		auto* result = big::g_hooking->get_original<hook_sgg_MainMenuScreen_MainMenuScreen>()(self, manager, name);
+		big::discord::service().reset_to_menu();
+		return result;
+	}
+
 	inline void init_hooks()
 	{
 		hooking::detour_hook_helper::add<hook_game_lua_pcallk>("lua_pcallk", big::hades2_symbol_to_address["lua_pcallk"]);
 
 		hooking::detour_hook_helper::add<hook_sgg_ScriptManager_Load>("ScriptManager_Load", big::hades2_symbol_to_address["sgg::ScriptManager::Load"]);
+
+		hooking::detour_hook_helper::add<hook_sgg_MainMenuScreen_MainMenuScreen>("MainMenuScreen", big::hades2_symbol_to_address["sgg::MainMenuScreen::MainMenuScreen"]);
 	}
 } // namespace big::hades::lua
