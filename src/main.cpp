@@ -39,6 +39,7 @@
 #include <PDB_RawFile.h>
 #include <PDB_TPIStream.h>
 #include <string/string_conversions.hpp>
+#include <string_view>
 
 // TODO: Make Debug builds work.
 static_assert(sizeof(eastl::string) == 0x18, "eastl::string size is not matching the game eastl::basic_string<char, eastl::allocator_forge> size. Are you trying to compile as debug?");
@@ -1189,12 +1190,30 @@ static int hook_game_lua_pcallk(lua_State *L, int nargs, int nresults, int errfu
 //	big::g_hooking->get_original<hook_sgg_WorkerManager_ExecuteCmd>()(this_, arg);
 //}
 
+static const char *canonicalize_lovely_chunk_name(const char *name)
+{
+	if (name == nullptr)
+	{
+		return name;
+	}
+
+	// Hades2ModExtension replaces game chunk names with source-style paths, so we need to change them back to what lovely patches expect
+	constexpr std::string_view hades2_mod_extension_prefix = "@Content/Scripts/";
+	const std::string_view chunk_name{name};
+	if (chunk_name.starts_with(hades2_mod_extension_prefix))
+	{
+		return name + hades2_mod_extension_prefix.size();
+	}
+
+	return name;
+}
+
 static int hook_game_luaL_loadbufferx(lua_State *L, const char *original_file_content_ptr, size_t original_file_content_size, const char *name, char *mode)
 {
 	const auto *apply_buffer_result = lovely_apply_buffer_patches(
 	    original_file_content_ptr,
 	    original_file_content_size,
-	    name,
+	    canonicalize_lovely_chunk_name(name),
 	    (const char *)big::g_file_manager.get_project_folder("plugins").get_path().u8string().c_str());
 
 	assert(apply_buffer_result);
